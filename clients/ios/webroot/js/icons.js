@@ -137,7 +137,8 @@
     "arrow-up": `<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>`,
     "arrow-down": `<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>`,
     // —— 条件格式 ——
-    "format-cond": `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/><path d="M3 3h6v6H3z" fill="currentColor" opacity=".35"/><path d="M15 15h6v6h-6z" fill="currentColor" opacity=".35"/>`
+    "format-cond": `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/><path d="M3 3h6v6H3z" fill="currentColor" opacity=".35"/><path d="M15 15h6v6h-6z" fill="currentColor" opacity=".35"/>`,
+    "badge-check": `<path d="M12 2l8 4v6c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6z"/><polyline points="9 12 11 14 15 10"/>`
   };
 
   function svg(name, size) {

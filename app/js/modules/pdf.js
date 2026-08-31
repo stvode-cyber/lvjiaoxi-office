@@ -702,7 +702,10 @@
               { kind: "btn", icon: "link", title: "提取 PDF 中所有外部 URI 链接与内部跳转（外链审计）：标注链接 / 大纲链接 / 独立动作，列出并导出 Markdown 报告", label: "链接审计", onClick: () => showLinks() }
             ] },
             { label: "加密", items: [
-              { kind: "btn", icon: "lock", title: "检测 PDF 是否加密：解析 /Encrypt 字典，列出算法(RC4/AES-128/AES-256)/强度/密钥长度/版本修订/权限清单(打印·修改·复制·批注·填表·提取无障碍·组装·高分辨率打印)，并导出检测报告(MD)", label: "加密检测", onClick: () => showEncryption() }
+              { kind: "btn", icon: "lock", title: "检测 PDF 是否加密：解析 /Encrypt 字典，列出算法(RC4/AES-128/AES-256)/强度/密钥长度/版本修订/权限清单，并导出检测报告(MD)", label: "加密检测", onClick: () => showEncryption() }
+            ] },
+            { label: "签名", items: [
+              { kind: "btn", icon: "badge-check", title: "验证 PDF 数字签名：扫描 /Type /Sig 签名对象，列出签名者/原因/地点/时间/子过滤器(PKCS#7·CAdES·X.509)/摘要算法提示/原始 CMS 容器字节/证书引用/引用类型(DocMDP)，并导出验证报告(MD)。仅元数据提取，不验证签名真实性", label: "签名验证", onClick: () => showSignatures() }
             ] }
           ]
         }
@@ -1191,6 +1194,32 @@
           const md = OS.PdfEncrypt.toMarkdown(res, { title: (doc.name || "文档") + " 加密检测" });
           OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "加密") + "_加密检测.md");
           OS.toast("已导出加密检测报告（Markdown）", "ok");
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    // —— PDF 数字签名验证弹窗 ——
+    function showSignatures() {
+      if (!data || !data.dataUrl) { OS.toast("请先打开一个 PDF 再验证签名", "warn"); return; }
+      const bytes = dataUrlToBytes(data.dataUrl);
+      if (!(bytes instanceof Uint8Array)) { OS.toast("无法读取 PDF 字节", "err"); return; }
+      const res = OS.PdfSignature.parseSignatures(bytes);
+      const body = OS.PdfSignature.toHtml(res);
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(560px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 数字签名验证<span style='font-size:12px;color:#888;font-weight:normal'> · 仅元数据提取，不验证真实性</span></h3>" +
+          "<div id='sig_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 10px;background:#fafafa;margin-top:8px'>" + body + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='sig_md'>导出报告(MD)</button> <button class='btn primary' id='sig_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "sig_close") { ov.remove(); return; }
+        if (e.target.id === "sig_md") {
+          const md = OS.PdfSignature.toMarkdown(res, { title: (doc.name || "文档") + " 数字签名验证" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "签名") + "_签名验证.md");
+          OS.toast("已导出签名验证报告（Markdown）", "ok");
         }
       });
       document.body.appendChild(ov);

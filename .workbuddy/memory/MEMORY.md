@@ -4,7 +4,7 @@
 > 最后更新：2026-08-31
 
 ## 当前基线
-- **79 套件 0 失败** + 四端同源 ✅（S→AI 全特性 + 登录设定已落地并验证；AC/AD/AE/AF/AG/AH/AI 已新增 + 登录可选；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
+- **80 套件 0 失败** + 四端同源 ✅（S→AJ 全特性 + 登录设定已落地并验证；AC/AD/AE/AF/AG/AH/AI/AJ 已新增 + 登录可选；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
@@ -37,6 +37,7 @@
 - 合成测试派生维度（byDate/byMonth）期望值须逐条列出归属再求和，不可心算（AE 踩坑）
 - AH 链接提取：标注内 /URI 字面串须从 action 子串（act）相对偏移调用 matchLiteral，误用全局 txt 会使括号平衡扫描错位 → 垃圾条目 + 来源判定错（annotation 误判为 action）；独立兜底扫描用全局 txt 正确
 - AI 加密检测：/Encrypt 字典含 /CF 嵌套 <<>>（/StdCF 内还有 /CFM 等），提取字典必须用平衡切分（depth 计数到 0）而非非贪婪 `.*?>>`，否则在内层 `>>` 处截断丢失 /StmF//StrF；pdf-encrypt.js sliceDict 用 `<<`/`>>` 双字符配对
+- AJ 签名验证：PDF 字面串必须**字节级**解析——`bytesToString` 逐字节转 latin1 会让 UTF-8 中文变成 Mojibake（如「张三」→`å¼ ä¸`）。修复：从原始 bytes 切片字面串字节再用 TextDecoder('utf-8') 解码；先判 UTF-16BE(<FEFF>)，再 UTF-8，再 Latin-1；同时处理 PDF 转义(\n \r \t \b \f \( \) \\ \ddd)。txt 与 bytes 是 1:1 索引映射，可直接用 txt 上的 match index 切 bytes。
 - 图标不可臆造：新增 ribbon 按钮前先 grep app/js/icons.js
 
 ## 关键产物路径
