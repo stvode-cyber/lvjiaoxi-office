@@ -37,7 +37,7 @@ Web 真源位于 `app/js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js`，本�
 | PDF→TXT / Markdown | ✅ 已实现（版面还原有限） | `OS.PdfConvert.pdfToText` / `pdfToMarkdown` |
 | PDF→Excel(CSV) | ✅ 已实现（版面还原有限） | 坐标列边界聚类 + 多表块隔离，Excel 可直接打开 |
 | docx→PDF | ✅ 已落地（print-to-PDF） | 浏览器打印分页样式表 + `window.print()` |
-| PDF 文档属性解析 | ✅ 已实现 | `OS.PdfProps` 扫描 Info 字典提取标题/作者/创建时间等 |
+| PDF 文档属性解析 | ✅ 已实现（已并入 DocInfo） | 原 `OS.PdfProps` 仅扫描 Info 字典；现由 AL 的 `OS.PdfDocInfo` 全面取代（Info + XMP + 更强中文解码），`pdf-props.js` 仍保留并单测，按钮已指向 DocInfo |
 | 批注批量操作 | ✅ 已实现 | `OS.PdfAnnoBatch` 批量删除/改色/归层/显隐，作用于筛选结果 |
 | PDF 文档对比（Diff） | ✅ 已实现 | `OS.PdfDiff` 基于 LCS 的行级/词级差异 + 摘要；弹窗粘贴另一版本 → 增(+绿)/删(-红)/未变彩色报告，支持忽略空白与大小写 |
 | PDF 书签目录（Outline） | ✅ 已实现 | `OS.PdfOutline` 从原始字节还原书签树（页对象号→页码映射、`/Outlines`+`/First`+`/Next` 递归、`/Dest` 与 `/A GoTo` 页码、UTF-16BE 标题）；弹窗点击条目跳页 + 搜索过滤 + 导出 Markdown 目录 |
@@ -50,13 +50,14 @@ Web 真源位于 `app/js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js`，本�
 | PDF 加密与权限检测（Encryption） | ✅ 已实现 | `OS.PdfEncrypt` 解析 /Encrypt 字典（/Filter/V/R/Length/P/O/U/EncryptMetadata/CFM/StmF/StrF，含 /CF 嵌套字典平衡切分）；解码 /P 权限位八项可读清单、判定算法族(RC4-40/RC4/AES-128/AES-256)与强度；纯解析不解密；面板算法/强度/密钥长度/权限✅❌ + 导出 MD；_pdf_encrypt_test 43 断言 |
 | PDF 数字签名验证（Signature） | ✅ 已实现 | `OS.PdfSignature` 扫描 /Type /Sig 签名值对象及 /FT /Sig、/Subtype /Sig 签名域：提取 /Name·/Reason·/Location·/M·/ContactInfo·/SubFilter(PKCS#7·CAdES·X.509)·/Filter·/Contents(原始 CMS/PKCS7 容器字节)·/Cert·/Reference(→/DocMDP·/UR·/FieldMDP)，由 /SubFilter 推断摘要算法提示；字面串字节级解码兼容 UTF-16BE/UTF-8/Latin-1（中文签名者名正确还原）；纯元数据提取不验证真实性；面板逐项 + 导出 MD；_pdf_signature_test 25 断言 |
 | PDF 表单字段提取（FormFields） | ✅ 已实现 | `OS.PdfFormFields` 解析 /AcroForm → /Fields（含 /Kids 递归）：字段名/类型(文本框·复选·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填等标志位/所在页；兼容 UTF-16BE/UTF-8 中文名值；面板浏览 + 导出清单(MD)；_pdf_formfields_test 34 断言 |
+| PDF 文档信息/元数据提取（DocInfo） | ✅ 已实现 | `OS.PdfDocInfo` 解析 /Info 字典（标题/作者/主题/关键词/创建者/生产者/创建时间/修改时间，兼容 UTF-16BE·UTF-8·Latin-1 字面值）+ /Metadata XMP 流（pdf:Title/dc:creator/dc:description/xmp:CreateDate/xmp:ModifyDate/xmp:CreatorTool/pdf:Producer/pdf:Keywords/xmpMM:DocumentID，兼容元素形式与属性形式）；PDF 日期串 D:YYYYMMDD…→可读；面板浏览(Info+XMP) + 导出报告(MD)；取代旧 OS.PdfProps「文档属性」按钮（更全面、中文解码更强）；_pdf_docinfo_test 33 断言 |
 
 ## 四、与其他模块关系
 
 - **下游 → 格式兼容（03）**：导出带批注 DOCX 复用 `OS.Exporter.buildDocx`；PDF→DOCX 是 PDF⇄Office 转换的一环。
 - **上游 ← 文档编辑（01）**：Presentation/Writer 可导出 PDF；批注/表单持久化于文档 `data`。
 - **上游 ← 账户云端（04）**：PDF 文档经统一账号备档/同步。
-- **被 测试质量（08）** 覆盖（批注模型 31、光栅 14、签名 17、文本索引 28、表单 24、PDF 文本提取 19、PDF 文本转换 19、PDF→Excel 文本/聚类/多表块 18/15/15、AP 位图 15、AP 矢量 28、图层+RGBA 25、范围预设 18、搜索过滤 23、审阅清单 16、文档属性 15、图层可见性 7、批量操作 19、文档对比 40、书签目录 29、附件提取 28、页码标签 32、批注统计 67、文档结构树 28、批注时间线 34 等，整链 76 套件 0 失败）。
+- **被 测试质量（08）** 覆盖（批注模型 31、光栅 14、签名 17、文本索引 28、表单 24、PDF 文本提取 19、PDF 文本转换 19、PDF→Excel 文本/聚类/多表块 18/15/15、AP 位图 15、AP 矢量 28、图层+RGBA 25、范围预设 18、搜索过滤 23、审阅清单 16、文档属性 15、图层可见性 7、批量操作 19、文档对比 40、书签目录 29、附件提取 28、页码标签 32、批注统计 67、文档结构树 28、批注时间线 34、表单字段 34、文档信息 33 等，整链 83 套件 0 失败）。
 
 ## 五、具体内容入口
 

@@ -661,7 +661,7 @@
                   OS.util.download(new Blob([csv], { type: "text/csv" }), (doc.name || "批注") + "_批注清单.csv");
                   OS.toast("已导出批注清单（CSV）", "ok");
                 } },
-              { kind: "btn", icon: "page-setup", title: "查看 PDF 文档属性（标题 / 作者 / 创建时间等）", label: "文档属性", onClick: () => showDocProps() },
+              { kind: "btn", icon: "info", title: "查看 PDF 文档信息 / 元数据：解析 /Info 字典（标题/作者/主题/关键词/创建者/生产者/创建时间/修改时间，兼容中文 UTF-16BE）与 /Metadata XMP 元数据（标题/创建者/描述/创建工具/生产者/关键词等），并导出报告(MD)", label: "文档信息", onClick: () => showDocInfo() },
               { kind: "btn", icon: "eye-off", title: "隐藏 / 显示「选中批注」所在的整个图层", label: "切换选中图层", onClick: () => {
                   if (!selId) { OS.toast("请先用「选择」工具点选一个批注", "warn"); return; }
                   const a = Anno.getById(data.annotations, selId); if (!a) return;
@@ -709,6 +709,9 @@
             ] },
             { label: "表单字段", items: [
               { kind: "btn", icon: "textfield", title: "提取 PDF 中所有 AcroForm 表单字段：列出字段名/类型(文本框·复选框·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填等标志/所在页，并导出字段清单(MD)", label: "表单字段", onClick: () => showFormFields() }
+            ] },
+            { label: "文档信息", items: [
+              { kind: "btn", icon: "info", title: "提取 PDF 文档信息：解析 /Info 字典(标题/作者/主题/关键词/创建者/生产者/创建时间/修改时间，兼容中文 UTF-16BE) 与 /Metadata XMP 元数据，并导出报告(MD)", label: "文档信息", onClick: () => showDocInfo() }
             ] }
           ]
         }
@@ -732,30 +735,8 @@
       return arr;
     }
 
-    // X：文档属性（解析 PDF Info 字典）
-    function showDocProps() {
-      if (!data.dataUrl) { OS.toast("请先打开一个 PDF", "warn"); return; }
-      const bytes = dataUrlToBytes(data.dataUrl);
-      const info = (OS.PdfProps && OS.PdfProps.parseInfo) ? OS.PdfProps.parseInfo(bytes) : {};
-      const rows = [
-        ["文件名", doc.name || "—"],
-        ["页数", (typeof pdfDoc !== "undefined" && pdfDoc && pdfDoc.numPages) ? pdfDoc.numPages : "—"],
-        ["标题", info.title || "—"],
-        ["作者", info.author || "—"],
-        ["主题", info.subject || "—"],
-        ["创建者", info.creator || "—"],
-        ["生产者", info.producer || "—"],
-        ["创建时间", info.creationdate || info.creationDate || "—"],
-        ["修改时间", info.moddate || info.modDate || "—"]
-      ];
-      const esc = s => String(s == null ? "—" : s).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
-      const html = rows.map(r => "<div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee'><span style='color:#888'>" + esc(r[0]) + "</span><b style='max-width:60%;text-align:right;word-break:break-all'>" + esc(r[1]) + "</b></div>").join("");
-      const ov = document.createElement("div");
-      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
-      ov.innerHTML = "<div style='background:#fff;color:#222;min-width:340px;max-width:92vw;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'><h3 style='margin:0 0 12px'>文档属性</h3>" + html + "<div style='text-align:right;margin-top:14px'><button class='btn primary' id='dpclose'>关闭</button></div></div>";
-      ov.addEventListener("click", e => { if (e.target === ov || e.target.id === "dpclose") ov.remove(); });
-      document.body.appendChild(ov);
-    }
+    // X：文档信息（解析 /Info 字典 + /Metadata XMP 元数据）—— 由 AL 的 OS.PdfDocInfo 提供，覆盖并取代旧 showDocProps
+    // （showDocInfo 定义在 showFormFields 之后）
 
     // AA：文档对比（文本差异 Diff）
     function showDocDiff() {
@@ -1262,6 +1243,34 @@
           const md = OS.PdfFormFields.toMarkdown(res, { title: (doc.name || "文档") + " 表单字段" });
           OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "表单") + "_表单字段.md");
           OS.toast("已导出表单字段清单（Markdown）", "ok");
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    function showDocInfo() {
+      if (!data || !data.dataUrl) { OS.toast("请先打开一个 PDF 再提取文档信息", "warn"); return; }
+      const bytes = dataUrlToBytes(data.dataUrl);
+      if (!(bytes instanceof Uint8Array)) { OS.toast("无法读取 PDF 字节", "err"); return; }
+      if (!OS.PdfDocInfo) { OS.toast("文档信息引擎未就绪", "err"); return; }
+      const res = OS.PdfDocInfo.parseDocInfo(bytes);
+      const body = OS.PdfDocInfo.toHtml(res);
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(620px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 文档信息 / 元数据提取" +
+          (res.hasInfo || res.xmp ? "<span style='font-size:12px;color:#888;font-weight:normal'> · " +
+            (res.hasInfo ? "含 /Info" : "") + (res.hasInfo && res.xmp ? " · " : "") + (res.xmp ? "含 XMP" : "") + "</span>" : "") + "</h3>" +
+          "<div id='di_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 12px;background:#fafafa;margin-top:8px'>" + body + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='di_md'>导出报告(MD)</button> <button class='btn primary' id='di_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "di_close") { ov.remove(); return; }
+        if (e.target.id === "di_md") {
+          const md = OS.PdfDocInfo.toMarkdown(res, { title: (doc.name || "文档") + " 文档信息" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_文档信息.md");
+          OS.toast("已导出文档信息报告（Markdown）", "ok");
         }
       });
       document.body.appendChild(ov);
