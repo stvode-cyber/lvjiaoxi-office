@@ -1,6 +1,6 @@
 // 绿角犀 Office · Electron 主进程
 // 用一个零依赖的本地静态服务器加载 app/ 目录，使桌面版行为与浏览器版完全一致。
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -181,6 +181,74 @@ function flushPendingFiles() {
 }
 
 let win;
+// 中文菜单栏（替代 Electron 默认英文 File/Edit/View/Window/Help）
+function createAppMenu(targetWin) {
+  const about = () => {
+    dialog.showMessageBox(targetWin || BrowserWindow.getFocusedWindow(), {
+      type: "info",
+      title: "关于 绿角犀 Office",
+      message: "绿角犀 Office",
+      detail: `版本 ${require("../package.json").version}\n© 2026 广州木生林生物科技 / 绿角犀 Lujax`,
+      buttons: ["确定"]
+    });
+  };
+  const openExternal = (url) => { try { shell.openExternal(url); } catch (e) {} };
+  return Menu.buildFromTemplate([
+    {
+      label: "文件(&F)",
+      submenu: [
+        { label: "新建窗口(&N)", accelerator: "Ctrl+Shift+N", click: () => createWindow() },
+        { type: "separator" },
+        { label: "退出(&X)", role: "quit" }
+      ]
+    },
+    {
+      label: "编辑(&E)",
+      submenu: [
+        { label: "撤销(&U)", role: "undo" },
+        { label: "重做(&R)", role: "redo" },
+        { type: "separator" },
+        { label: "剪切(&T)", role: "cut" },
+        { label: "复制(&C)", role: "copy" },
+        { label: "粘贴(&P)", role: "paste" },
+        { label: "删除(&D)", role: "delete" },
+        { type: "separator" },
+        { label: "全选(&A)", role: "selectAll" }
+      ]
+    },
+    {
+      label: "视图(&V)",
+      submenu: [
+        { label: "刷新(&R)", role: "reload" },
+        { label: "强制刷新(&F)", role: "forceReload" },
+        { type: "separator" },
+        { label: "实际大小(&A)", role: "resetZoom" },
+        { label: "放大(&I)", role: "zoomIn" },
+        { label: "缩小(&O)", role: "zoomOut" },
+        { type: "separator" },
+        { label: "切换全屏(&F)", role: "togglefullscreen" },
+        { type: "separator" },
+        { label: "开发者工具(&D)", role: "toggledevtools" }
+      ]
+    },
+    {
+      label: "窗口(&W)",
+      submenu: [
+        { label: "最小化(&N)", role: "minimize" },
+        { label: "关闭(&C)", role: "close" }
+      ]
+    },
+    {
+      label: "帮助(&H)",
+      submenu: [
+        { label: "关于绿角犀 Office(&A)", click: about },
+        { type: "separator" },
+        { label: "访问官网(&W)", click: () => openExternal("https://lujax.fun") }
+      ]
+    }
+  ]);
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -197,6 +265,7 @@ function createWindow() {
     }
   });
   win.loadURL("http://127.0.0.1:" + PORT + "/");
+  win.setMenu(createAppMenu(win));
   win.once("did-finish-load", () => { webReady = true; flushPendingFiles(); });
   win.on("closed", () => { win = null; });
 }
