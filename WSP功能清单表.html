@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>绿角犀 Office（WSP）· 功能清单表</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#1f2329; --sub:#6b7280;
+    --line:#e5e7eb; --green:#16a34a; --amber:#d97706; --orange:#ea580c; --blue:#2563eb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.55;padding:28px 18px 60px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px}
+  .meta{color:var(--sub);font-size:13px;margin-bottom:18px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin:10px 0 22px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 18px;flex:1;min-width:130px}
+  .stat .n{font-size:22px;font-weight:700}
+  .stat .l{font-size:12px;color:var(--sub)}
+  section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:18px}
+  section h2{font-size:17px;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--sub);font-weight:600;font-size:12.5px;background:#fafbfc}
+  td.f{font-weight:600;white-space:nowrap}
+  .s{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .s-done{background:#dcfce7;color:var(--green)}
+  .s-part{background:#fef3c7;color:var(--amber)}
+  .s-wait{background:#ffedd5;color:var(--orange)}
+  td.d{color:#374151}
+  footer{color:var(--sub);font-size:12px;margin-top:8px}
+  code{background:#f1f3f5;padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>绿角犀 Office（WSP）· 功能清单表</h1>
+  <div class="meta">软件代号 WSP = 绿角犀办公软件 ｜ 当前版本 v1.0.7 ｜ 测试基线：81 套件 0 失败 ｜ 清单生成日期 2026-08-31</div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--green)"></i>✅ 已实现</span>
+    <span><i class="dot" style="background:var(--amber)"></i>🟡 部分实现（边界/还原有限）</span>
+    <span><i class="dot" style="background:var(--orange)"></i>⚠️ 源码工程（待编译/人工）</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n" style="color:var(--green)">60+</div><div class="l">已实现能力</div></div>
+    <div class="stat"><div class="n" style="color:var(--amber)">4</div><div class="l">部分实现（PDF 版面还原等）</div></div>
+    <div class="stat"><div class="n" style="color:var(--orange)">2</div><div class="l">待编译（iOS / HarmonyOS）</div></div>
+    <div class="stat"><div class="n" style="color:var(--blue)">81</div><div class="l">测试套件 0 失败</div></div>
+  </div>
+
+  <!-- 一、文档模块 -->
+  <section>
+    <h2>一、文档模块（五大编辑 + 脑图）</h2>
+    <table>
+      <tr><th style="width:200px">功能</th><th style="width:90px">状态</th><th>说明</th></tr>
+      <tr><td class="f">Writer 文字</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">流式排版、样式/大纲、批注评论、查找替换、页面设置；导出 DOCX / HTML / TXT / PDF（含「下载 PDF 文件」零依赖光栅化分页 DOM 直接下载 .pdf）</td></tr>
+      <tr><td class="f">Spreadsheet 表格</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">公式引擎、冻结窗格、图表、条件格式、排序/筛选、数据验证；导出 XLSX / CSV / HTML / JSON / PDF（活动表按行分页光栅化直接下载）</td></tr>
+      <tr><td class="f">Presentation 演示</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">母版、过渡/动画、分页；导出 PPTX / PDF（逐页幻灯片光栅化直接下载）</td></tr>
+      <tr><td class="f">MindMap 脑图</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">节点编辑、大纲式梳理；导出 JSON / SVG / PNG / Markdown / DOCX / OFD</td></tr>
+      <tr><td class="f">PDF（综合）</td><td><span class="s s-part">🟡 部分</span></td><td class="d">阅读/批注/文本层/表单/合并拆分/转换均已落地，详见「二、PDF 专项」；PDF→DOCX/Excel 版面还原有限</td></tr>
+    </table>
+  </section>
+
+  <!-- 二、PDF 专项 -->
+  <section>
+    <h2>二、PDF 专项能力</h2>
+    <table>
+      <tr><th style="width:230px">功能</th><th style="width:90px">状态</th><th>说明</th></tr>
+      <tr><td class="f">PDF 阅读</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">pdf.js 离线渲染，无需联网</td></tr>
+      <tr><td class="f">PDF 合并 / 拆分</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">零依赖字节级，支持常见 PDF 1.4 内联对象（不支持 object stream / xref stream 1.5+ 压缩结构）</td></tr>
+      <tr><td class="f">PDF 批注</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">高亮/画笔/文字批注/矩形/签名印章，随文档持久化、可导出 JSON 侧车、可扁平化为带批注 PDF</td></tr>
+      <tr><td class="f">PDF 文本层 / 搜索</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">覆盖层可选中/复制 + 全文搜索高亮（纯逻辑索引 <code>OS.PdfText</code>，可单测）</td></tr>
+      <tr><td class="f">PDF 表单填写</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">文本框拖绘可编辑、复选框点击勾选，随文档持久化并参与导出扁本化</td></tr>
+      <tr><td class="f">PDF 文档对比 Diff</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">文本级 Diff，40 断言</td></tr>
+      <tr><td class="f">PDF 书签目录 Outline</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">解析大纲树，点击/按标签跳转，29 断言</td></tr>
+      <tr><td class="f">PDF 附件提取</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">从 <code>/EmbeddedFiles</code> 名称树解析内嵌文件，支持 FlateDecode 解压、UTF-16BE 中文名</td></tr>
+      <tr><td class="f">PDF 页码标签 PageLabels</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">罗马/字母/十进制 + 前缀/起始值，32 断言</td></tr>
+      <tr><td class="f">PDF 批注统计面板</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">七维聚合 + 占比条形图 + 导出 MD/CSV，67 断言</td></tr>
+      <tr><td class="f">PDF 文档结构树 StructTree</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">解析 tagged PDF 逻辑结构，跳页/导出 MD，28 断言</td></tr>
+      <tr><td class="f">PDF 批注时间线 Timeline</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">按天分组时序流 + 跳页 + 导出 MD，34 断言</td></tr>
+      <tr><td class="f">PDF 链接/URI 提取（外链审计）</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">字节级提取外链/跳转，UTF-16BE 解码，27 断言</td></tr>
+      <tr><td class="f">PDF 数字签名验证</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">扫描 <code>/Type /Sig</code>，提取签名者/原因/时间/SubFilter/CMS 容器，字节级中文解码（纯元数据，不验证真实性），25 断言</td></tr>
+      <tr><td class="f">PDF 加密与权限检测</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">解析 <code>/Encrypt</code> 字典、八项权限位、算法族判定（RC4/AES），43 断言</td></tr>
+      <tr><td class="f">PDF 注释导入/反向读回</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">外部 JSON/FDF/XFDF→内部模型，坐标归一化、坏数据容错</td></tr>
+      <tr><td class="f">批注导出 JSON round-trip 闭环</td><td><span class="s s-done">✅ 已实现</span></td><td class="d"><code>exportToRaw</code>/<code>importFromRaw</code> 互逆，全类型无损</td></tr>
+      <tr><td class="f">批注 AP 位图 / 矢量外观解析</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">解码 <code>/AP</code> 内嵌图像(XObject) + 解释矢量绘制命令，互补还原图章/签名外观</td></tr>
+      <tr><td class="f">批注图层分组 + RGBA 叠加</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">add 支持 layer/visible，<code>OS.RgbaComposite</code> over 算子 + flattenPageWithOverlays</td></tr>
+      <tr><td class="f">PDF 导出范围预设</td><td><span class="s s-done">✅ 已实现</span></td><td class="d"><code>OS.RangePreset</code>：页码列表/预设/工作表解析，表格/演示复用</td></tr>
+      <tr><td class="f">批注搜索与过滤</td><td><span class="s s-done">✅ 已实现</span></td><td class="d"><code>OS.PdfAnnoFilter</code>：文本 + 类型/图层/页码/可见性 复合过滤</td></tr>
+      <tr><td class="f">批注审阅清单导出</td><td><span class="s s-done">✅ 已实现</span></td><td class="d"><code>OS.PdfAnnoSummary</code>：一键导出 MD/CSV 审阅清单</td></tr>
+      <tr><td class="f">PDF 文档属性解析</td><td><span class="s s-done">✅ 已实现</span></td><td class="d"><code>OS.PdfProps</code>：标题/作者/创建·修改时间等</td></tr>
+      <tr><td class="f">批注图层可见性 / 批量操作</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">整图层显隐切换 + <code>OS.PdfAnnoBatch</code> 删除/归层/改色/显隐筛选集</td></tr>
+      <tr><td class="f">PDF→DOCX / TXT / MD</td><td><span class="s s-part">🟡 部分</span></td><td class="d">纯文本层提取 + 坐标聚类成行 + 大字号判标题；<b>版面还原有限</b>（无图片/表格/多栏像素级还原）</td></tr>
+      <tr><td class="f">PDF→Excel(CSV)</td><td><span class="s s-part">🟡 部分</span></td><td class="d">基于逐项 x 坐标列边界聚类，跨表行对齐、段落型行降级单格；<b>版面还原有限</b></td></tr>
+    </table>
+  </section>
+
+  <!-- 三、格式兼容 -->
+  <section>
+    <h2>三、格式兼容（导入 / 导出）</h2>
+    <table>
+      <tr><th style="width:230px">功能</th><th style="width:90px">状态</th><th>说明</th></tr>
+      <tr><td class="f">OOXML 导出</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">DOCX / XLSX / PPTX 由 <code>OS.Exporter</code> 原生生成（JSZip 打包规范 XML），非 HTML 包装；DOCX 含图片嵌入</td></tr>
+      <tr><td class="f">OOXML 导入（往返）</td><td><span class="s s-done">✅ 已实现</span></td><td class="d"><code>OS.Importer</code> 解析 docx/xlsx/pptx 可再编辑；兼容 A 完全 / B 基本 / C 只读；DOCX 可往返图片</td></tr>
+      <tr><td class="f">ODF 导入</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">odt / ods / odp</td></tr>
+      <tr><td class="f">OFD 导出</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">writer / presentation → OFD（GB/T 33190 国标版式）</td></tr>
+      <tr><td class="f">OFD 导入</td><td><span class="s s-done">✅ 已实现</span></td><td class="d"><code>parseOfd</code> 已支持</td></tr>
+      <tr><td class="f">PDF⇄Office 转换</td><td><span class="s s-part">🟡 部分</span></td><td class="d">见「二」PDF→DOCX/Excel（文本提取已实现，版面还原有限）；docx→PDF 已落地（浏览器 print-to-PDF）</td></tr>
+      <tr><td class="f">多格式打开</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">.pdf / .html / .txt / .csv / .md / .ofd 等</td></tr>
+    </table>
+  </section>
+
+  <!-- 四、账户云端备档 -->
+  <section>
+    <h2>四、账户 · 云端 · 备档</h2>
+    <table>
+      <tr><th style="width:230px">功能</th><th style="width:90px">状态</th><th>说明</th></tr>
+      <tr><td class="f">统一账号</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">本地（SHA-256）+ 云端（scrypt+HMAC）同一账号，先本地校验再尽力连云，404 自动补注册，不可达静默降级</td></tr>
+      <tr><td class="f">云端账户（真实后端）</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">零依赖 Node 服务 <code>server/index.js</code>：/api/auth/* + 文档同步 + 50MB 配额；<code>OS.CloudSync</code> 双向同步</td></tr>
+      <tr><td class="f">50MB 个人空间配额</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">文档+备档计入，服务端强制，抽屉进度提示</td></tr>
+      <tr><td class="f">每 5 分钟自动备档</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">多版本（每文档保留 20 份）可回滚，告急自动清理最旧一半</td></tr>
+      <tr><td class="f">记住我（持久会话）</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">写入 localStorage，下次免登录</td></tr>
+      <tr><td class="f">登录设定（可选登录）</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">默认游客直接进，离线可用；可开「启动时要求登录」，登录页仍提供「以游客身份进入」</td></tr>
+      <tr><td class="f">空间导出 / 导入</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">文档+备档打包为 <code>.lvjx</code> 可迁移/外部备份</td></tr>
+      <tr><td class="f">.lvjx 口令加密</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">PBKDF2-SHA256 + AES-GCM-256，导入时提示口令</td></tr>
+      <tr><td class="f">备档占用分离展示</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">抽屉分别显示「文档占用 / 备档占用」</td></tr>
+      <tr><td class="f">后台自动更新</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">Web/PWA 经 SW 静默接管；桌面版经 IPC 比对远程清单；账户抽屉可手动检查</td></tr>
+    </table>
+  </section>
+
+  <!-- 五、外壳通用 -->
+  <section>
+    <h2>五、外壳与通用能力</h2>
+    <table>
+      <tr><th style="width:230px">功能</th><th style="width:90px">状态</th><th>说明</th></tr>
+      <tr><td class="f">开始页</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">新建 / 打开 / 最近</td></tr>
+      <tr><td class="f">多标签 + 动态 ribbon</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">按文档类型切换功能区</td></tr>
+      <tr><td class="f">命令面板</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">Ctrl / Cmd + K</td></tr>
+      <tr><td class="f">主题切换</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">亮 / 暗</td></tr>
+      <tr><td class="f">撤销/重做、保存</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">—</td></tr>
+      <tr><td class="f">AI 引擎</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">本地离线指令链（总结/润色/改写/扩写/续写/大纲/翻译/解释/审阅）全可用；云端走 OpenAI 风格流式，未配置自动回退本地</td></tr>
+    </table>
+  </section>
+
+  <!-- 六、交付形态 -->
+  <section>
+    <h2>六、交付形态</h2>
+    <table>
+      <tr><th style="width:230px">平台</th><th style="width:90px">状态</th><th>说明</th></tr>
+      <tr><td class="f">Windows 安装包</td><td><span class="s s-done">✅ 已构建</span></td><td class="d">NSIS exe 安装包（v1.0.7）+ 便携版；安装写入注册表 + 文件关联/默认打开方式</td></tr>
+      <tr><td class="f">Windows 文件关联/默认打开</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">关联 .pdf/.ofd/.lvjx/.docx/.xlsx/.pptx；双击经 argv/second-instance 捕获路径→前端直接打开；自动杀旧进程铺盖</td></tr>
+      <tr><td class="f">Android</td><td><span class="s s-done">✅ 已构建</span></td><td class="d">debug + 自签名 release APK 已实测构建成功（AAB 待生成）</td></tr>
+      <tr><td class="f">iOS（Xcode 工程）</td><td><span class="s s-wait">⚠️ 源码</span></td><td class="d">需 Mac 编译 + 签名证书（人工项）</td></tr>
+      <tr><td class="f">华为 HarmonyOS（DevEco 工程）</td><td><span class="s s-wait">⚠️ 源码</span></td><td class="d">需 DevEco 编译 + 签名（人工项）</td></tr>
+      <tr><td class="f">PWA（离线可安装）</td><td><span class="s s-done">✅ 已实现</span></td><td class="d">Service Worker 离线接管</td></tr>
+    </table>
+  </section>
+
+  <footer>
+    数据来源：项目内 <code>FEATURES.md</code> / <code>STATUS.md</code>（2026-08-31 基线）。测试基线 81 套件 0 失败；
+    主要边界：PDF→DOCX / PDF→Excel 为文本提取级，版面还原有限（非像素级）。iOS / HarmonyOS 仅源码工程，待编译上架。
+  </footer>
+</div>
+</body>
+</html>

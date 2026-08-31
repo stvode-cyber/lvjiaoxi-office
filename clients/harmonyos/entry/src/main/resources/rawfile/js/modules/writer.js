@@ -91,6 +91,82 @@
       ctx.markDirty();
     }
 
+    /* ---------- P0 增强：字体 / 段落 / 剪贴板 辅助 ---------- */
+    function setFontSize(px) {
+      page.focus();
+      try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
+      try { document.execCommand("fontSize", false, px + "px"); } catch (e) {}
+      try { document.execCommand("styleWithCSS", false, false); } catch (e) {}
+      ctx.markDirty();
+    }
+
+    function bumpFontSize(dir) {
+      const sel = window.getSelection();
+      let cur = 16;
+      if (sel && sel.anchorNode) {
+        let n = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentNode : sel.anchorNode;
+        while (n && n !== page && !n.style) n = n.parentNode;
+        const cs = n && n.style ? getComputedStyle(n) : null;
+        if (cs && cs.fontSize) { const m = parseFloat(cs.fontSize); if (!isNaN(m)) cur = m; }
+      }
+      const next = Math.max(8, Math.min(72, Math.round(cur + dir * 2)));
+      setFontSize(next);
+    }
+
+    function setLineHeight(lh) {
+      page.focus();
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      let node = sel.anchorNode;
+      if (!node) return;
+      if (node.nodeType === 3) node = node.parentNode;
+      const blocks = ["P", "DIV", "LI", "H1", "H2", "H3", "BLOCKQUOTE", "TD", "TH"];
+      let target = node;
+      while (target && target !== page && !blocks.includes(target.tagName)) target = target.parentNode;
+      if (target && target !== page) target.style.lineHeight = lh;
+      else page.style.lineHeight = lh;
+      ctx.markDirty();
+    }
+
+    function multiLevelList() {
+      exec("insertOrderedList");
+      // 已在列表内时，缩进形成 1.1 / 1.1.1 嵌套层级
+      setTimeout(() => exec("indent"), 0);
+    }
+
+    function doPaste() {
+      page.focus();
+      try { document.execCommand("paste"); }
+      catch (e) { OS.toast("请使用 Ctrl+V 粘贴", "warn"); }
+    }
+
+    let brushFormat = null;
+    function toggleFormatBrush() {
+      const sel = window.getSelection();
+      if (!brushFormat) {
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { OS.toast("先选中带格式的文字", "warn"); return; }
+        const n = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentNode : sel.anchorNode;
+        const cs = getComputedStyle(n);
+        brushFormat = {
+          fontWeight: cs.fontWeight, fontStyle: cs.fontStyle, textDecoration: cs.textDecoration,
+          color: cs.color, fontFamily: cs.fontFamily, fontSize: cs.fontSize
+        };
+        OS.toast("已复制格式，选中目标文字应用", "ok");
+      } else {
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { OS.toast("请选中要应用格式的文字", "warn"); return; }
+        page.focus();
+        try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
+        if (/bold|700|800|900/.test(brushFormat.fontWeight)) document.execCommand("bold");
+        if (brushFormat.fontStyle === "italic") document.execCommand("italic");
+        if (/underline/.test(brushFormat.textDecoration)) document.execCommand("underline");
+        if (brushFormat.color && brushFormat.color !== "rgba(0, 0, 0, 0)") document.execCommand("foreColor", false, brushFormat.color);
+        try { document.execCommand("styleWithCSS", false, false); } catch (e) {}
+        brushFormat = null;
+        OS.toast("已应用格式", "ok");
+        ctx.markDirty();
+      }
+    }
+
     function genId() { return "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 
     /* ---------- 选区 → 新建批注 ---------- */
@@ -601,11 +677,46 @@
         {
           id: "home", label: "开始", groups: [
             {
+              label: "剪贴板", items: [
+                { kind: "btn", icon: "paste", title: "粘贴 (Ctrl+V)", onClick: doPaste },
+                { kind: "btn", icon: "cut", title: "剪切 (Ctrl+X)", onClick: () => exec("cut") },
+                { kind: "btn", icon: "copy", title: "复制 (Ctrl+C)", onClick: () => exec("copy") },
+                { kind: "btn", icon: "highlight", title: "格式刷", onClick: toggleFormatBrush }
+              ]
+            },
+            {
               label: "字体", items: [
+                { kind: "select", title: "字体", width: 120, value: "",
+                  options: [
+                    { value: "", label: "默认字体" },
+                    { value: "Microsoft YaHei", label: "微软雅黑" },
+                    { value: "SimSun", label: "宋体" },
+                    { value: "SimHei", label: "黑体" },
+                    { value: "KaiTi", label: "楷体" },
+                    { value: "NSimSun", label: "新宋体" },
+                    { value: "Arial", label: "Arial" },
+                    { value: "Times New Roman", label: "Times New Roman" }
+                  ],
+                  onChange: v => { if (v) exec("fontName", v); } },
+                { kind: "select", title: "字号", width: 60, value: "",
+                  options: [
+                    { value: "", label: "默认" },
+                    { value: "8", label: "8" }, { value: "9", label: "9" }, { value: "10", label: "10" },
+                    { value: "11", label: "11" }, { value: "12", label: "12" }, { value: "14", label: "14" },
+                    { value: "16", label: "16" }, { value: "18", label: "18" }, { value: "20", label: "20" },
+                    { value: "22", label: "22" }, { value: "24", label: "24" }, { value: "28", label: "28" },
+                    { value: "32", label: "32" }, { value: "36", label: "36" }, { value: "48", label: "48" }
+                  ],
+                  onChange: v => { if (v) setFontSize(parseInt(v, 10)); } },
+                { kind: "btn", glyph: "A+", title: "增大字号", onClick: () => bumpFontSize(1) },
+                { kind: "btn", glyph: "A-", title: "减小字号", onClick: () => bumpFontSize(-1) },
+                { kind: "btn", glyph: "⌫", title: "清除格式", onClick: () => exec("removeFormat") },
                 { kind: "btn", glyph: "B", title: "加粗 (Ctrl+B)", onClick: () => exec("bold") },
                 { kind: "btn", glyph: "I", title: "斜体 (Ctrl+I)", onClick: () => exec("italic") },
                 { kind: "btn", glyph: "U", title: "下划线 (Ctrl+U)", onClick: () => exec("underline") },
                 { kind: "btn", glyph: "S", title: "删除线", onClick: () => exec("strikeThrough") },
+                { kind: "btn", glyph: "x²", title: "上标", onClick: () => exec("superscript") },
+                { kind: "btn", glyph: "x₂", title: "下标", onClick: () => exec("subscript") },
                 { kind: "color", title: "字体颜色", onInput: v => exec("foreColor", v) },
                 { kind: "color", title: "文本突出显示", onInput: v => exec("hiliteColor", v) },
                 {
@@ -627,15 +738,24 @@
                 { kind: "btn", icon: "align-justify", title: "两端对齐", onClick: () => exec("justifyFull") },
                 { kind: "btn", icon: "list-bullet", title: "项目符号", onClick: () => exec("insertUnorderedList") },
                 { kind: "btn", icon: "list-number", title: "编号", onClick: () => exec("insertOrderedList") },
+                { kind: "btn", icon: "list-number", title: "多级列表", onClick: multiLevelList },
                 { kind: "btn", icon: "indent", title: "增加缩进", onClick: () => exec("indent") },
-                { kind: "btn", icon: "outdent", title: "减少缩进", onClick: () => exec("outdent") }
+                { kind: "btn", icon: "outdent", title: "减少缩进", onClick: () => exec("outdent") },
+                { kind: "select", title: "行距", width: 64, value: "1.5",
+                  options: [
+                    { value: "1", label: "1.0" }, { value: "1.15", label: "1.15" },
+                    { value: "1.5", label: "1.5" }, { value: "2", label: "2.0" }, { value: "2.5", label: "2.5" }
+                  ],
+                  onChange: v => setLineHeight(v) }
               ]
             },
             {
               label: "编辑", items: [
                 { kind: "btn", icon: "undo", title: "撤销 (Ctrl+Z)", onClick: () => exec("undo") },
                 { kind: "btn", icon: "redo", title: "重做 (Ctrl+Y)", onClick: () => exec("redo") },
-                { kind: "btn", icon: "search", title: "查找 / 替换 (Ctrl+F)", onClick: openFindReplace }
+                { kind: "btn", icon: "search", title: "查找 (Ctrl+F)", onClick: () => { openFindReplace(); if (findInput) setTimeout(() => findInput.focus(), 0); } },
+                { kind: "btn", icon: "replace", title: "替换", onClick: () => { openFindReplace(); if (findReplaceInput) setTimeout(() => findReplaceInput.focus(), 0); } },
+                { kind: "btn", glyph: "全", title: "全选 (Ctrl+A)", onClick: () => exec("selectAll") }
               ]
             }
           ]
