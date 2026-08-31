@@ -4,7 +4,7 @@
 > 最后更新：2026-08-31
 
 ## 当前基线
-- **80 套件 0 失败** + 四端同源 ✅（S→AJ 全特性 + 登录设定已落地并验证；AC/AD/AE/AF/AG/AH/AI/AJ 已新增 + 登录可选；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
+- **81 套件 0 失败** + 四端同源 ✅（S→AJ 全特性 + 登录设定 + Windows 安装包文件关联/默认打开方式已落地并验证；AC→AJ + 登录 + 文件关联均已新增；Android APK 已实测构建成功，Windows NSIS/便携双目标 + 文件关联已落地，git repo 已存在且已打 tag v1.0.0~v1.0.3，仅无 remote 未 push）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
@@ -67,12 +67,14 @@
 | PDF 链接/URI 提取 Links(AH) | ✅ extractLinks 字节级提取标注/大纲/独立URI+UTF-16BE解码+去重；summarize/toMarkdown/toHtml；_pdf_links_test 27 断言 |
 | PDF 加密与权限检测 Encryption(AI) | ✅ parseEncryption 字节级解析 /Encrypt 字典(含/CF嵌套平衡切分)+解码/P八项权限位+算法族(RC4-40/RC4/AES-128/AES-256)判定+强度；纯解析不解密；summarize/toMarkdown/toHtml；_pdf_encrypt_test 43 断言 |
 | 登录设定（可选登录） | ✅ 默认游客直接进入（不强制）；OS.AuthPolicy.shouldGate 纯逻辑（容错无 settings）；设置「启动时要求登录」开关 + 登录页「以游客身份进入」；_auth_policy_test 7 断言 + _app_boot A5/A5b 覆盖 |
+| Windows 桌面安装包 · 文件关联/默认打开方式（注册表） | ✅ NSIS 安装写注册表（卸载项 + App Paths + 文件类型关联 HKCR），关联 pdf/ofd/lvjx/docx/xlsx/pptx；双击经 argv/second-instance→IPC→前端直接打开；_file_args_test 12 断言，全链 81 套件 |
 
 ## 收口发布（2026-08-30 已完成 · 遗留人工/环境）
 - version.json.url 已修正为 https://lujax.fun/releases，release:check 通过
 - Windows 安装包干净重建根因：genie-safe-delete shim 经 NODE_OPTIONS=--require 注入拦截 fs.unlink→中文路径 .nsis.7z 移回收站失败→构建退 1；修复 `NODE_OPTIONS="" npx electron-builder --win --publish never` 退 0（~29s）。CI 无此 shim 本就退 0
 - 产物 dist/：Setup 1.0.0.exe(nsis) + 1.0.0.exe(portable) + latest.yml + .blockmap 四件齐全，verify-release-assets OK
 - 遗留：Android APK 需 SDK/gradle（本环境无）；iOS/HarmonyOS 仅源码工程；便携/nsis 双目标已恢复
+- 1.0.3 新增 Windows 安装包「文件关联/默认打开方式」：package.json fileAssociations（pdf/ofd/lvjx/docx/xlsx/pptx）+ electron/file-args.js（参数解析，可单测）+ electron/main.js（argv/second-instance/open-file→IPC app:open-file）+ app/js/shell.js（importFileObj + 监听打开）；构建 Setup 1.0.3.exe 已落地，asar 已含改动
 
 ## 限制（沙箱零依赖）
 - 真实 Canvas / pdf.js DOM 集成路径沙箱无运行环境，渲染/交互依赖目检

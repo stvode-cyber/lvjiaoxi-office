@@ -1,6 +1,6 @@
 {
   "name": "lvjiaoxi-office",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "绿角犀 Office · 跨平台办公套件（Writer / Spreadsheet / Presentation / PDF / MindMap）桌面客户端",
   "author": "绿角犀",
   "license": "MIT",
@@ -42,6 +42,38 @@
       "electron/**/*",
       "!app/_*",
       "!app/**/_*"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "绿角犀 PDF 文档",
+        "role": "Editor"
+      },
+      {
+        "ext": "ofd",
+        "name": "绿角犀 OFD 文档",
+        "role": "Editor"
+      },
+      {
+        "ext": "lvjx",
+        "name": "绿角犀存档文件",
+        "role": "Editor"
+      },
+      {
+        "ext": "docx",
+        "name": "绿角犀 Word 文档",
+        "role": "Editor"
+      },
+      {
+        "ext": "xlsx",
+        "name": "绿角犀表格文档",
+        "role": "Editor"
+      },
+      {
+        "ext": "pptx",
+        "name": "绿角犀演示文档",
+        "role": "Editor"
+      }
     ],
     "win": {
       "target": [

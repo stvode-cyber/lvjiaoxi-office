@@ -73,6 +73,14 @@
 | iOS（Xcode 工程） | ⚠️ 源码工程（需 Mac 编译） |
 | 华为 HarmonyOS（DevEco 工程） | ⚠️ 源码工程（需 DevEco 编译） |
 | PWA（离线可安装） | ✅ 已实现 |
+| Windows 文件关联 / 默认打开方式 | ✅ 已实现 |
+
+### Windows 桌面安装包（NSIS）· 文件关联 / 默认打开方式
+- 安装包 `绿角犀 Office Setup 1.0.3.exe`（NSIS）安装时**写入注册表**：① 卸载信息 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall` ② App Paths 注册（系统可识别 exe）③ **文件类型关联** `HKCU\Software\Classes\<ext>` + progId，使绿角犀出现在各格式的「默认打开方式 / 打开方式」列表并可设为默认。
+- 关联格式：**.pdf / .ofd / .lvjx（自家存档）/ .docx / .xlsx / .pptx**。
+- 双击关联文件（或命令行携带路径）启动绿角犀时，主进程 `electron/main.js` 经 `process.argv` / `second-instance` / `open-file` 捕获路径 → 读为 base64 → IPC `app:open-file` 推前端 → 前端 `shell.js` 还原为 File 直接打开（复用导入逻辑：pdf→PDF 阅读、docx/xlsx/pptx/ofd→导入、txt/md/csv/html→对应模块）。
+- 浏览器 / Web 版不受影响（`electronAPI` 不存在时自动跳过，纯前端逻辑不变）。
+- 测试：`_file_args_test.js` 12 项断言覆盖参数提取；全链 **81 套件 0 失败**。
 
 ## 六、已知工程事项（见各模块文档）
 

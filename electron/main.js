@@ -5,6 +5,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { resolveUpdateProvider } = require("./feed-config");
+const { extractFilePaths } = require("./file-args");
 
 // 桌面静默更新（可选依赖：未安装 electron-updater 时自动回退到现有横幅行为）
 let autoUpdater = null;
@@ -153,6 +154,32 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// 文件关联：待打开文档队列（窗口未就绪前先缓存，did-finish-load 后统一推送前端）
+let pendingFiles = [];
+let webReady = false;
+const MAX_OPEN_BYTES = 200 * 1024 * 1024; // 200MB 上限，避免超大文件撑爆内存
+
+function openFileAt(p) {
+  try {
+    if (!p || typeof p !== "string") return;
+    const buf = fs.readFileSync(p);
+    if (buf.length > MAX_OPEN_BYTES) { console.warn("openFileAt 跳过超大文件:", p); return; }
+    const payload = {
+      path: p,
+      name: path.basename(p),
+      ext: path.extname(p).toLowerCase(),
+      base64: buf.toString("base64")
+    };
+    if (win && !win.isDestroyed() && webReady) win.webContents.send("app:open-file", payload);
+    else pendingFiles.push(payload);
+  } catch (e) { console.error("openFileAt 失败:", e); }
+}
+
+function flushPendingFiles() {
+  if (!win || win.isDestroyed()) return;
+  while (pendingFiles.length) win.webContents.send("app:open-file", pendingFiles.shift());
+}
+
 let win;
 function createWindow() {
   win = new BrowserWindow({
@@ -170,6 +197,7 @@ function createWindow() {
     }
   });
   win.loadURL("http://127.0.0.1:" + PORT + "/");
+  win.once("did-finish-load", () => { webReady = true; flushPendingFiles(); });
   win.on("closed", () => { win = null; });
 }
 
@@ -178,7 +206,16 @@ app.whenReady().then(() => {
     if (PORT === 0) PORT = server.address().port; // 固定为实际随机端口，供后续窗口复用
     createWindow();
     setupAutoUpdater(); // 配置电子静默更新（无 feed/无依赖时自动跳过）
+    // 文件关联：双击文档 / 命令行携带路径启动时，把文件推给前端打开（窗口未就绪前先入队）
+    extractFilePaths(process.argv).forEach(openFileAt);
   });
+  // 已运行实例收到新文件关联请求（Windows 下双击第二个文档时）
+  app.on("second-instance", (e, argv) => {
+    extractFilePaths(argv).forEach(openFileAt);
+    if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.focus(); }
+  });
+  // macOS 拖入文件到 Dock 图标
+  app.on("open-file", (e, p) => { e.preventDefault(); openFileAt(p); });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

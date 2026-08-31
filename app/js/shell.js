@@ -57,6 +57,18 @@
     $("#btn-open").addEventListener("click", () => $("#file-input").click());
     $("#file-input").addEventListener("change", onFile);
 
+    // 原生桌面壳：接收主进程从文件关联（双击/默认打开方式）推来的文件，直接打开
+    if (global.electronAPI) {
+      global.electronAPI.on("app:open-file", (payload) => {
+        try {
+          if (!payload || !payload.base64) return;
+          const ext = payload.ext || (payload.name || "").split(".").pop() || "";
+          const blob = b64ToBlob(payload.base64, mimeFor(ext));
+          importFileObj(new File([blob], payload.name || ("document" + ext), { type: blob.type }));
+        } catch (e) { console.error("app:open-file 处理失败:", e); OS.toast("打开文件失败：" + (e && e.message || e), "err"); }
+      });
+    }
+
     // 登录页交互（绑定一次）：统一账号（本地离线 + 云端同步）
     $("#login-btn").addEventListener("click", onLogin);
     $("#register-btn").addEventListener("click", onRegister);
@@ -377,8 +389,7 @@
   }
 
   /* ---------------- 导入 ---------------- */
-  async function onFile(e) {
-    const f = e.target.files[0]; if (!f) return; e.target.value = "";
+  async function importFileObj(f) {
     const ext = (f.name.split(".").pop() || "").toLowerCase();
     if (!OS.Tasks) return OS.toast(`正在导入 ${f.name} …`);
     OS.Tasks.run("导入 " + f.name, async (r) => {
@@ -417,6 +428,29 @@
       }
       throw new Error("暂不支持该格式：" + ext);
     }, { doneMsg: "导入完成" });
+  }
+  function onFile(e) {
+    const f = e.target.files[0]; if (!f) return; e.target.value = "";
+    importFileObj(f);
+  }
+  // 文件关联（双击/默认打开方式）推来的 base64 还原为可打开对象
+  function b64ToBlob(b64, mime) {
+    const bin = atob(b64);
+    const len = bin.length;
+    const arr = new Uint8Array(len);
+    for (let i = 0; i < len; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime || "application/octet-stream" });
+  }
+  function mimeFor(ext) {
+    const m = {
+      pdf: "application/pdf", ofd: "application/ofd",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      csv: "text/csv", txt: "text/plain", md: "text/markdown", html: "text/html", htm: "text/html",
+      lvjx: "application/octet-stream"
+    };
+    return m[(ext || "").toLowerCase().replace(/^\./, "")] || "application/octet-stream";
   }
   function htmlBody(html) {
     const m = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html);
