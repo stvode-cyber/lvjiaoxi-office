@@ -34,9 +34,9 @@
 
 ## 三、基线指标（实跑证据）
 
-- **测试**：`npm test` 整链 **78 套件 0 失败**。
+- **测试**：`npm test` 整链 **79 套件 0 失败**。
 - **同源**：四端经 `sync-clients` 与 `app/` 一致 ✅。
-- **最后更新**：2026-08-31（新增 AG=PDF 批注时间线（按天分组时序流 + 跳页 + 导出 MD），整链 76 套件 0 失败；S→AG 全特性已落地。Android APK 因本环境无 SDK 阻塞（未伪造）；正式发版本地已落地：release:check 通过 + 重建 dist 安装包（含 S→AG，verify 4/4）+ `git tag v1.0.0`（无 remote，push 待配置；CI 静默源待 LVJX_UPDATE_FEED）；新增 AH=PDF 链接/URI 提取（外链审计，27 断言，整链 78 套件 0 失败）；新增「登录设定」：默认游客直接进入（不强制登录），可在「账户与存储」开启「启动时要求登录」，登录页提供「以游客身份进入」跳过入口，纯逻辑 OS.AuthPolicy.shouldGate（_auth_policy_test 7 断言）。
+- **最后更新**：2026-08-31（新增 AG=PDF 批注时间线（按天分组时序流 + 跳页 + 导出 MD），整链 76 套件 0 失败；S→AG 全特性已落地。Android APK 因本环境无 SDK 阻塞（未伪造）；正式发版本地已落地：release:check 通过 + 重建 dist 安装包（含 S→AG，verify 4/4）+ `git tag v1.0.0`（无 remote，push 待配置；CI 静默源待 LVJX_UPDATE_FEED）；新增 AH=PDF 链接/URI 提取（外链审计，27 断言，整链 78 套件 0 失败）；新增「登录设定」：默认游客直接进入（不强制登录），可在「账户与存储」开启「启动时要求登录」，登录页提供「以游客身份进入」跳过入口，纯逻辑 OS.AuthPolicy.shouldGate（_auth_policy_test 7 断言）；新增 AI=PDF 加密与权限检测（/Encrypt 字典解析 + 权限位八项 + 算法族判定，纯解析不解密，_pdf_encrypt_test 43 断言，整链 79 套件 0 失败）。
 
 ---
 

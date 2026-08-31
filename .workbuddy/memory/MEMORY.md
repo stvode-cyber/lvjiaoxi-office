@@ -4,7 +4,7 @@
 > 最后更新：2026-08-31
 
 ## 当前基线
-- **78 套件 0 失败** + 四端同源 ✅（S→AH 全特性 + 登录设定已落地并验证；AC/AD/AE/AF/AG/AH 已新增 + 登录可选；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
+- **79 套件 0 失败** + 四端同源 ✅（S→AI 全特性 + 登录设定已落地并验证；AC/AD/AE/AF/AG/AH/AI 已新增 + 登录可选；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
@@ -36,6 +36,7 @@
 - getObjDict 正则须锚定具体对象号 `num+"\s+0\s+obj\s*<<"`，否则误匹配 catalog
 - 合成测试派生维度（byDate/byMonth）期望值须逐条列出归属再求和，不可心算（AE 踩坑）
 - AH 链接提取：标注内 /URI 字面串须从 action 子串（act）相对偏移调用 matchLiteral，误用全局 txt 会使括号平衡扫描错位 → 垃圾条目 + 来源判定错（annotation 误判为 action）；独立兜底扫描用全局 txt 正确
+- AI 加密检测：/Encrypt 字典含 /CF 嵌套 <<>>（/StdCF 内还有 /CFM 等），提取字典必须用平衡切分（depth 计数到 0）而非非贪婪 `.*?>>`，否则在内层 `>>` 处截断丢失 /StmF//StrF；pdf-encrypt.js sliceDict 用 `<<`/`>>` 双字符配对
 - 图标不可臆造：新增 ribbon 按钮前先 grep app/js/icons.js
 
 ## 关键产物路径
@@ -63,6 +64,7 @@
 | PDF 文档结构树 StructTreeRoot(AF) | ✅ parseRawStructTree 解析 /K 递归+页映射+UTF-16BE 标题+非数组K退化；flatten/toMarkdown/toHtml/searchStruct；_pdf_structtree_test 28 断言 |
 | PDF 批注时间线 AnnoTimeline(AG) | ✅ buildTimeline 升序+按天分组+dateKey四形态+派生统计；toMarkdown/toHtml(data-page跳页)；_pdf_anno_timeline_test 34 断言 |
 | PDF 链接/URI 提取 Links(AH) | ✅ extractLinks 字节级提取标注/大纲/独立URI+UTF-16BE解码+去重；summarize/toMarkdown/toHtml；_pdf_links_test 27 断言 |
+| PDF 加密与权限检测 Encryption(AI) | ✅ parseEncryption 字节级解析 /Encrypt 字典(含/CF嵌套平衡切分)+解码/P八项权限位+算法族(RC4-40/RC4/AES-128/AES-256)判定+强度；纯解析不解密；summarize/toMarkdown/toHtml；_pdf_encrypt_test 43 断言 |
 | 登录设定（可选登录） | ✅ 默认游客直接进入（不强制）；OS.AuthPolicy.shouldGate 纯逻辑（容错无 settings）；设置「启动时要求登录」开关 + 登录页「以游客身份进入」；_auth_policy_test 7 断言 + _app_boot A5/A5b 覆盖 |
 
 ## 收口发布（2026-08-30 已完成 · 遗留人工/环境）

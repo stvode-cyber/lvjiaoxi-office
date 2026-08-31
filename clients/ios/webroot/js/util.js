@@ -65,7 +65,7 @@
 
   // ---------- 设置（含"数据不出域"开关，对应 PRD 3.6.5） ----------
   const SETTINGS_KEY = "os-settings";
-  const defaults = { dataLocalOnly: false, autosave: true, defaultTheme: "light" };
+  const defaults = { dataLocalOnly: false, autosave: true, defaultTheme: "light", requireLogin: false };
   OS.settings = {
     all() { try { return Object.assign({}, defaults, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch { return { ...defaults }; } },
     get(k) { return this.all()[k]; },

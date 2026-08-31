@@ -700,6 +700,9 @@
             ] },
             { label: "链接", items: [
               { kind: "btn", icon: "link", title: "提取 PDF 中所有外部 URI 链接与内部跳转（外链审计）：标注链接 / 大纲链接 / 独立动作，列出并导出 Markdown 报告", label: "链接审计", onClick: () => showLinks() }
+            ] },
+            { label: "加密", items: [
+              { kind: "btn", icon: "lock", title: "检测 PDF 是否加密：解析 /Encrypt 字典，列出算法(RC4/AES-128/AES-256)/强度/密钥长度/版本修订/权限清单(打印·修改·复制·批注·填表·提取无障碍·组装·高分辨率打印)，并导出检测报告(MD)", label: "加密检测", onClick: () => showEncryption() }
             ] }
           ]
         }
@@ -1152,6 +1155,42 @@
           const md = OS.PdfLinks.toMarkdown(res, { title: (doc.name || "文档") + " 链接审计" });
           OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "链接") + "_链接审计.md");
           OS.toast("已导出链接审计报告（Markdown）", "ok");
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    function showEncryption() {
+      if (!data.dataUrl) { OS.toast("请先打开一个 PDF", "warn"); return; }
+      if (!OS.PdfEncrypt) { OS.toast("加密检测引擎未就绪", "err"); return; }
+      let res = null;
+      try { res = OS.PdfEncrypt.parseEncryption(dataUrlToBytes(data.dataUrl)); } catch (e) { res = null; }
+      if (!res || !res.encrypted) { OS.toast("该文档未加密（未发现 /Encrypt）", "info"); return; }
+      const esc = s => String(s == null ? "" : s).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+      const permRows = (res.permissions && res.permissions.items || []).map(p =>
+        '<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid #eee;font-size:13px">' +
+        '<span>' + esc(p.label) + '</span>' +
+        '<span style="color:' + (p.allowed ? "#15803d" : "#b91c1c") + ';font-weight:600">' + (p.allowed ? "✅ 允许" : "⛔ 禁止") + '</span></div>'
+      ).join("");
+      const meta =
+        '<div style="padding:4px 8px;font-size:13px;color:#333">' +
+        '算法 <b>' + esc(res.algorithm) + '</b>（强度 ' + esc(res.strength) + '）｜ 密钥 ' + (res.keyLength != null ? res.keyLength + "bit" : "—") + ' ｜ R=' + (res.revision != null ? res.revision : "—") + ' ｜ 元数据加密：' + (res.encryptMetadata == null ? "—" : (res.encryptMetadata ? "是" : "否")) +
+        '</div>';
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(560px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 加密检测<span style='font-size:12px;color:#888;font-weight:normal'> · 打开需密码（用户或所有者）</span></h3>" +
+          meta +
+          "<div id='enc_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:4px 8px;background:#fafafa;margin-top:8px'>" + permRows + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='enc_md'>导出报告(MD)</button> <button class='btn primary' id='enc_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "enc_close") { ov.remove(); return; }
+        if (e.target.id === "enc_md") {
+          const md = OS.PdfEncrypt.toMarkdown(res, { title: (doc.name || "文档") + " 加密检测" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "加密") + "_加密检测.md");
+          OS.toast("已导出加密检测报告（Markdown）", "ok");
         }
       });
       document.body.appendChild(ov);

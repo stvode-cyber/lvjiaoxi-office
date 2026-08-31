@@ -104,7 +104,9 @@
         <div class="login-actions">
           <button class="btn primary" id="login-btn">登录</button>
           <button class="btn" id="register-btn">注册</button>
+          <button class="btn ghost" id="guest-btn" type="button">以游客身份进入</button>
         </div>
+        <p class="login-hint muted" style="font-size:12px">不登录也能正常使用（本地优先 · 离线可用）；登录仅用于启用 50MB 个人云同步。</p>
         <p class="login-hint" id="login-msg"></p>
       </div>
     </div>
@@ -155,6 +157,7 @@
   <script src="js/util.js"></script>
   <script src="js/icons.js"></script>
   <script src="js/auth.js"></script>
+  <script src="js/modules/auth-policy.js"></script>
   <script src="js/store.js"></script>
   <script defer src="js/updater.js"></script>
   <script src="js/ribbon.js"></script>
@@ -180,6 +183,7 @@
   <script src="js/modules/pdf-anno-stats.js"></script>
   <script src="js/modules/pdf-anno-timeline.js"></script>
   <script src="js/modules/pdf-structtree.js"></script>
+  <script src="js/modules/pdf-encrypt.js"></script>
   <script src="js/modules/pdf-links.js"></script>
   <script src="js/modules/pdf-anno.js"></script>
   <script src="js/modules/mindmap.js"></script>

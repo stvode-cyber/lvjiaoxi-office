@@ -36,9 +36,10 @@
     $("#ai-send").addEventListener("click", aiSend);
     $("#ai-text").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); aiSend(); } });
 
-    // 登录拦截：未登录显示登录页，登录成功后进入应用
-    if (OS.auth.isLoggedIn()) enterApp();
-    else showLogin();
+    // 登录设定：默认不强制登录（游客直接进入）；开启「启动时要求登录」后未登录才拦截
+    const mustLogin = !!(OS.AuthPolicy && OS.AuthPolicy.shouldGate()) && !OS.auth.isLoggedIn();
+    if (mustLogin) showLogin();
+    else enterApp();
 
     if (global.pdfjsLib) global.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
     // 原生壳（Electron / Capacitor / HarmonyOS WebView）下跳过 Service Worker 注册，避免离线双缓存与 file:// 协议报错
@@ -59,6 +60,8 @@
     // 登录页交互（绑定一次）：统一账号（本地离线 + 云端同步）
     $("#login-btn").addEventListener("click", onLogin);
     $("#register-btn").addEventListener("click", onRegister);
+    const guestBtn = $("#guest-btn");
+    if (guestBtn) guestBtn.addEventListener("click", () => { hideLogin(); enterApp(); });
 
     // 开始页模板搜索（实时过滤画廊）
     const tplSearch = $("#tpl-search");
@@ -950,6 +953,8 @@
         <label class="switch"><input type="checkbox" id="set-local" ${s.dataLocalOnly ? "checked" : ""}><span class="slider"></span></label></div>
       <div class="setting-row"><div><div class="sr-label">自动保存</div><div class="sr-desc">编辑后自动写入本地存储</div></div>
         <label class="switch"><input type="checkbox" id="set-auto" ${s.autosave ? "checked" : ""}><span class="slider"></span></label></div>
+      <div class="setting-row"><div><div class="sr-label">启动时要求登录</div><div class="sr-desc">默认关闭——游客可直接进入并使用全部本地功能。开启后每次启动需先登录（离线本地账户即可）。</div></div>
+        <label class="switch"><input type="checkbox" id="set-reqlogin" ${s.requireLogin ? "checked" : ""}><span class="slider"></span></label></div>
       <h3 class="sr-h">AI 云端（可选增强）</h3>
       <p class="sr-desc">配置后 AI 助手自动升级为真实大模型流式响应。开启「数据不出域」时仍优先本地。配置仅保存在本机。</p>
       <div class="setting-row"><div><div class="sr-label">使用服务端 AI 代理（推荐自托管）</div><div class="sr-desc">经同源 /api/ai/chat 转发，真实 API Key 仅存于服务器（LVJX_AI_*），不暴露到本机浏览器。</div></div>
@@ -992,6 +997,8 @@
       <div class="bs-actions" style="margin-top:10px"><button class="btn danger" id="acct-logout">退出登录</button></div>`;
     body.querySelector("#set-local").onchange = e => OS.settings.set("dataLocalOnly", e.target.checked);
     body.querySelector("#set-auto").onchange = e => OS.settings.set("autosave", e.target.checked);
+    const reqLoginEl = body.querySelector("#set-reqlogin");
+    if (reqLoginEl) reqLoginEl.onchange = e => OS.AuthPolicy.setRequire(e.target.checked);
     const savedP = OS.AI.getProvider() || {};
     const useProxy = !!(OS.settings && OS.settings.get("aiUseProxy"));
     const proxyEl = body.querySelector("#set-ai-proxy");
