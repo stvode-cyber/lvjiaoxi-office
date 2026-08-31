@@ -29,7 +29,7 @@
 
 ## 三、当前基线（2026-08-30 更新）
 
-- **76 套件 0 失败** + 四端同源 ✅（S→AG 全特性已落地并验证；AC/AD/AE/AF/AG 已新增；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库，需在有工具链环境执行）
+- **77 套件 0 失败** + 四端同源 ✅（S→AH 全特性已落地并验证；AC/AD/AE/AF/AG/AH 已新增；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库，需在有工具链环境执行）
 - 🔴 大型均已消解：PDF→Excel（坐标列边界聚类）、docx→PDF（浏览器 print-to-PDF）
 - 🟡 边界：PDF→DOCX/TXT/MD/Excel 版面还原有限（仅文本提取）
 - **Windows 安装包已重建（2026-08-30）**：`dist:local` 经 `NODE_OPTIONS=""` 绕过 WorkBuddy 安全删除 shim → 退出码 0，产出 Setup exe + 便携 exe + latest.yml + blockmap；`release:check` 与 `verify-release-assets` 全绿。

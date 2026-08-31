@@ -697,6 +697,9 @@
             ] },
             { label: "结构", items: [
               { kind: "btn", icon: "node-child", title: "查看 PDF 文档结构树（StructTreeRoot，tagged PDF 逻辑结构）：列出语义结构（H1/P/Table…）分级与标题，点击跳页、搜索、导出 Markdown", label: "文档结构", onClick: () => showStructTree() }
+            ] },
+            { label: "链接", items: [
+              { kind: "btn", icon: "link", title: "提取 PDF 中所有外部 URI 链接与内部跳转（外链审计）：标注链接 / 大纲链接 / 独立动作，列出并导出 Markdown 报告", label: "链接审计", onClick: () => showLinks() }
             ] }
           ]
         }
@@ -1111,6 +1114,44 @@
           const c = view.querySelector('canvas[data-p="' + p + '"]');
           if (c) { c.scrollIntoView({ behavior: "smooth", block: "start" }); if (pageInput) pageInput.value = p; }
           ov.remove();
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    // AH：PDF 链接/URI 提取（外链审计）—— 列出所有外部 URI 链接与内部跳转
+    function showLinks() {
+      if (!data.dataUrl) { OS.toast("请先打开一个 PDF", "warn"); return; }
+      if (!OS.PdfLinks) { OS.toast("链接提取引擎未就绪", "err"); return; }
+      let res = null;
+      try { res = OS.PdfLinks.extractLinks(dataUrlToBytes(data.dataUrl)); } catch (e) { res = null; }
+      if (!res || !res.total) { OS.toast("该文档未检测到链接（URI / 内部跳转）", "info"); return; }
+      const esc = s => String(s == null ? "" : s).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+      const rows = res.links.map(l => {
+        const badge = l.kind === "uri" ? (l.source === "annotation" ? "标注" : l.source === "outline" ? "大纲" : "动作") : "跳转";
+        const page = l.page != null ? "第 " + l.page + " 页" : "—";
+        const body = l.kind === "uri"
+          ? '<a href="' + esc(l.target) + '" target="_blank" rel="noopener" style="color:#2563eb;word-break:break-all">' + esc(l.target) + '</a>'
+          : '<span style="word-break:break-all">' + esc(l.target) + '</span>';
+        return '<div style="padding:6px 8px;border-bottom:1px solid #eee;font-size:13px;display:flex;gap:8px;align-items:baseline">' +
+          '<span style="flex:none;background:#eef;color:#345;padding:1px 6px;border-radius:4px;font-size:11px">' + esc(badge) + '</span>' +
+          '<span style="flex:none;color:#888;width:54px">' + page + '</span>' +
+          '<span style="flex:1">' + body + '</span></div>';
+      }).join("");
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(620px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 链接审计<span style='font-size:12px;color:#888;font-weight:normal'> · 共 " + res.total + " 条（外链 " + res.uriCount + " / 跳转 " + res.gotoCount + "）</span></h3>" +
+          "<div id='lk_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:4px 8px;background:#fafafa;margin-top:8px'>" + rows + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='lk_md'>导出报告(MD)</button> <button class='btn primary' id='lk_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "lk_close") { ov.remove(); return; }
+        if (e.target.id === "lk_md") {
+          const md = OS.PdfLinks.toMarkdown(res, { title: (doc.name || "文档") + " 链接审计" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "链接") + "_链接审计.md");
+          OS.toast("已导出链接审计报告（Markdown）", "ok");
         }
       });
       document.body.appendChild(ov);

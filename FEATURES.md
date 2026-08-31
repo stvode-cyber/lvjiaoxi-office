@@ -30,6 +30,7 @@
 | **PDF 批注统计面板** | ✅ 已实现 | 按类型 / 作者 / 颜色 / 日期 / 月份 / 页面 / 图层七维聚合当前文档批注，给出文本总量与均值、时间跨度、批注最多页、最活跃作者；弹窗以占比条形图呈现（颜色维度用批注真实色着色），可导出统计报告（Markdown / CSV）；`OS.PdfAnnoStats.aggregate`/`rank`/`toMarkdown`/`toCsv`；_pdf_anno_stats_test 67 断言 |
 | **PDF 文档结构树** | ✅ 已实现 | 从 PDF `/StructTreeRoot` 解析 tagged PDF 逻辑结构树（沿 `/K` 数组递归 StructElem：`/S` 语义类型 H1/P/Table、`/T` 标题字面串或 UTF-16BE 十六进制、`/Pg` 关联页码、`/K` 子结构可嵌套，MCID/MCR 叶子不展开）；面板分级展示结构 + 搜索（标题/类型）+ 点击跳页 + 导出结构(MD)；`OS.PdfStructTree.parseRawStructTree`/`flattenStruct`/`toMarkdown`/`toHtml`/`searchStruct`；_pdf_structtree_test 28 断言 |
 | **PDF 批注时间线** | ✅ 已实现 | 按创建时间升序排列批注并**按天分组**展示时间线流（时间值兼容毫秒时间戳 / 秒时间戳 / ISO 串 / Date 对象）；给出总数·天数·最活跃作者·时间跨度；面板时间线流 + 点击条目跳转到对应页 + 导出时间线(MD)；`OS.PdfAnnoTimeline.buildTimeline`/`summarize`/`toMarkdown`/`toHtml`；_pdf_anno_timeline_test 34 断言 |
+| **PDF 链接/URI 提取（外链审计）** | ✅ 已实现 | 从 PDF 原始字节提取所有外部 URI 链接与内部跳转（GoTo），用于外链审计；来源覆盖页面标注（/Subtype /Link，带 /P 页对象号）、文档大纲（Outline /Title + /A /URI）、独立 /URI action 兜底；兼容字面串 (/URI (...)) 与 UTF-16BE 十六进制串 (/URI <FEFF...>) 解码；按 kind+target 去重，给出外链/跳转计数、涉及页、http(s) 外链数；面板列出来源徽标 + 页码 + 链接（外链可点击）+ 导出报告(MD)；`OS.PdfLinks.extractLinks`/`summarize`/`toMarkdown`/`toHtml`；_pdf_links_test 27 断言 |
 
 > 说明：原生 OOXML/OFD 导出与往返导入**已完整打通**，属本项目真实能力，可对外承诺。格式类能力中 **PDF⇄Office 转换** 的 PDF→Excel（坐标列聚类）/ PDF 注释导入（含 FDF/XFDF 解析）/ docx→PDF 均已落地，不再属"未启动"大型项。
 

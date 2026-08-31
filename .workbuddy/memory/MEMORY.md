@@ -4,7 +4,7 @@
 > 最后更新：2026-08-31
 
 ## 当前基线
-- **76 套件 0 失败** + 四端同源 ✅（S→AG 全特性已落地并验证；AC/AD/AE/AF/AG 已新增；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
+- **77 套件 0 失败** + 四端同源 ✅（S→AH 全特性已落地并验证；AC/AD/AE/AF/AG/AH 已新增；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
@@ -35,6 +35,7 @@
 - Names 数组 key 可为十六进制串 `<FEFF…>`（token 正则需补 `<[0-9A-Fa-f\s]+>`）
 - getObjDict 正则须锚定具体对象号 `num+"\s+0\s+obj\s*<<"`，否则误匹配 catalog
 - 合成测试派生维度（byDate/byMonth）期望值须逐条列出归属再求和，不可心算（AE 踩坑）
+- AH 链接提取：标注内 /URI 字面串须从 action 子串（act）相对偏移调用 matchLiteral，误用全局 txt 会使括号平衡扫描错位 → 垃圾条目 + 来源判定错（annotation 误判为 action）；独立兜底扫描用全局 txt 正确
 - 图标不可臆造：新增 ribbon 按钮前先 grep app/js/icons.js
 
 ## 关键产物路径
@@ -61,6 +62,7 @@
 | PDF 批注统计面板(AE) | ✅ aggregate 七维+rank+dateKey+导出；_pdf_anno_stats_test 67 断言 |
 | PDF 文档结构树 StructTreeRoot(AF) | ✅ parseRawStructTree 解析 /K 递归+页映射+UTF-16BE 标题+非数组K退化；flatten/toMarkdown/toHtml/searchStruct；_pdf_structtree_test 28 断言 |
 | PDF 批注时间线 AnnoTimeline(AG) | ✅ buildTimeline 升序+按天分组+dateKey四形态+派生统计；toMarkdown/toHtml(data-page跳页)；_pdf_anno_timeline_test 34 断言 |
+| PDF 链接/URI 提取 Links(AH) | ✅ extractLinks 字节级提取标注/大纲/独立URI+UTF-16BE解码+去重；summarize/toMarkdown/toHtml；_pdf_links_test 27 断言 |
 
 ## 收口发布（2026-08-30 已完成 · 遗留人工/环境）
 - version.json.url 已修正为 https://lujax.fun/releases，release:check 通过
