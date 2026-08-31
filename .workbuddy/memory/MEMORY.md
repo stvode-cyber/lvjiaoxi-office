@@ -4,7 +4,7 @@
 > 最后更新：2026-08-31
 
 ## 当前基线
-- **77 套件 0 失败** + 四端同源 ✅（S→AH 全特性已落地并验证；AC/AD/AE/AF/AG/AH 已新增；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
+- **78 套件 0 失败** + 四端同源 ✅（S→AH 全特性 + 登录设定已落地并验证；AC/AD/AE/AF/AG/AH 已新增 + 登录可选；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
@@ -63,6 +63,7 @@
 | PDF 文档结构树 StructTreeRoot(AF) | ✅ parseRawStructTree 解析 /K 递归+页映射+UTF-16BE 标题+非数组K退化；flatten/toMarkdown/toHtml/searchStruct；_pdf_structtree_test 28 断言 |
 | PDF 批注时间线 AnnoTimeline(AG) | ✅ buildTimeline 升序+按天分组+dateKey四形态+派生统计；toMarkdown/toHtml(data-page跳页)；_pdf_anno_timeline_test 34 断言 |
 | PDF 链接/URI 提取 Links(AH) | ✅ extractLinks 字节级提取标注/大纲/独立URI+UTF-16BE解码+去重；summarize/toMarkdown/toHtml；_pdf_links_test 27 断言 |
+| 登录设定（可选登录） | ✅ 默认游客直接进入（不强制）；OS.AuthPolicy.shouldGate 纯逻辑（容错无 settings）；设置「启动时要求登录」开关 + 登录页「以游客身份进入」；_auth_policy_test 7 断言 + _app_boot A5/A5b 覆盖 |
 
 ## 收口发布（2026-08-30 已完成 · 遗留人工/环境）
 - version.json.url 已修正为 https://lujax.fun/releases，release:check 通过

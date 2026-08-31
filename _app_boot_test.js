@@ -18,6 +18,7 @@ const SCRIPTS = [
   "js/util.js",
   "js/icons.js",
   "js/auth.js",
+  "js/modules/auth-policy.js",
   "js/store.js",
   "js/updater.js",
   "js/ribbon.js",
@@ -83,7 +84,7 @@ function inject(window, file) {
   window.document.body.appendChild(s);
 }
 
-async function bootApp({ loggedIn }) {
+async function bootApp({ loggedIn, requireLogin = false }) {
   const { dom, window, errors } = makeDom();
   for (const f of SCRIPTS) {
     if (f === "js/shell.js" && loggedIn) {
@@ -107,6 +108,12 @@ async function bootApp({ loggedIn }) {
         docBytes: () => Promise.resolve(0),
         backupBytes: () => Promise.resolve(0)
       });
+    }
+    if (f === "js/modules/auth-policy.js") {
+      inject(window, f);
+      // 在 auth-policy 注入后、shell 启动判定前，按需要强制登录门（桩，绕过测试环境 localStorage 依赖）
+      if (requireLogin) { try { window.OS.AuthPolicy.shouldGate = () => true; } catch (e) {} }
+      continue;
     }
     inject(window, f);
   }
@@ -135,7 +142,11 @@ function ok(name, cond) {
   const sh = cold.window.OS && cold.window.OS.shell;
   ok("A4 shell API 完整", sh && ["boot", "newDoc", "openDoc", "globalSearch", "openSearch", "openReplace", "closeSearch", "closeReplace"].every((m) => typeof sh[m] === "function"));
   const loginOv = cold.window.document.getElementById("login-overlay");
-  ok("A5 冷启动显示登录门", !!loginOv && loginOv.hidden === false);
+  ok("A5 默认游客进入·不强制登录（登录门隐藏）", !!loginOv && loginOv.hidden === true);
+  // 场景 A'：开启「启动时要求登录」→ 冷启动强制显示登录门
+  const forced = await bootApp({ loggedIn: false, requireLogin: true });
+  const fLoginOv = forced.window.document.getElementById("login-overlay");
+  ok("A5b 开启强制登录·冷启动显示登录门", !!fLoginOv && fLoginOv.hidden === false);
   ok("A6 关键全局已就绪", !!(cold.window.OS && cold.window.OS.Templates && cold.window.OS.store && cold.window.OS.settings && cold.window.OS.Favorites));
   ok("A7 PdfTool 全局已注册（合并/拆分）", !!(cold.window.OS && cold.window.OS.PdfTool && typeof cold.window.OS.PdfTool.mergePdfs === "function" && typeof cold.window.OS.PdfTool.splitPdf === "function"));
 
