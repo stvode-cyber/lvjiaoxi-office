@@ -167,6 +167,72 @@
       }
     }
 
+    /* ---------- P1 增强：边框 / 底纹 / 字符边框 / 排序 ---------- */
+    function currentBlock() {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return null;
+      let node = sel.anchorNode;
+      if (!node) return null;
+      if (node.nodeType === 3) node = node.parentNode;
+      const blocks = ["P", "DIV", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "TD", "TH"];
+      let target = node;
+      while (target && target !== page && !blocks.includes(target.tagName)) target = target.parentNode;
+      return (target && target !== page) ? target : page;
+    }
+
+    function applyBlockStyle(prop, val) {
+      const blk = currentBlock();
+      if (!blk) return;
+      page.focus();
+      blk.style[prop] = val;
+      ctx.markDirty();
+    }
+
+    function wrapCharBorder() {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { OS.toast("请先选中文字", "warn"); return; }
+      page.focus();
+      const range = sel.getRangeAt(0);
+      const span = document.createElement("span");
+      span.style.border = "1px solid currentColor";
+      span.style.padding = "0 1px";
+      try { range.surroundContents(span); }
+      catch (e) {
+        const frag = range.extractContents();
+        span.appendChild(frag);
+        range.insertNode(span);
+      }
+      sel.removeAllRanges();
+      const r = document.createRange();
+      r.selectNodeContents(span);
+      sel.addRange(r);
+      ctx.markDirty();
+      OS.toast("已加字符边框", "ok");
+    }
+
+    function sortParagraphs(desc) {
+      page.focus();
+      const sel = window.getSelection();
+      let container = page;
+      if (sel && sel.rangeCount) {
+        let n = sel.anchorNode;
+        if (n && n.nodeType === 3) n = n.parentNode;
+        let p = n;
+        while (p && p !== page && p.tagName !== "UL" && p.tagName !== "OL") p = p.parentNode;
+        if (p && p !== page) container = p;
+      }
+      const items = Array.from(container.children).filter(el =>
+        /^(P|DIV|LI|H1|H2|H3|H4|H5|H6|BLOCKQUOTE)$/.test(el.tagName));
+      if (items.length < 2) { OS.toast("需要至少两个段落才能排序", "warn"); return; }
+      const sorted = items.slice().sort((a, b) => {
+        const ta = a.textContent.trim().toLowerCase(), tb = b.textContent.trim().toLowerCase();
+        return desc ? tb.localeCompare(ta, "zh") : ta.localeCompare(tb, "zh");
+      });
+      sorted.forEach(el => container.appendChild(el));
+      ctx.markDirty();
+      OS.toast(desc ? "已按降序排序" : "已按升序排序", "ok");
+    }
+
     function genId() { return "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 
     /* ---------- 选区 → 新建批注 ---------- */
@@ -719,14 +785,20 @@
                 { kind: "btn", glyph: "x₂", title: "下标", onClick: () => exec("subscript") },
                 { kind: "color", title: "字体颜色", onInput: v => exec("foreColor", v) },
                 { kind: "color", title: "文本突出显示", onInput: v => exec("hiliteColor", v) },
+                { kind: "btn", glyph: "▣", title: "字符边框（选中文字加框）", onClick: wrapCharBorder },
                 {
                   kind: "select", title: "样式", width: 110, value: "p",
                   options: [
                     { value: "p", label: "正文" }, { value: "h1", label: "标题 1" },
                     { value: "h2", label: "标题 2" }, { value: "h3", label: "标题 3" },
+                    { value: "h4", label: "标题 4" }, { value: "h5", label: "标题 5" },
+                    { value: "h6", label: "标题 6" }, { value: "subtitle", label: "副标题" },
                     { value: "blockquote", label: "引用" }
                   ],
-                  onChange: v => exec("formatBlock", v === "p" ? "<p>" : (v === "blockquote" ? "<blockquote>" : "<" + v + ">"))
+                  onChange: v => {
+                    if (v === "subtitle") { exec("formatBlock", "<p>"); applyBlockStyle("fontSize", "18px"); applyBlockStyle("color", "#666"); return; }
+                    exec("formatBlock", v === "p" ? "<p>" : (v === "blockquote" ? "<blockquote>" : "<" + v + ">"));
+                  }
                 }
               ]
             },
@@ -746,7 +818,11 @@
                     { value: "1", label: "1.0" }, { value: "1.15", label: "1.15" },
                     { value: "1.5", label: "1.5" }, { value: "2", label: "2.0" }, { value: "2.5", label: "2.5" }
                   ],
-                  onChange: v => setLineHeight(v) }
+                  onChange: v => setLineHeight(v) },
+                { kind: "color", title: "段落底纹（背景色）", onInput: v => applyBlockStyle("backgroundColor", v) },
+                { kind: "color", title: "段落边框（边框色）", onInput: v => applyBlockStyle("border", "1px solid " + v) },
+                { kind: "btn", glyph: "⇧A", title: "段落升序排序", onClick: () => sortParagraphs(false) },
+                { kind: "btn", glyph: "⇩A", title: "段落降序排序", onClick: () => sortParagraphs(true) }
               ]
             },
             {
