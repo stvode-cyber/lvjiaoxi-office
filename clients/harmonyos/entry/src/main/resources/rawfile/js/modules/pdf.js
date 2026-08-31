@@ -712,6 +712,9 @@
             ] },
             { label: "文档信息", items: [
               { kind: "btn", icon: "info", title: "提取 PDF 文档信息：解析 /Info 字典(标题/作者/主题/关键词/创建者/生产者/创建时间/修改时间，兼容中文 UTF-16BE) 与 /Metadata XMP 元数据，并导出报告(MD)", label: "文档信息", onClick: () => showDocInfo() }
+            ] },
+            { label: "页面属性", items: [
+              { kind: "btn", icon: "layout", title: "提取 PDF 页面属性 / 页面树信息：解析页面树，逐页列出纸张尺寸(A4/Letter…)/方向(纵·横)/旋转角/字体·图像资源，并派生纸张分布·尺寸一致性·主流纸张·方向·旋转摘要，可跳页、可导出报告(MD)", label: "页面属性", onClick: () => showPageInfo() }
             ] }
           ]
         }
@@ -1271,6 +1274,44 @@
           const md = OS.PdfDocInfo.toMarkdown(res, { title: (doc.name || "文档") + " 文档信息" });
           OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_文档信息.md");
           OS.toast("已导出文档信息报告（Markdown）", "ok");
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    // AM：PDF 页面属性 / 页面树信息提取（逐页几何 + 资源 + 文档级摘要）—— 由 OS.PdfPageInfo 提供
+    function showPageInfo() {
+      if (!data || !data.dataUrl) { OS.toast("请先打开一个 PDF 再提取页面属性", "warn"); return; }
+      const bytes = dataUrlToBytes(data.dataUrl);
+      if (!(bytes instanceof Uint8Array)) { OS.toast("无法读取 PDF 字节", "err"); return; }
+      if (!OS.PdfPageInfo) { OS.toast("页面属性引擎未就绪", "err"); return; }
+      const res = OS.PdfPageInfo.parsePageTree(bytes);
+      if (!res.hasPageTree) { OS.toast("该文档未发现页面树，无法解析页面属性", "info"); return; }
+      const body = OS.PdfPageInfo.toHtml(res);
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(620px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 页面属性 / 页面树信息" +
+          "<span style='font-size:12px;color:#888;font-weight:normal'> · 共 " + res.totalPages + " 页 · " +
+          (res.summary.consistentSize ? "尺寸一致" : "多尺寸") + " · 主流 " + (res.summary.dominantSize || "—") + "</span></h3>" +
+          "<div id='pi_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 10px;background:#fafafa;margin-top:8px'>" + body + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='pi_md'>导出报告(MD)</button> <button class='btn primary' id='pi_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "pi_close") { ov.remove(); return; }
+        if (e.target.id === "pi_md") {
+          const md = OS.PdfPageInfo.toMarkdown(res, { title: (doc.name || "文档") + " 页面属性" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_页面属性.md");
+          OS.toast("已导出页面属性报告（Markdown）", "ok");
+          return;
+        }
+        const jump = e.target.closest ? e.target.closest("[data-page]") : null;
+        if (jump) {
+          const p = jump.getAttribute("data-page");
+          const c = view.querySelector('canvas[data-p="' + p + '"]');
+          if (c) { c.scrollIntoView({ behavior: "smooth", block: "start" }); if (pageInput) pageInput.value = p; }
+          ov.remove();
         }
       });
       document.body.appendChild(ov);

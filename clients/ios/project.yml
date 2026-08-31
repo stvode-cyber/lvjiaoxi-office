@@ -23,8 +23,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lvjiaoxi.office
-        MARKETING_VERSION: 1.0.11
-        CURRENT_PROJECT_VERSION: 10011
+        MARKETING_VERSION: 1.0.12
+        CURRENT_PROJECT_VERSION: 10012
         INFOPLIST_FILE: LvjiaoxiOffice/Info.plist
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Manual

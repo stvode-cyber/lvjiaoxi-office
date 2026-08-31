@@ -1,10 +1,10 @@
 {
-  "version": "1.0.11",
+  "version": "1.0.12",
   "publishedAt": "2026-08-31",
   "channel": "stable",
   "minVersion": "1.0.0",
   "notes": [
-    "AL=PDF 文档信息/元数据提取（OS.PdfDocInfo 解析 /Info 字典 + /Metadata XMP 流，兼容 UTF-16BE·UTF-8·Latin-1 字面值与 XMP 元素/属性双形式，PDF 日期串 D:…→可读，面板浏览 Info+XMP + 导出报告 MD，33 断言；取代旧「文档属性」按钮为中文解码更全的版本，整链 83 套件 0 失败）"
+    "AM=PDF 页面属性/页面树信息提取（OS.PdfPageInfo 解析页面树 /Pages→/Kids 递归，逐页提取 MediaBox/CropBox/Rotate/资源计数，识别标准纸张 A4/Letter…，有效方向(旋转翻转)，派生纸张分布·一致性·主流纸张·方向·旋转摘要，面板逐页浏览(跳页)+导出 MD，50 断言，整链 84 套件 0 失败）"
   ],
   "url": "https://lujax.fun/releases"
 }
