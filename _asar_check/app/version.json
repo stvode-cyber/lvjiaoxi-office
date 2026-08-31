@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "publishedAt": "2026-08-17",
+  "channel": "stable",
+  "minVersion": "1.0.0",
+  "notes": [
+    "后台自动更新检测已就绪（Web/PWA 静默刷新，桌面版提示前往下载）",
+    "登录系统 / 50MB 个人空间 / 每 5 分钟自动备档 / 记住我 / 空间导出导入（支持加密）"
+  ],
+  "url": "https://example.com/lvjiaoxi-office/releases"
+}

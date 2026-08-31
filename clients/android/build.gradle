@@ -1,0 +1,8 @@
+// 项目级 build.gradle（绿角犀 Office · Android 原生壳）
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

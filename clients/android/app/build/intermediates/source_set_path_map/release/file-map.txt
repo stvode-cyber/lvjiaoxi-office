@@ -1,0 +1,9 @@
+com.lvjiaoxi.office.app-webkit-1.9.0-0 C:\Users\Administrator\.gradle\caches\transforms-4\4b48d65f0fb017a28e5afe6bfdb56cb6\transformed\webkit-1.9.0\res
+com.lvjiaoxi.office.app-core-1.1.0-1 C:\Users\Administrator\.gradle\caches\transforms-4\a0422a084d136ac3d148b2aa80047cd5\transformed\core-1.1.0\res
+com.lvjiaoxi.office.app-pngs-2 C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\build\generated\res\pngs\release
+com.lvjiaoxi.office.app-resValues-3 C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\build\generated\res\resValues\release
+com.lvjiaoxi.office.app-packageReleaseResources-4 C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\build\intermediates\incremental\release\packageReleaseResources\merged.dir
+com.lvjiaoxi.office.app-packageReleaseResources-5 C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\build\intermediates\incremental\release\packageReleaseResources\stripped.dir
+com.lvjiaoxi.office.app-merged_res-6 C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\build\intermediates\merged_res\release
+com.lvjiaoxi.office.app-main-7 C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\res
+com.lvjiaoxi.office.app-release-8 C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\release\res

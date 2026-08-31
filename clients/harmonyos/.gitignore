@@ -1,0 +1,8 @@
+/node_modules/
+/oh_modules/
+/.hvigor/
+/build/
+**/build/
+*.hap
+*.app
+.DS_Store

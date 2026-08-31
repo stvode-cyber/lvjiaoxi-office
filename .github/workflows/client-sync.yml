@@ -1,0 +1,35 @@
+name: client-sync
+
+# 守卫：app/（Web 层单一真源）演进后，移动端 WebView 资源必须同源。
+# 若有人改了 app/ 却忘了 `npm run sync`，本工作流在推送/PR 到 main 时失败，阻断漂移。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'scripts/sync-clients.js'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'scripts/sync-clients.js'
+  workflow_dispatch:
+
+jobs:
+  verify-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check client webroots are in sync with app/
+        run: node scripts/sync-clients.js --check
+        shell: bash
+      - name: Hint on failure
+        if: failure()
+        run: |
+          echo "::error::检测到 iOS / HarmonyOS 客户端 Web 层与 app/ 漂移。"
+          echo "请在本地运行 'npm run sync' 后再提交。"
+          exit 1

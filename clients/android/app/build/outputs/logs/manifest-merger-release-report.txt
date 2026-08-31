@@ -1,0 +1,75 @@
+-- Merging decision tree log ---
+manifest
+ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:2:1-22:12
+INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:2:1-22:12
+INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:2:1-22:12
+INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:2:1-22:12
+MERGED from [androidx.webkit:webkit:1.9.0] C:\Users\Administrator\.gradle\caches\transforms-4\4b48d65f0fb017a28e5afe6bfdb56cb6\transformed\webkit-1.9.0\AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.core:core:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\a0422a084d136ac3d148b2aa80047cd5\transformed\core-1.1.0\AndroidManifest.xml:17:1-26:12
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\be16104cec987c0743f10cdee1443216\transformed\versionedparcelable-1.1.0\AndroidManifest.xml:17:1-27:12
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.0.0] C:\Users\Administrator\.gradle\caches\transforms-4\2d541833549286553b45306b6ce5d7a0\transformed\lifecycle-runtime-2.0.0\AndroidManifest.xml:17:1-22:12
+	package
+		INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml
+	android:versionName
+		INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml
+	android:versionCode
+		INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml
+	xmlns:android
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:2:11-69
+application
+ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:4:5-20:19
+INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:4:5-20:19
+MERGED from [androidx.core:core:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\a0422a084d136ac3d148b2aa80047cd5\transformed\core-1.1.0\AndroidManifest.xml:24:5-89
+MERGED from [androidx.core:core:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\a0422a084d136ac3d148b2aa80047cd5\transformed\core-1.1.0\AndroidManifest.xml:24:5-89
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\be16104cec987c0743f10cdee1443216\transformed\versionedparcelable-1.1.0\AndroidManifest.xml:24:5-25:19
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\be16104cec987c0743f10cdee1443216\transformed\versionedparcelable-1.1.0\AndroidManifest.xml:24:5-25:19
+	android:extractNativeLibs
+		INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml
+	android:appComponentFactory
+		ADDED from [androidx.core:core:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\a0422a084d136ac3d148b2aa80047cd5\transformed\core-1.1.0\AndroidManifest.xml:24:18-86
+	android:label
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:6:9-41
+	android:allowBackup
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:5:9-35
+	android:theme
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:9:9-67
+	android:networkSecurityConfig
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:7:9-69
+	android:usesCleartextTraffic
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:8:9-44
+activity#com.lvjiaoxi.office.MainActivity
+ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:10:9-19:20
+	android:screenOrientation
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:13:13-51
+	android:exported
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:12:13-36
+	android:configChanges
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:14:13-74
+	android:name
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:11:13-41
+intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
+ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:15:13-18:29
+action#android.intent.action.MAIN
+ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:16:17-69
+	android:name
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:16:25-66
+category#android.intent.category.LAUNCHER
+ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:17:17-77
+	android:name
+		ADDED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml:17:27-74
+uses-sdk
+INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml
+INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml
+MERGED from [androidx.webkit:webkit:1.9.0] C:\Users\Administrator\.gradle\caches\transforms-4\4b48d65f0fb017a28e5afe6bfdb56cb6\transformed\webkit-1.9.0\AndroidManifest.xml:5:5-44
+MERGED from [androidx.webkit:webkit:1.9.0] C:\Users\Administrator\.gradle\caches\transforms-4\4b48d65f0fb017a28e5afe6bfdb56cb6\transformed\webkit-1.9.0\AndroidManifest.xml:5:5-44
+MERGED from [androidx.core:core:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\a0422a084d136ac3d148b2aa80047cd5\transformed\core-1.1.0\AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.core:core:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\a0422a084d136ac3d148b2aa80047cd5\transformed\core-1.1.0\AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\be16104cec987c0743f10cdee1443216\transformed\versionedparcelable-1.1.0\AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.0] C:\Users\Administrator\.gradle\caches\transforms-4\be16104cec987c0743f10cdee1443216\transformed\versionedparcelable-1.1.0\AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.0.0] C:\Users\Administrator\.gradle\caches\transforms-4\2d541833549286553b45306b6ce5d7a0\transformed\lifecycle-runtime-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.0.0] C:\Users\Administrator\.gradle\caches\transforms-4\2d541833549286553b45306b6ce5d7a0\transformed\lifecycle-runtime-2.0.0\AndroidManifest.xml:20:5-44
+	android:targetSdkVersion
+		INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from C:\Users\Administrator\Desktop\绿角犀办公软件\clients\android\app\src\main\AndroidManifest.xml

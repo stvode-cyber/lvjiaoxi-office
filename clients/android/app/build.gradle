@@ -1,0 +1,82 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 读取本地签名配置（signing.properties，已被 .gitignore 忽略；CI 缺失时跳过签名）
+def signingProps = new Properties()
+def signingFile = rootProject.file('signing.properties')
+if (signingFile.exists()) {
+    signingFile.withInputStream { signingProps.load(it) }
+}
+def hasSigning = signingProps.getProperty('STORE_FILE') != null
+
+android {
+    namespace 'com.lvjiaoxi.office'
+    // 2026 年 Google Play 上架要求 target API 35（Android 15）；构建机需装
+    // Android SDK Platform 35 + build-tools 35.0.0（AGP 8.5 已兼容现有 Gradle 8.6）
+    compileSdk 35
+
+    signingConfigs {
+        release {
+            if (hasSigning) {
+                storeFile file(signingProps.getProperty('STORE_FILE'))
+                storePassword signingProps.getProperty('STORE_PASSWORD')
+                keyAlias signingProps.getProperty('KEY_ALIAS')
+                keyPassword signingProps.getProperty('KEY_PASSWORD')
+            }
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.lvjiaoxi.office"
+        minSdk 24
+        targetSdk 35
+        // 版本号单一来源：读取仓库根 package.json 的 version（与 Web/桌面端完全一致）
+        // 语义化 主.次.修订 → versionCode = 主*10000 + 次*100 + 修订（保证单调递增）
+        // 解析失败或文件缺失时回退默认，确保构建不崩
+        def pkgVersion = "1.0.0"
+        try {
+            def pf = file("../../../package.json")
+            if (pf.exists()) {
+                def parsed = new groovy.json.JsonSlurper().parse(pf)
+                if (parsed && parsed.version) pkgVersion = parsed.version.toString()
+            }
+        } catch (ignored) { /* 解析失败回退默认 */ }
+        def code = 1
+        try {
+            def seg = pkgVersion.split('\\.').collect { it.replaceAll(/[^0-9]/, '') }
+            code = (seg[0]?.toInteger() ?: 0) * 10000 + (seg[1]?.toInteger() ?: 0) * 100 + (seg[2]?.toInteger() ?: 0)
+        } catch (ignored) { code = 1 }
+        versionCode code
+        versionName pkgVersion
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // 直接把仓库根目录的 app/ 作为 WebView 资源，避免重复拷贝、与 Web 版保持同源
+    // 注意：AGP 的 srcDirs 相对「模块目录」(clients/android/app) 解析。本工程为
+    // clients/android(app 模块) 嵌套在仓库下，需向上 3 级到仓库根再取 app/。
+    // file() 以模块目录为基准，../../../app = 仓库根/app。
+    sourceSets {
+        main {
+            assets.srcDirs = [file("../../../app")]
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.9.0'
+}

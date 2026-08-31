@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "lvjiaoxi-office",
+  "version": "1.0.0",
+  "description": "绿角犀 Office HarmonyOS 客户端",
+  "dependencies": {},
+  "devDependencies": {}
+}

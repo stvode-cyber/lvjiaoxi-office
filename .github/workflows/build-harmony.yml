@@ -1,0 +1,36 @@
+name: Build HarmonyOS (APP / HAP)
+
+# 注意：HarmonyOS 无官方 GitHub 托管 Runner。请在「自托管 Runner」上运行本工作流，
+# 该 Runner 需已安装：DevEco Studio Command Line Tool（hvigorw）+ HarmonyOS SDK（API12）+ 签名证书。
+# 参考：https://developer.huawei.com/consumer/cn/doc/harmonyos-guides-V5/ide-commandline-hvigor-V5
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: [self-hosted, harmonyos]
+    steps:
+      - uses: actions/checkout@v4
+
+      # sync 脚本为纯 Node（仅 fs/path），无需 npm install
+      - name: Sync web assets into HarmonyOS rawfile
+        run: node clients/sync-web-assets.js
+
+      - name: Build APP (HAP + APP package)
+        working-directory: clients/harmonyos
+        run: ./hvigorw assembleApp --no-daemon
+
+      # 上架 AppGallery 用 .app（应用包）；本地测试用 .hap
+      - name: Upload APP package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-harmony-app
+          path: clients/harmonyos/**/build/**/outputs/**/*.app
+
+      - name: Upload HAP (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-harmony-hap
+          path: clients/harmonyos/**/build/**/outputs/**/*.hap

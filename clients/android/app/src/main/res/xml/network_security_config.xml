@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 绿角犀 Office 是纯本地应用：WebView 以 file:// 加载，不上传任何数据。
+         关闭明文流量，避免 Play / 系统对全局 cleartext 的合规标记。 -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

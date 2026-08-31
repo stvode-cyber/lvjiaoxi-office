@@ -1,0 +1,347 @@
+name: Release (all platforms)
+
+# 打 tag（v*.*.*）或手动触发：构建全部平台产物，桌面自动发布到 LVJX_UPDATE_FEED，
+# 并在 GitHub 创建一个「草稿 Release」附上所有安装包（Windows/macOS/Linux + Android AAB/APK + iOS IPA）。
+# 本地先跑 `node scripts/make-release.js <step> --apply` 升版本并打 tag，再 push tag 即触发本流程。
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只构建并列出将发布的文件，不真正发布到 feed / 不创建 Release"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-all
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  # 发布页下载 URL：优先用仓库变量 LVJX_RELEASE_URL，否则按 tag 推导 GitHub Release 标签页。
+  # 构建前会被写入 app/version.json，使打包后的桌面/Web 应用携带真实「前往下载」地址。
+  LVJX_RELEASE_URL: ${{ vars.LVJX_RELEASE_URL || format('https://github.com/{0}/releases/tag/{1}', github.repository, github.ref_name) }}
+
+jobs:
+  # ---------- 桌面（Electron）：三平台构建 ----------
+  build-desktop:
+    name: build desktop ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+          - os: macos-latest
+            platform: mac
+          - os: ubuntu-latest
+            platform: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Generate macOS icon (.icns)
+        if: matrix.platform == 'mac'
+        run: |
+          mkdir -p app/icons/icon.iconset
+          sips -z 16 16    app/icons/icon.png --out app/icons/icon.iconset/icon_16x16.png
+          sips -z 32 32    app/icons/icon.png --out app/icons/icon.iconset/icon_32x32.png
+          sips -z 64 64    app/icons/icon.png --out app/icons/icon.iconset/icon_32x32@2x.png
+          sips -z 128 128  app/icons/icon.png --out app/icons/icon.iconset/icon_128x128.png
+          sips -z 256 256  app/icons/icon.png --out app/icons/icon.iconset/icon_128x128@2x.png
+          sips -z 256 256  app/icons/icon.png --out app/icons/icon.iconset/icon_256x256.png
+          sips -z 512 512  app/icons/icon.png --out app/icons/icon.iconset/icon_256x256@2x.png
+          sips -z 512 512  app/icons/icon.png --out app/icons/icon.iconset/icon_512x512.png
+          cp app/icons/icon.png app/icons/icon.iconset/icon_512x512@2x.png
+          iconutil --convert icns app/icons/icon.iconset --output app/icons/icon.icns
+          rm -rf app/icons/icon.iconset
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write release download URL into version.json
+        # 让打包后的应用内「前往下载」按钮指向真实发布页（而非占位 example.com）
+        run: |
+          node -e "const fs=require('fs');const p='app/version.json';const v=JSON.parse(fs.readFileSync(p));v.url=process.env.LVJX_RELEASE_URL;fs.writeFileSync(p,JSON.stringify(v,null,2)+'\n');console.log('version.json.url =',v.url);"
+        env:
+          LVJX_RELEASE_URL: ${{ env.LVJX_RELEASE_URL }}
+
+      - name: Build (Windows)
+        if: matrix.platform == 'win'
+        env:
+          LVJX_UPDATE_FEED: ${{ vars.LVJX_UPDATE_FEED }}
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: npm run dist:win
+
+      - name: Build (macOS)
+        if: matrix.platform == 'mac'
+        env:
+          LVJX_UPDATE_FEED: ${{ vars.LVJX_UPDATE_FEED }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: npm run dist:mac
+
+      - name: Build (Linux)
+        if: matrix.platform == 'linux'
+        env:
+          LVJX_UPDATE_FEED: ${{ vars.LVJX_UPDATE_FEED }}
+        run: npm run dist:linux
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-${{ matrix.platform }}
+          path: |
+            dist/**/*
+            !dist/win-unpacked/**/*
+            !dist/mac*/**/*
+            !dist/linux*/**/*
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------- Android：AAB（Play）+ APK ----------
+  build-android:
+    name: build Android (AAB + APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK packages & accept licenses
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses || true
+      - name: Decode signing keystore (optional)
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p clients/android/keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > clients/android/keystore/lvjiaoxi-release.keystore
+          cat > clients/android/signing.properties <<EOF
+          STORE_FILE=../keystore/lvjiaoxi-release.keystore
+          STORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+      - name: Build Release APK + AAB
+        working-directory: clients/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease bundleRelease --no-daemon
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-android-aab
+          path: clients/android/app/build/outputs/bundle/release/*.aab
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-android-apk
+          path: clients/android/app/build/outputs/apk/release/*.apk
+
+  # ---------- iOS：IPA（签名）/ xcarchive（未签名） ----------
+  build-ios:
+    name: build iOS (IPA / xcarchive)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync web assets into iOS webroot
+        run: node clients/sync-web-assets.js
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: clients/ios
+        run: xcodegen generate
+      - name: Archive (unsigned by default)
+        working-directory: clients/ios
+        run: |
+          xcodebuild -scheme LvjiaoxiOffice -configuration Release \
+            -archivePath build/LvjiaoxiOffice.xcarchive archive \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO AD_HOC_CODE_SIGNING_ALLOWED=YES
+      - name: Install signing cert & profile (if provided)
+        if: ${{ secrets.IOS_CERT_BASE64 != '' }}
+        env:
+          CERT_BASE64: ${{ secrets.IOS_CERT_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          KEYCHAIN=build.keychain-db
+          security create-keychain -p "" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN"
+          echo "$CERT_BASE64" | base64 -d > cert.p12
+          security import cert.p12 -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
+          echo "$PROFILE_BASE64" | base64 -d > profile.mobileprovision
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
+      - name: Export signed IPA (App Store)
+        if: ${{ secrets.IOS_CERT_BASE64 != '' }}
+        working-directory: clients/ios
+        run: |
+          cat > ExportOptions.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>compileBitcode</key><false/>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive -archivePath build/LvjiaoxiOffice.xcarchive \
+            -exportPath build/ipa -exportOptionsPlist ExportOptions.plist
+      - name: Upload signed IPA
+        if: ${{ secrets.IOS_CERT_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-ios-ipa
+          path: clients/ios/build/ipa/*.ipa
+      - name: Zip unsigned xcarchive
+        if: ${{ secrets.IOS_CERT_BASE64 == '' }}
+        working-directory: clients/ios/build
+        run: zip -r LvjiaoxiOffice.xcarchive.zip LvjiaoxiOffice.xcarchive
+      - name: Upload unsigned xcarchive zip
+        if: ${{ secrets.IOS_CERT_BASE64 == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-ios-xcarchive
+          path: clients/ios/build/LvjiaoxiOffice.xcarchive.zip
+
+  # ---------- HarmonyOS（APP/HAP）：需自托管 Runner，默认关闭 ----------
+  # 仅当仓库变量 HARMONY_RUNNER_ENABLED=true 时运行（避免无自托管 Runner 时挂起）。
+  # 自托管 Runner 需装 DevEco Studio 命令行（hvigorw）+ HarmonyOS SDK（API12）+ 签名证书。
+  build-harmony:
+    name: build HarmonyOS (APP + HAP)
+    if: ${{ vars.HARMONY_RUNNER_ENABLED == 'true' }}
+    runs-on: [self-hosted, harmonyos]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync web assets into HarmonyOS rawfile
+        run: node clients/sync-web-assets.js
+      - name: Build APP (HAP + APP package)
+        working-directory: clients/harmonyos
+        run: ./hvigorw assembleApp --no-daemon
+      - name: Upload APP package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-harmony-app
+          path: clients/harmonyos/**/build/**/outputs/**/*.app
+      - name: Upload HAP (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvjiaoxi-office-harmony-hap
+          path: clients/harmonyos/**/build/**/outputs/**/*.hap
+
+  # ---------- 发布：桌面 feed + GitHub Release 草稿 ----------
+  publish:
+    name: publish (feed + GitHub Release)
+    needs: [build-desktop, build-android, build-ios]
+    runs-on: ubuntu-latest
+    env:
+      LVJX_UPDATE_FEED: ${{ vars.LVJX_UPDATE_FEED }}
+      LVJX_FEED_SSH_HOST: ${{ secrets.LVJX_FEED_SSH_HOST }}
+      LVJX_FEED_SSH_USER: ${{ secrets.LVJX_FEED_SSH_USER }}
+      LVJX_FEED_SSH_KEY: ${{ secrets.LVJX_FEED_SSH_KEY }}
+      LVJX_FEED_REMOTE_DIR: ${{ secrets.LVJX_FEED_REMOTE_DIR }}
+      LVJX_FEED_S3_BUCKET: ${{ vars.LVJX_FEED_S3_BUCKET }}
+      LVJX_FEED_S3_PREFIX: ${{ vars.LVJX_FEED_S3_PREFIX }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lvjiaoxi-office-{win,mac,linux}
+          path: desktop-merged
+          merge-multiple: false
+
+      # 三平台产物均位于各 artifact 的 dist 根级，扁平合并到单一 dist/
+      - name: Flatten desktop into dist/
+        run: |
+          mkdir -p dist
+          find desktop-merged -type f -exec bash -c 'cp "$1" "dist/$(basename "$1")"' _ {} \;
+          echo "Desktop files:"; ls -1 dist
+
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lvjiaoxi-office-android-{aab,apk}
+          path: mobile/android
+          merge-multiple: false
+
+      - name: Download iOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lvjiaoxi-office-ios-{ipa,xcarchive}
+          path: mobile/ios
+          merge-multiple: false
+
+      - name: Download HarmonyOS artifact (optional)
+        if: ${{ vars.HARMONY_RUNNER_ENABLED == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lvjiaoxi-office-harmony-{app,hap}
+          path: mobile/harmony
+          merge-multiple: false
+          continue-on-error: true
+
+      - name: Ensure AWS CLI (S3 publish only)
+        if: ${{ env.LVJX_FEED_S3_BUCKET != '' }}
+        run: |
+          if ! command -v aws >/dev/null 2>&1; then pip install --quiet awscli; fi
+
+      - name: Publish to feed (dry-run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: node scripts/publish-desktop-feed.js --dry-run
+
+      - name: Publish to feed
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: node scripts/publish-desktop-feed.js
+
+      # 动态拼出要附到 GitHub Release 的文件清单（仅包含实际存在的文件）
+      - name: Build release file list
+        id: files
+        run: |
+          list="dist/**/*"
+          list="$list mobile/android/**/*"
+          ls mobile/ios/lvjiaoxi-office-ios-ipa/*.ipa >/dev/null 2>&1 && list="$list mobile/ios/lvjiaoxi-office-ios-ipa/*.ipa"
+          ls mobile/ios/lvjiaoxi-office-ios-xcarchive/*.zip >/dev/null 2>&1 && list="$list mobile/ios/lvjiaoxi-office-ios-xcarchive/*.zip"
+          [ -d mobile/harmony ] && list="$list mobile/harmony/**/*"
+          {
+            echo "files<<EOF"
+            echo "$list"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          # 发布策略（关键）：
+          # - 已配置 LVJX_UPDATE_FEED（桌面走私有 generic 静默更新源）：保留草稿默认，
+          #   仅当仓库变量 RELEASE_DRAFT 显式 'true' 才为草稿，供人工审核后再 Publish。
+          # - 未配置 LVJX_UPDATE_FEED（桌面依赖 GitHub Releases 回退更新）：必须【发布】而非草稿，
+          #   因为 electron-updater 的 github provider 只能看到「已发布」Release，草稿会导致桌面永远收不到更新。
+          draft: ${{ vars.LVJX_UPDATE_FEED != '' && vars.RELEASE_DRAFT != 'false' }}
+          name: ${{ github.ref_name }}
+          files: ${{ steps.files.outputs.files }}
+          body: |
+            绿角犀 Office ${{ github.ref_name }}
+            由 release.yml 自动产出。
+            - 已配置 LVJX_UPDATE_FEED：桌面走私有静默更新源；本 Release ${{ vars.LVJX_UPDATE_FEED != '' && vars.RELEASE_DRAFT != 'false' && '为草稿（审核后手动 Publish）' || '已自动发布' }}。
+            - 未配置 LVJX_UPDATE_FEED：桌面依赖本 GitHub Release 作为更新源，已自动【发布】（草稿会导致桌面收不到更新）。
+            - 本 Release 附全部平台二进制，便于手动分发。

@@ -1,0 +1,37 @@
+# 构建产物
+dist/
+out/
+*.blockmap
+
+# 云端后端运行数据（用户文档/备档，含密码哈希，严禁入库）
+server/data/
+
+# 依赖
+node_modules/
+.pnp/
+.pnp.js
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.log
+
+# 本地结果暂存（测试产物）
+_app_boot_result.txt
+_auth_backup_result.txt
+_chart_export_result.txt
+_cond_result.txt
+_emphasis_result.txt
+_entrance_result.txt
+_exporter_result.txt
+_freezemultisheet_result.txt
+_globalsearch_result.txt
+_hf_result.txt
+_notes_export_result.txt
+_page_result.txt
+_presmaster_result.txt
+_publish_feed_result.txt
+_replace_result.txt
+_sheettools_result.txt
+_sortfilter_result.txt
+_toc_result.txt

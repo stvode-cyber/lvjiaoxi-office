@@ -1,0 +1,14 @@
+{
+  "name": "绿角犀 Office · 跨平台办公套件",
+  "short_name": "绿角犀Office",
+  "description": "兼容 OOXML 的跨平台国产办公套件 · 模块化轻量部署，全能力可选",
+  "lang": "zh-CN",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

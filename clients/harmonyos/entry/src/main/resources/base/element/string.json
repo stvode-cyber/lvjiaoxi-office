@@ -1,0 +1,22 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "绿角犀 Office 入口模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "绿角犀 Office 主能力"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "绿角犀 Office"
+    }
+  ],
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#FFFFFF"
+    }
+  ]
+}

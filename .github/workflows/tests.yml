@@ -1,0 +1,40 @@
+name: tests
+
+# 测试门禁：任何推送到 main 或针对 main 的 PR 都必须让根目录全部 _*_test.js 套件通过。
+# 套件任一失败 → 工作流失败 → 阻断合并，确保「测试全绿」成为硬性质量关。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'server/**'
+      - 'scripts/**'
+      - '_*_test.js'
+      - 'package.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'server/**'
+      - 'scripts/**'
+      - '_*_test.js'
+      - 'package.json'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run all test suites
+        run: npm test
+        shell: bash
+      - name: Hint on failure
+        if: failure()
+        run: |
+          echo "::error::测试套件未全绿，请本地运行 'npm test' 修复后再提交。"
+          exit 1
