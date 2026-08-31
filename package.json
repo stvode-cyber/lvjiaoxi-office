@@ -1,6 +1,6 @@
 {
   "name": "lvjiaoxi-office",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "绿角犀 Office · 跨平台办公套件（Writer / Spreadsheet / Presentation / PDF / MindMap）桌面客户端",
   "author": "绿角犀",
   "license": "MIT",
@@ -91,6 +91,7 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
       "artifactName": "${productName} Setup ${version}.${ext}"
     },
     "portable": {
