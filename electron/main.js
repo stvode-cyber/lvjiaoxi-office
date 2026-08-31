@@ -114,7 +114,7 @@ let updateDownloadUrl = ""; // github 回退通道下，供安装失败兜底打
     }
   }
 
-const PORT = process.env.LVJX_PORT ? parseInt(process.env.LVJX_PORT, 10) : 0; // 0 => 随机空闲端口，避免被固定占用/探测
+let PORT = process.env.LVJX_PORT ? parseInt(process.env.LVJX_PORT, 10) : 0; // 0 => 随机空闲端口，避免被固定占用/探测
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
