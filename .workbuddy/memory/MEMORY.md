@@ -4,7 +4,7 @@
 > 最后更新：2026-08-31
 
 ## 当前基线
-- **81 套件 0 失败** + 四端同源 ✅（S→AJ 全特性 + 登录设定 + Windows 安装包文件关联/默认打开方式已落地并验证；AC→AJ + 登录 + 文件关联均已新增；Android APK 已实测构建成功，Windows NSIS/便携双目标 + 文件关联已落地；Electron 顶部菜单栏已改为中文，git repo 已存在且已打 tag v1.0.0~v1.0.7，仅无 remote 未 push）
+- **81 套件 0 失败** + 四端同源 ✅（S→AJ 全特性 + 登录设定 + Windows 安装包文件关联/默认打开方式已落地并验证；AC→AJ + 登录 + 文件关联均已新增；Android APK 已实测构建成功，Windows NSIS/便携双目标 + 文件关联已落地；Electron 顶部菜单栏已改为中文；**Writer「开始」选项卡补齐 Word P0 功能区（剪贴板/字体字号/上标下标/行距/多级列表/查找替换拆分/全选），覆盖率 32%→64%**；git repo 已存在且已打 tag v1.0.0~v1.0.8，仅无 remote 未 push）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 

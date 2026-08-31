@@ -49,6 +49,7 @@ Web 真源位于 `app/js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js`，本�
 | PDF 链接/URI 提取（Links） | ✅ 已实现 | `OS.PdfLinks` 从原始字节提取外部 URI 链接与内部跳转（GoTo）：来源含页面标注（/Subtype /Link + /P 页对象号）、文档大纲（Outline /Title + /A /URI）、独立 /URI action 兜底；兼容字面串与 UTF-16BE 十六进制串（<FEFF...>）解码；按 kind+target 去重，统计外链/跳转数、涉及页、http(s) 外链数；面板来源徽标 + 页码 + 可点击外链 + 导出 MD；_pdf_links_test 27 断言 |
 | PDF 加密与权限检测（Encryption） | ✅ 已实现 | `OS.PdfEncrypt` 解析 /Encrypt 字典（/Filter/V/R/Length/P/O/U/EncryptMetadata/CFM/StmF/StrF，含 /CF 嵌套字典平衡切分）；解码 /P 权限位八项可读清单、判定算法族(RC4-40/RC4/AES-128/AES-256)与强度；纯解析不解密；面板算法/强度/密钥长度/权限✅❌ + 导出 MD；_pdf_encrypt_test 43 断言 |
 | PDF 数字签名验证（Signature） | ✅ 已实现 | `OS.PdfSignature` 扫描 /Type /Sig 签名值对象及 /FT /Sig、/Subtype /Sig 签名域：提取 /Name·/Reason·/Location·/M·/ContactInfo·/SubFilter(PKCS#7·CAdES·X.509)·/Filter·/Contents(原始 CMS/PKCS7 容器字节)·/Cert·/Reference(→/DocMDP·/UR·/FieldMDP)，由 /SubFilter 推断摘要算法提示；字面串字节级解码兼容 UTF-16BE/UTF-8/Latin-1（中文签名者名正确还原）；纯元数据提取不验证真实性；面板逐项 + 导出 MD；_pdf_signature_test 25 断言 |
+| PDF 表单字段提取（FormFields） | ✅ 已实现 | `OS.PdfFormFields` 解析 /AcroForm → /Fields（含 /Kids 递归）：字段名/类型(文本框·复选·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填等标志位/所在页；兼容 UTF-16BE/UTF-8 中文名值；面板浏览 + 导出清单(MD)；_pdf_formfields_test 34 断言 |
 
 ## 四、与其他模块关系
 

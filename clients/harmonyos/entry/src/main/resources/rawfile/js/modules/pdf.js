@@ -706,6 +706,9 @@
             ] },
             { label: "签名", items: [
               { kind: "btn", icon: "badge-check", title: "验证 PDF 数字签名：扫描 /Type /Sig 签名对象，列出签名者/原因/地点/时间/子过滤器(PKCS#7·CAdES·X.509)/摘要算法提示/原始 CMS 容器字节/证书引用/引用类型(DocMDP)，并导出验证报告(MD)。仅元数据提取，不验证签名真实性", label: "签名验证", onClick: () => showSignatures() }
+            ] },
+            { label: "表单字段", items: [
+              { kind: "btn", icon: "textfield", title: "提取 PDF 中所有 AcroForm 表单字段：列出字段名/类型(文本框·复选框·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填等标志/所在页，并导出字段清单(MD)", label: "表单字段", onClick: () => showFormFields() }
             ] }
           ]
         }
@@ -1220,6 +1223,45 @@
           const md = OS.PdfSignature.toMarkdown(res, { title: (doc.name || "文档") + " 数字签名验证" });
           OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "签名") + "_签名验证.md");
           OS.toast("已导出签名验证报告（Markdown）", "ok");
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    // AK：PDF 表单字段提取（AcroForm Fields）
+    function showFormFields() {
+      if (!data || !data.dataUrl) { OS.toast("请先打开一个 PDF 再提取表单字段", "warn"); return; }
+      const bytes = dataUrlToBytes(data.dataUrl);
+      if (!(bytes instanceof Uint8Array)) { OS.toast("无法读取 PDF 字节", "err"); return; }
+      if (!OS.PdfFormFields) { OS.toast("表单字段引擎未就绪", "err"); return; }
+      const res = OS.PdfFormFields.parseFormFields(bytes);
+      if (!res || !res.hasForm) { OS.toast("该文档未发现 AcroForm 表单字段", "info"); return; }
+      const esc = s => String(s == null ? "" : s).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+      const rows = res.fields.map((f, i) => {
+        const val = (f.value == null || (Array.isArray(f.value) && !f.value.length)) ? "—" : (Array.isArray(f.value) ? f.value.join("、") : String(f.value));
+        const fl = f.flags.filter(x => x.on).map(x => x.label).join("、");
+        return '<div style="padding:6px 8px;border-bottom:1px solid #eee;font-size:13px">' +
+          '<div style="font-weight:600">' + (i + 1) + '. ' + esc(f.name || "(未命名)") +
+          '<span style="float:right;color:#888;font-weight:400">' + esc(f.typeLabel) + (f.page != null ? ' · 第' + f.page + '页' : '') + '</span></div>' +
+          '<div style="color:#555">值：' + esc(val) + (f.altName ? ' ｜ 提示：' + esc(f.altName) : '') + '</div>' +
+          (f.options && f.options.length ? '<div style="color:#555">选项：' + esc(f.options.map(o => o.export != null ? o.label + "(=" + o.export + ")" : o.label).join("、")) + '</div>' : '') +
+          (fl ? '<div style="color:#555">标志：' + esc(fl) + '</div>' : '') +
+          '</div>';
+      }).join("");
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(600px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 表单字段提取<span style='font-size:12px;color:#888;font-weight:normal'> · 共 " + res.formCount + " 个字段（已填 " + res.fields.filter(f => f.hasValue).length + "）</span></h3>" +
+          "<div id='ff_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:4px 8px;background:#fafafa;margin-top:8px'>" + rows + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='ff_md'>导出清单(MD)</button> <button class='btn primary' id='ff_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "ff_close") { ov.remove(); return; }
+        if (e.target.id === "ff_md") {
+          const md = OS.PdfFormFields.toMarkdown(res, { title: (doc.name || "文档") + " 表单字段" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "表单") + "_表单字段.md");
+          OS.toast("已导出表单字段清单（Markdown）", "ok");
         }
       });
       document.body.appendChild(ov);

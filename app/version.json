@@ -1,12 +1,10 @@
 {
-  "version": "1.0.9",
+  "version": "1.0.10",
   "publishedAt": "2026-08-31",
   "channel": "stable",
   "minVersion": "1.0.0",
   "notes": [
-    "Windows 桌面安装包（NSIS）已就绪：完整包含 PDF 批注子系统（导入/模型/搜索过滤/审阅清单/文档属性/图层可见性/批量操作）、PDF 文档对比、书签目录",
-    "后台自动更新检测已就绪（Web/PWA 静默刷新，桌面版提示前往下载页）",
-    "登录系统 / 50MB 个人空间 / 每 5 分钟自动备档 / 记住我 / 空间导出导入（支持加密）"
+    "AK=PDF 表单字段提取（OS.PdfFormFields 解析 /AcroForm → /Fields 含 /Kids 递归，提取字段名/类型(文本框·复选·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填标志位/所在页，兼容 UTF-16BE·UTF-8 中文名值，面板浏览+导出 MD，34 断言）；整链 82 套件 0 失败"
   ],
   "url": "https://lujax.fun/releases"
 }
