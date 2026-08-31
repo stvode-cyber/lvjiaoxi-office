@@ -7,6 +7,11 @@
 !include "LogicLib.nsh"
 
 !macro preInit
+  ; 0) 先强杀正在运行的旧版进程（中文 exe 名），避免卸载/覆盖时因进程占用
+  ;    而卡在"绿角犀Office无法关闭，请手动关闭"的对话框
+  ExecWait 'taskkill /F /IM "绿角犀 Office.exe"'
+  ExecWait 'taskkill /F /IM "lvjiaoxi-office.exe"'
+
   ; 解析卸载注册表键（优先用 electron-builder 注入的键名，回退到 appId）
   !ifdef UNINSTALL_REGISTRY_KEY
     !define APP_UNINST_KEY "${UNINSTALL_REGISTRY_KEY}"
