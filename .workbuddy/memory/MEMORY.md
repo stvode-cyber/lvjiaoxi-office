@@ -4,7 +4,7 @@
 > 最后更新：2026-08-31
 
 ## 当前基线
-- **81 套件 0 失败** + 四端同源 ✅（S→AJ 全特性 + 登录设定 + Windows 安装包文件关联/默认打开方式已落地并验证；AC→AJ + 登录 + 文件关联均已新增；Android APK 已实测构建成功，Windows NSIS/便携双目标 + 文件关联已落地；Electron 顶部菜单栏已改为中文；**Writer「开始」选项卡补齐 Word P0 功能区（剪贴板/字体字号/上标下标/行距/多级列表/查找替换拆分/全选），覆盖率 32%→64%**；git repo 已存在且已打 tag v1.0.0~v1.0.8，仅无 remote 未 push）
+- **83 套件 0 失败** + 四端同源 ✅（S→AL 全特性 + 登录设定 + Windows 安装包文件关联/默认打开方式已落地并验证；AC→AL + 登录 + 文件关联均已新增；Android APK 已实测构建成功，Windows NSIS/便携双目标 + 文件关联已落地；Electron 顶部菜单栏已改为中文；**Writer「开始」选项卡补齐 Word P0 功能区（剪贴板/字体字号/上标下标/行距/多级列表/查找替换拆分/全选），覆盖率 32%→64%**；git repo 已存在且已打 tag v1.0.0~v1.0.11，仅无 remote 未 push）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
@@ -39,6 +39,7 @@
 - AI 加密检测：/Encrypt 字典含 /CF 嵌套 <<>>（/StdCF 内还有 /CFM 等），提取字典必须用平衡切分（depth 计数到 0）而非非贪婪 `.*?>>`，否则在内层 `>>` 处截断丢失 /StmF//StrF；pdf-encrypt.js sliceDict 用 `<<`/`>>` 双字符配对
 - AJ 签名验证：PDF 字面串必须**字节级**解析——`bytesToString` 逐字节转 latin1 会让 UTF-8 中文变成 Mojibake（如「张三」→`å¼ ä¸`）。修复：从原始 bytes 切片字面串字节再用 TextDecoder('utf-8') 解码；先判 UTF-16BE(<FEFF>)，再 UTF-8，再 Latin-1；同时处理 PDF 转义(\n \r \t \b \f \( \) \\ \ddd)。txt 与 bytes 是 1:1 索引映射，可直接用 txt 上的 match index 切 bytes。
 - 图标不可臆造：新增 ribbon 按钮前先 grep app/js/icons.js
+- AL 文档信息：① lit() 的 blockBytes 必须与 blockTxt（infoDict 子串）在全局字节的同一起始位置 1:1 对齐，否则 `m.index`（子串内偏移）切到错误字节 → 字段全乱；用 `getObjDict` 返回的 `o.start` 切 `bytes.subarray(start, start+len)`；② XMP 的 `pdf:Title` 等常以**属性形式**出现（`pdf:Title="XMP Title"` 写在 `<rdf:Description ...>` 上），`pick(tag)` 须同时支持元素 `<tag>v</tag>` 与属性 `tag="v"` 两种写法；③ 测试构造 UTF-16BE 字面串时字节**必须包在 `(...)` 内**（真实 PDF 即 `<FEFF>...` 内嵌于括号），否则 lit 匹配不到
 
 ## 关键产物路径
 - Web 真源：app/（js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js）
@@ -68,6 +69,8 @@
 | PDF 加密与权限检测 Encryption(AI) | ✅ parseEncryption 字节级解析 /Encrypt 字典(含/CF嵌套平衡切分)+解码/P八项权限位+算法族(RC4-40/RC4/AES-128/AES-256)判定+强度；纯解析不解密；summarize/toMarkdown/toHtml；_pdf_encrypt_test 43 断言 |
 | 登录设定（可选登录） | ✅ 默认游客直接进入（不强制）；OS.AuthPolicy.shouldGate 纯逻辑（容错无 settings）；设置「启动时要求登录」开关 + 登录页「以游客身份进入」；_auth_policy_test 7 断言 + _app_boot A5/A5b 覆盖 |
 | Windows 桌面安装包 · 文件关联/默认打开方式（注册表） | ✅ NSIS 安装写注册表（卸载项 + App Paths + 文件类型关联 HKCR），关联 pdf/ofd/lvjx/docx/xlsx/pptx；双击经 argv/second-instance→IPC→前端直接打开；_file_args_test 12 断言，全链 81 套件 |
+| PDF 表单字段提取 FormFields(AK) | ✅ parseFormFields 字节级解析 /AcroForm → /Fields 含 /Kids 递归，提取字段名/类型(文本框·复选·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填等标志/所在页；兼容 UTF-16BE/UTF-8 中文名值；面板浏览+导出清单 MD；_pdf_formfields_test 34 断言，全链 82 套件 |
+| PDF 文档信息/元数据提取 DocInfo(AL) | ✅ parseDocInfo 字节级解析 /Info 字典 + /Metadata XMP 流（元素形式与属性形式双解析），兼容 UTF-16BE·UTF-8·Latin-1 字面值；PDF 日期串 D:…→可读；面板浏览 Info+XMP + 导出报告 MD；取代旧「文档属性」按钮（OS.PdfProps 已解耦）；_pdf_docinfo_test 33 断言，全链 83 套件 |
 
 ## 收口发布（2026-08-30 已完成 · 遗留人工/环境）
 - version.json.url 已修正为 https://lujax.fun/releases，release:check 通过
