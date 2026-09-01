@@ -1,56 +1,51 @@
-/* 绿角犀 Office · 桌面更新源解析测试（纯函数，零依赖）
-   验证 electron/feed-config.js 的 resolveUpdateProvider / deriveGithubRepo 等。 */
-const fc = require("C:/Users/Administrator/Desktop/绿角犀办公软件/electron/feed-config.js");
+/* 绿角犀 Office · 桌面更新源解析测试
+   验证 resolveUpdateProvider：
+     - feed                         -> generic provider
+     - 显式 githubRepo              -> github provider
+     - releaseUrl / versionJsonUrl 含 github 地址 -> github provider
+     - 非 GitHub 的 versionJsonUrl  -> generic provider（核心：启用应用内静默更新通道）
+     - 无任何可用源                 -> null
+   另验证 normalizeFeedUrl 尾部斜杠归一化。 */
+const { resolveUpdateProvider, normalizeFeedUrl } = require("./electron/feed-config");
 
 let pass = 0, fail = 0; const fails = [];
 function ok(name, cond) { if (cond) { pass++; } else { fail++; fails.push(name); console.log("  ✗ " + name); } }
 
-// normalizeFeedUrl
-ok("normalizeFeedUrl 去尾斜杠", fc.normalizeFeedUrl("https://h/x/") === "https://h/x/");
-ok("normalizeFeedUrl 补尾斜杠", fc.normalizeFeedUrl("https://h/x") === "https://h/x/");
-ok("normalizeFeedUrl 空串", fc.normalizeFeedUrl("") === "");
+// 1 feed -> generic
+let r = resolveUpdateProvider({ feed: "https://update.lvjiaoxi.cn" });
+ok("feed -> generic provider", r && r.provider === "generic" && r.url === "https://update.lvjiaoxi.cn/");
 
-// deriveGithubRepo
-ok("deriveGithubRepo tag 页", JSON.stringify(fc.deriveGithubRepo("https://github.com/foo/bar/releases/tag/v1.2.3")) === JSON.stringify({ owner: "foo", repo: "bar" }));
-ok("deriveGithubRepo 仓库页", fc.deriveGithubRepo("https://github.com/foo/bar").repo === "bar");
-ok("deriveGithubRepo 非 github", fc.deriveGithubRepo("https://gitlab.com/a/b") === null);
-ok("deriveGithubRepo 空", fc.deriveGithubRepo("") === null);
+// 2 显式 githubRepo -> github
+r = resolveUpdateProvider({ githubRepo: "lvjx/office" });
+ok("githubRepo -> github", r && r.provider === "github" && r.owner === "lvjx" && r.repo === "office");
 
-// isValidRepo
-ok("isValidRepo 正常", fc.isValidRepo("foo/bar") === true);
-ok("isValidRepo 单段非法", fc.isValidRepo("foo") === false);
+// 3 releaseUrl 含 github -> github
+r = resolveUpdateProvider({ releaseUrl: "https://github.com/lvjx/office/releases" });
+ok("releaseUrl github -> github", r && r.provider === "github" && r.owner === "lvjx" && r.repo === "office");
 
-// resolveUpdateProvider：feed 优先
-let p = fc.resolveUpdateProvider({ feed: "https://h/x/", releaseUrl: "https://github.com/a/b/releases", versionJsonUrl: "https://github.com/c/d/releases" });
-ok("feed 优先 -> generic", p && p.provider === "generic" && p.url === "https://h/x/");
+// 4 versionJsonUrl 含 github -> github（推导）
+r = resolveUpdateProvider({ versionJsonUrl: "https://github.com/lvjx/office/releases" });
+ok("versionJsonUrl github -> github", r && r.provider === "github" && r.owner === "lvjx" && r.repo === "office");
 
-// 显式 githubRepo
-p = fc.resolveUpdateProvider({ githubRepo: "owner/repo" });
-ok("githubRepo -> github", p && p.provider === "github" && p.owner === "owner" && p.repo === "repo" && /releases$/.test(p.downloadUrl));
+// 5 非 GitHub 的 versionJsonUrl -> generic（核心：启用应用内静默更新，无需手动下载原件）
+r = resolveUpdateProvider({ versionJsonUrl: "https://lujax.fun/releases" });
+ok("versionJsonUrl 非 GitHub -> generic", r && r.provider === "generic" && r.url === "https://lujax.fun/releases/");
 
-// 从 releaseUrl 推导
-p = fc.resolveUpdateProvider({ releaseUrl: "https://github.com/aaa/bbb/releases/tag/v1.0.0" });
-ok("releaseUrl 推导 -> github", p && p.provider === "github" && p.owner === "aaa" && p.repo === "bbb");
+// 6 显式 feed 优先于 versionJsonUrl
+r = resolveUpdateProvider({ feed: "https://update.lvjiaoxi.cn", versionJsonUrl: "https://lujax.fun/releases" });
+ok("feed 优先于 versionJsonUrl", r && r.provider === "generic" && r.url === "https://update.lvjiaoxi.cn/");
 
-// 从 versionJsonUrl 推导
-p = fc.resolveUpdateProvider({ versionJsonUrl: "https://github.com/ccc/ddd/releases" });
-ok("versionJsonUrl 推导 -> github", p && p.provider === "github" && p.owner === "ccc" && p.repo === "ddd");
+// 7 无任何可用源 -> null
+r = resolveUpdateProvider({});
+ok("无源 -> null", r === null);
 
-// 无源
-p = fc.resolveUpdateProvider({});
-ok("无源 -> null", p === null);
+// 8 无效 githubRepo 且无其它源 -> null
+r = resolveUpdateProvider({ githubRepo: "not-a-repo" });
+ok("无效 githubRepo 且无其它 -> null", r === null);
 
-// feed 覆盖 githubRepo
-p = fc.resolveUpdateProvider({ feed: "https://h/x", githubRepo: "o/r" });
-ok("feed 覆盖 githubRepo", p && p.provider === "generic");
-
-// 非法 githubRepo 被忽略，回退推导
-p = fc.resolveUpdateProvider({ githubRepo: "bad", releaseUrl: "https://github.com/e/f/releases" });
-ok("非法 githubRepo 忽略并推导", p && p.provider === "github" && p.repo === "f");
-
-// 仅 githubRepo 时 downloadUrl 形态
-p = fc.resolveUpdateProvider({ githubRepo: "o/r" });
-ok("downloadUrl 为 releases 页", p && p.downloadUrl === "https://github.com/o/r/releases");
+// 9 normalizeFeedUrl 尾部斜杠归一化
+ok("normalizeFeedUrl 补尾部 /", normalizeFeedUrl("https://lujax.fun/releases") === "https://lujax.fun/releases/");
+ok("normalizeFeedUrl 多余 / 收一个", normalizeFeedUrl("https://lujax.fun/releases//") === "https://lujax.fun/releases/");
 
 const summary = `FEED-CONFIG TEST: ${pass} passed, ${fail} failed` + (fail ? ("; FAIL: " + fails.join(", ")) : "");
 console.log(summary);

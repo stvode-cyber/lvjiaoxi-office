@@ -1,7 +1,7 @@
 /* 绿角犀 Office · 渲染端更新回退测试
    验证：
    - 桌面静默通道安装失败（updater:error，如未签名）时，自动打开发布页下载；
-   - 非静默通道下 applyUpdate 直接打开 info.url。 */
+   - 桌面默认走静默通道；当主进程无 electron-updater（updater:download 回传 ok:false）时，回退打开发布页。 */
 const { JSDOM, VirtualConsole } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
 const fs = require("fs");
 const path = require("path");
@@ -49,16 +49,20 @@ function makeDom(electronApi) {
   errHandler("Cannot install unsigned package");
   ok("安装失败回退打开发布页", w1.__opened === "https://github.com/o/r/releases");
 
-  // ---- DOM2：非静默通道，applyUpdate 直接打开发布页 ----
+  // ---- DOM2：桌面走静默通道，但主进程无 electron-updater（updater:download 回传 ok:false）-> 回退打开发布页 ----
   const w2 = makeDom({
-    invoke: async () => ({ ok: true }),
+    invoke: async (chan) => {
+      if (chan === "updater:download") return { ok: false, reason: "no-auto-updater" };
+      return { ok: true };
+    },
     openExternal: (u) => { w2.__opened = u; },
     on() {}, removeListener() {}
   });
   const U2 = w2.OS.updater;
   w2.__opened = null;
-  U2.applyUpdate({ version: "3.0.0", url: "https://example.com/dl" }); // _autoEnabled 默认 false -> 非静默打开
-  ok("非静默通道 applyUpdate 打开发布页", w2.__opened === "https://example.com/dl");
+  U2.applyUpdate({ version: "3.0.0", url: "https://example.com/dl" }); // 桌面默认走静默通道
+  await new Promise((res) => setTimeout(res, 60)); // downloadAndInstall 异步回退
+  ok("桌面静默通道失败回退打开发布页", w2.__opened === "https://example.com/dl");
 
   const summary = `UPDATER-FALLBACK TEST: ${pass} passed, ${fail} failed` + (fail ? ("; FAIL: " + fails.join(", ")) : "");
   console.log(summary);

@@ -17,7 +17,6 @@
   let lastCheck = 0;
   let pending = null;   // 待应用的新版本信息
   let swReg = null;
-  let _autoEnabled = false; // 桌面版是否走 electron-updater 静默下载/安装通道
 
   function readCurrent() {
     const m = document.querySelector('meta[name="x-app-version"]');
@@ -70,7 +69,6 @@
       return null;
     }
     if (!latest || !latest.version) return null;
-    if (latest.usingAutoUpdater) _autoEnabled = true; // 主进程已启用 electron-updater 通道
     // 低于最低支持版本时强制提示更新
     if (compareVersion(latest.version, current) > 0) {
       pending = latest;
@@ -102,9 +100,7 @@
     actions.className = "updater-actions";
     const btnUpdate = document.createElement("button");
     btnUpdate.className = "btn primary";
-    btnUpdate.textContent = isNativeShell()
-      ? (_autoEnabled ? "立即更新" : "前往下载")
-      : "立即更新";
+    btnUpdate.textContent = "立即更新"; // 桌面/Web 均走应用内更新（桌面为静默下载安装，无需手动下载原件）
     btnUpdate.onclick = function () { applyUpdate(info); };
     const btnClose = document.createElement("button");
     btnClose.className = "btn";
@@ -118,12 +114,13 @@
 
   function applyUpdate(info) {
     if (isNativeShell()) {
-      // 走 electron-updater 静默下载 → 安装通道
-      if (_autoEnabled && global.electronAPI && typeof global.electronAPI.invoke === "function") {
+      // 桌面端：默认经主进程 IPC 走 electron-updater 静默下载 → 安装（应用内完成更新，无需手动下载原件）；
+      // 主进程在无 electron-updater 时回传 ok:false，downloadAndInstall 会兜底打开发布页。
+      if (global.electronAPI && typeof global.electronAPI.invoke === "function") {
         downloadAndInstall(info);
         return;
       }
-      // 未启用静默通道：打开发布页（由用户手动下载安装）
+      // 极端兜底：连 IPC 都不可用（不应发生），直接打开发布页
       const url = (info && info.url) || (pending && pending.url);
       if (url) {
         if (global.electronAPI && typeof global.electronAPI.openExternal === "function") global.electronAPI.openExternal(url);

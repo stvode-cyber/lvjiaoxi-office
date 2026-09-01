@@ -1,10 +1,10 @@
 {
-  "version": "1.0.13",
+  "version": "1.0.14",
   "publishedAt": "2026-09-01",
   "channel": "stable",
   "minVersion": "1.0.0",
   "notes": [
-    "AN=PDF 字体信息提取（OS.PdfFonts 遍历页面树收集每页 /Resources /Font 含父节点继承，解析 BaseFont 子集前缀/Subtype/Encoding/ToUnicode/嵌入标志(Type0 下钻 DescendantFonts·Type3 字形过程)/Flags 九位/字符范围，按对象去重合并使用页，标出未嵌入且非标准 14 的风险字体，面板浏览+导出 MD，74 断言，整链 85 套件 0 失败）"
+    "桌面端应用内静默更新（提示更新→一键完成，无需手动下载原件）"
   ],
   "url": "https://lujax.fun/releases"
 }
