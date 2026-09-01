@@ -1,94 +1,67 @@
 # 绿角犀 Office · 项目长期笔记
 
 > 持续更新。每轮新增显著事实时追加；超长时按主题蒸馏。
-> 最后更新：2026-08-31
+> 最后更新：2026-09-01
 
 ## 当前基线
-- **85 套件 0 失败** + 四端同源 ✅（S→AN 全特性 + 登录设定 + Windows 安装包文件关联/默认打开方式已落地并验证；AC→AM + 登录 + 文件关联均已新增；Android APK 已实测构建成功，Windows NSIS/便携双目标 + 文件关联已落地；Electron 顶部菜单栏已改为中文；**Writer「开始」选项卡补齐 Word P0 功能区（剪贴板/字体字号/上标下标/行距/多级列表/查找替换拆分/全选），覆盖率 32%→64%**；git repo 已存在且已打 tag v1.0.0~v1.0.13，仅无 remote 未 push）
+- **85 套件 0 失败** + 四端同源 ✅（S→AN 全特性 + 登录 + Windows 安装包文件关联/默认打开 + 桌面端全自动更新已落地并验证；Android APK 需 SDK/gradle 本环境无；git repo 已打 tag v1.0.0~v1.0.15，仅无 remote 未 push）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
 ## 测试与门禁
-- 测试 Node：`C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2/node.exe`
 - 主命令：`npm test` = `node scripts/run-tests.js && npm run sync:check`
-- 测试运行器：自动发现 `_*_test.js`，子进程隔离+超时
-- 并行偶发抖动：`_auth_backup_test` 偶发失败属并行子进程资源争用，隔离稳定
-- CI 入口：`.github/workflows/{tests,client-sync,release,release-desktop}.yml`
+- 运行器：自动发现 `_*_test.js`，子进程隔离+超时；CI：`.github/workflows/{tests,client-sync,release,release-desktop}.yml`
+- 偶发抖动：`_auth_backup_test` 并行资源争用（非阻断，隔离稳定）
 
 ## 关键工程纪律
-1. Trust-but-Verify：实际跑测试回查产物，禁止靠"已创建"判定完成
-2. 严格忠实镜像/零漂移：iOS/HarmonyOS webroot 必须与 app/ 一致，改后必 sync-clients
-3. 版本单一真源：仅 package.json
-4. 测试诚实：失败诊断根因，禁止 sleep 重试循环
-5. 回写文档：每轮更新 FEATURES.md 与当日日志
-6. 零依赖优先：沙箱可测纯逻辑必须抽出独立模块
-7. 不破坏 PRD 完整性：完成判定需 PR 摘要 + 标注依据（套件数+断言数）
+1. Trust-but-Verify：实跑测试回查产物，禁靠"已创建"判定
+2. 严格忠实镜像：iOS/HarmonyOS webroot 必与 app/ 一致，改后 sync-clients
+3. 版本单一真源：仅 package.json（bump-version.js 同步四端）
+4. 测试诚实：失败诊断根因，禁 sleep 重试循环
+5. 回写文档：每轮更新 STATUS/当日日志
+6. 零依赖优先：沙箱可测纯逻辑抽独立模块
 
-## 字母序特性开发工作流（可复用 S→Z→AA/AB…）
-用户指令「按顺序。你全权往下开发」= 按字母序全权推进，无需确认。单特性 11 步：
-定字母→侦察(grep 依赖/ribbon kind/icons.js 可用名，**不臆造图标**)→建纯模块(三件套 IIFE+OS 全局+module.exports)→接入 index.html 纯模块区→UI 接线 ribbon 加组+弹窗助手→写测试(≥12 断言)→跑测(node _x_test + node --check)→全量门禁(run-tests.js)→回写文档(FEATURES/STATUS/02_PDF_总纲)→四端同步(sync-clients --check)→记忆(MEMORY 完成度表+当日日志含踩坑)
+## 字母序特性开发工作流
+「按顺序全权往下开发」= 按字母序推进无需确认。单特性 11 步：定字母→侦察(grep 依赖/icons.js，**不臆造图标**)→建纯模块(IIFE+OS 全局+module.exports)→接入 index.html→UI 接线 ribbon+弹窗→写测试(≥12 断言)→跑测(node _x_test + node --check)→全量门禁→回写文档→四端同步(sync-clients --check)→记忆
 
-**踩坑沉淀**：
-- PDF 字面串分词：`(` 起始 depth=1，`)` 使 depth<=0 即停且不含右括号；操作符词只按空白/特殊字符截断（不能用 isNumCh 含 e/E，否则 re 切孤立 e → OOM 死循环）
-- PDF 内容流解释用操作数栈（操作符从栈顶弹），不能前向贪婪 eatNum()
-- 引用正则 `/(\d+)\s+\d+\s+R/` 必须捕对象号而非代数（AC/AD 踩过：否则 0 文件/误匹配 catalog）
-- Names 数组 key 可为十六进制串 `<FEFF…>`（token 正则需补 `<[0-9A-Fa-f\s]+>`）
-- getObjDict 正则须锚定具体对象号 `num+"\s+0\s+obj\s*<<"`，否则误匹配 catalog
-- 合成测试派生维度（byDate/byMonth）期望值须逐条列出归属再求和，不可心算（AE 踩坑）
-- AH 链接提取：标注内 /URI 字面串须从 action 子串（act）相对偏移调用 matchLiteral，误用全局 txt 会使括号平衡扫描错位 → 垃圾条目 + 来源判定错（annotation 误判为 action）；独立兜底扫描用全局 txt 正确
-- AI 加密检测：/Encrypt 字典含 /CF 嵌套 <<>>（/StdCF 内还有 /CFM 等），提取字典必须用平衡切分（depth 计数到 0）而非非贪婪 `.*?>>`，否则在内层 `>>` 处截断丢失 /StmF//StrF；pdf-encrypt.js sliceDict 用 `<<`/`>>` 双字符配对
-- AJ 签名验证：PDF 字面串必须**字节级**解析——`bytesToString` 逐字节转 latin1 会让 UTF-8 中文变成 Mojibake（如「张三」→`å¼ ä¸`）。修复：从原始 bytes 切片字面串字节再用 TextDecoder('utf-8') 解码；先判 UTF-16BE(<FEFF>)，再 UTF-8，再 Latin-1；同时处理 PDF 转义(\n \r \t \b \f \( \) \\ \ddd)。txt 与 bytes 是 1:1 索引映射，可直接用 txt 上的 match index 切 bytes。
-- AM 页面属性：① `countTopLevelKeys` 的 `/` 分支必须 `i++` 跳过 `/` 自身，否则**死循环挂死进程**（冒烟务必加 `timeout 60` 保护）；② `/Resources` 子字典（/Font /XObject）必须用**平衡切分** `sliceDict`，非贪婪 `.*?>>` 会在内层 `>>` 截断嵌套子字典；③ 图像计数须解析**间接引用**（真实 PDF 多为 `/Im1 8 0 R`），只数内联 `/Subtype /Image` 会漏
-- AN 字体信息：① **`/Flags` 规范上属于 FontDescriptor（PDF 32000-1 Table 122），不在字体字典里**——只查字体字典会全为 null；正确做法：字体字典优先、FontDescriptor 兜底；② Type0 复合字体自身无 /FontDescriptor，须经 **/DescendantFonts → CIDFont 对象**下钻才能拿到 FontFile2 判定嵌入；③ Type3 字形由内容流过程定义，**无嵌入文件也应视为已嵌入**（否则误报风险）；④ 判定"未嵌入风险"须**排除标准 14 字体**（Courier/Helvetica/Times/Symbol/ZapfDingbats 等 14 个查看器内置）；⑤ 同一字体对象常被多页共用，须**按对象号去重**再合并 pages 数组，否则清单重复膨胀；⑥ 资源可声明在 /Pages 父节点，页面自身无 /Resources 时须沿 **/Parent 链向上继承**
-- 图标不可臆造：新增 ribbon 按钮前先 grep app/js/icons.js
-- AL 文档信息：① lit() 的 blockBytes 必须与 blockTxt（infoDict 子串）在全局字节的同一起始位置 1:1 对齐，否则 `m.index`（子串内偏移）切到错误字节 → 字段全乱；用 `getObjDict` 返回的 `o.start` 切 `bytes.subarray(start, start+len)`；② XMP 的 `pdf:Title` 等常以**属性形式**出现（`pdf:Title="XMP Title"` 写在 `<rdf:Description ...>` 上），`pick(tag)` 须同时支持元素 `<tag>v</tag>` 与属性 `tag="v"` 两种写法；③ 测试构造 UTF-16BE 字面串时字节**必须包在 `(...)` 内**（真实 PDF 即 `<FEFF>...` 内嵌于括号），否则 lit 匹配不到
+**踩坑沉淀**（PDF 字节级解析高频坑，跨特性复用）：
+- 字面串分词：`(` 起 depth=1，`)` 使 depth<=0 即停；操作符词只按空白/特殊字符截断（isNumCh 含 e/E 会切孤立 e→OOM）
+- 内容流解释用操作数栈（操作符从栈顶弹），不能前向贪婪 eatNum()
+- 引用正则 `/(\d+)\s+\d+\s+R/` 捕对象号非代数；getObjDict 须锚定 `num+"\s+0\s+obj\s*<<"`
+- Names key 可为 `<FEFF…>` 十六进制串；/Encrypt /CF 嵌套字典须平衡切分（depth 到 0），非贪婪 `.*?>>` 会在内层截断
+- 合成测试派生维度(byDate/byMonth)期望值须逐条列归属再求和，禁心算
+- AJ 签名：PDF 字面串**字节级**解析——bytes 切片再用 TextDecoder('utf-8')，先判 UTF-16BE 再 UTF-8 再 Latin-1；处理 PDF 转义；txt/bytes 1:1 索引
+- AM：countTopLevelKeys 的 `/` 分支须 i++ 跳过自身（否则死循环挂死）；/Resources 子字典须平衡切分；图像计数须解析间接引用 `/Im1 8 0 R`
+- AN 字体：/Flags 属 FontDescriptor 非字体字典；Type0 经 /DescendantFonts→CIDFont 下钻；Type3 无嵌入文件视为已嵌入；未嵌入风险须排除标准14字体；字体对象按号去重；资源缺时沿 /Parent 继承
+- AL：lit() 的 blockBytes 须与 blockTxt 同起始 1:1 对齐（用 getObjDict o.start）；XMP 属性形式 `pdf:Title="..."` 须支持；UTF-16BE 字面串字节须包在 `(...)` 内
+- 图标不可臆造：新增 ribbon 按钮前 grep app/js/icons.js
 
 ## 关键产物路径
-- Web 真源：app/（js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js）
-- 客户端副本：ios/、harmonyos/（sync-clients 维护）
-- 测试发现：根目录 _*_test.js；同步：scripts/sync-clients.js
-- 服务端：server/index.js（自托管零依赖）
-- 模块契约：OS.modules[type].mount(host, doc, ctx)
-- 文档模型：OS.UOM；存档 .lvjx；自动备档每 5 分钟
+- Web 真源：app/（js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js）；客户端副本：ios/、harmonyos/（sync-clients）
+- 测试：根目录 `_*_test.js`；同步：scripts/sync-clients.js；服务端：server/index.js（零依赖）
+- 模块契约：OS.modules[type].mount(host, doc, ctx)；文档模型 OS.UOM；存档 .lvjx
 
-## 完成度（按模块简版）
+## 完成度（简版）
 | 模块 | 状态 |
 |---|---|
-| 五大编辑 + MindMap(导出 docx/md/ofd) + OOXML + OFD + 云端 + 单账号 + 更新 + 商店 | ✅ |
-| PDF 阅读/合并拆分/批注/光栅/签名/文本层/表单 | ✅ |
-| PDF→DOCX/TXT/MD/Excel(CSV) | ✅ 文本提取；Excel 已坐标列聚类+多表块隔离，版面还原有限 |
-| PDF 注释导入(反向读回)/导出 round-trip/AP 位图+矢量解析 | ✅ |
-| docx→PDF + Writer/Presentation/Spreadsheet「下载 PDF 文件」 | ✅ 浏览器/光栅化直接落 .pdf |
-| 批注图层分组+RGBA 叠加 / 搜索过滤(V)/审阅清单(W)/图层可见性(Y)/批量操作(Z) | ✅ |
-| PDF 文档对比 Diff(AA) | ✅ _pdf_diff_test 40 断言 |
-| PDF 书签目录 Outline(AB) | ✅ _pdf_outline_test 29 断言 |
-| PDF 附件提取 EmbeddedFiles(AC) | ✅ _pdf_attachments_test 28 断言 |
-| PDF 页码标签 PageLabels(AD) | ✅ _pdf_pagelabels_test 32 断言 |
-| PDF 批注统计面板(AE) | ✅ aggregate 七维+rank+dateKey+导出；_pdf_anno_stats_test 67 断言 |
-| PDF 文档结构树 StructTreeRoot(AF) | ✅ parseRawStructTree 解析 /K 递归+页映射+UTF-16BE 标题+非数组K退化；flatten/toMarkdown/toHtml/searchStruct；_pdf_structtree_test 28 断言 |
-| PDF 批注时间线 AnnoTimeline(AG) | ✅ buildTimeline 升序+按天分组+dateKey四形态+派生统计；toMarkdown/toHtml(data-page跳页)；_pdf_anno_timeline_test 34 断言 |
-| PDF 链接/URI 提取 Links(AH) | ✅ extractLinks 字节级提取标注/大纲/独立URI+UTF-16BE解码+去重；summarize/toMarkdown/toHtml；_pdf_links_test 27 断言 |
-| PDF 加密与权限检测 Encryption(AI) | ✅ parseEncryption 字节级解析 /Encrypt 字典(含/CF嵌套平衡切分)+解码/P八项权限位+算法族(RC4-40/RC4/AES-128/AES-256)判定+强度；纯解析不解密；summarize/toMarkdown/toHtml；_pdf_encrypt_test 43 断言 |
-| 登录设定（可选登录） | ✅ 默认游客直接进入（不强制）；OS.AuthPolicy.shouldGate 纯逻辑（容错无 settings）；设置「启动时要求登录」开关 + 登录页「以游客身份进入」；_auth_policy_test 7 断言 + _app_boot A5/A5b 覆盖 |
-| Windows 桌面安装包 · 文件关联/默认打开方式（注册表） | ✅ NSIS 安装写注册表（卸载项 + App Paths + 文件类型关联 HKCR），关联 pdf/ofd/lvjx/docx/xlsx/pptx；双击经 argv/second-instance→IPC→前端直接打开；_file_args_test 12 断言，全链 81 套件 |
-| PDF 表单字段提取 FormFields(AK) | ✅ parseFormFields 字节级解析 /AcroForm → /Fields 含 /Kids 递归，提取字段名/类型(文本框·复选·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填等标志/所在页；兼容 UTF-16BE/UTF-8 中文名值；面板浏览+导出清单 MD；_pdf_formfields_test 34 断言，全链 82 套件 |
-| PDF 文档信息/元数据提取 DocInfo(AL) | ✅ parseDocInfo 字节级解析 /Info 字典 + /Metadata XMP 流（元素形式与属性形式双解析），兼容 UTF-16BE·UTF-8·Latin-1 字面值；PDF 日期串 D:…→可读；面板浏览 Info+XMP + 导出报告 MD；取代旧「文档属性」按钮（OS.PdfProps 已解耦）；_pdf_docinfo_test 33 断言，全链 83 套件 |
-| PDF 页面属性/页面树信息提取 PageInfo(AM) | ✅ parsePageTree 字节级解析页面树（/Pages→/Kids 递归，支持嵌套 /Pages 与间接 MediaBox 引用）：逐页 MediaBox/CropBox/Rotate/资源(字体·图像·XObject 计数，图像含间接引用解析)；识别标准纸张(A4/Letter/…)、有效方向(旋转90/270翻转盒方向)、旋转角；派生摘要(尺寸分布·一致性·主流纸张·方向·旋转分布)；面板逐页浏览(点跳页)+导出报告 MD；_pdf_pageinfo_test 50 断言，全链 84 套件 |
-| PDF 字体信息提取 Fonts(AN) | ✅ parseFonts 遍历页面树收集每页 /Resources /Font（页面缺失时沿 /Parent 链继承）：BaseFont(ABCDEF+ 子集前缀剥离)/Subtype/Encoding(预定义名·引用 BaseEncoding·Differences)/ToUnicode/嵌入标志(FontFile·2·3，Type0 经 /DescendantFonts 下钻 CIDFont 的 FontDescriptor；Type3 字形过程视为已嵌入)/Flags 九位/字符范围与宽度表；按字体对象去重合并使用页；派生摘要(类型分布·嵌入·子集·标准14·ToUnicode·未嵌入且非标准14 风险清单)；面板浏览(风险红条)+导出 MD；_pdf_fonts_test 74 断言，全链 85 套件 |
-| 桌面端应用内静默更新（更新机制修复） | ✅ feed-config 对非 GitHub 的 version.json.url（https://lujax.fun/releases）返回 generic provider → 桌面默认启用 electron-updater 静默下载安装；前端 app/js/updater.js 去掉 _autoEnabled 前置、按钮统一「立即更新」、下载失败兜底打开发布页；本地装 electron-updater(^6.8.9) 使打包运行时可用；新增 _feed_config_test 10 断言；整链 85 套件 0 失败；v1.0.14 安装包已落 |
+| 五大编辑 + MindMap + OOXML + OFD + 云端 + 单账号 + 商店 | ✅ |
+| PDF 全特性（阅读/批注/光栅/签名/文本层/表单/导出 + AA~AN 解析族） | ✅ 单测共 85 套件 0 失败 |
+| docx→PDF + Writer/Presentation/Spreadsheet「下载 PDF 文件」 | ✅ |
+| 批注图层分组/搜索过滤(V)/审阅清单(W)/图层可见性(Y)/批量(Z)/导入导出 round-trip/AP 解析 | ✅ |
+| 登录设定（可选登录，游客直进） | ✅ _auth_policy_test 7 断言 |
+| Windows 安装包·文件关联/默认打开（注册表） | ✅ _file_args_test 12 断言 |
+| 桌面端更新机制 | ✅ **全自动更新模式**（v1.0.15）：启动检查+autoDownload 后台下载+autoInstallOnAppQuit 退出自动装+前端「立即重启」可选；feed-config 返回 generic provider；装 electron-updater ^6.8.9；_feed_config_test 10 断言 |
 
-## 收口发布（2026-08-30 已完成 · 遗留人工/环境）
-- version.json.url 已修正为 https://lujax.fun/releases，release:check 通过
-- Windows 安装包干净重建根因：genie-safe-delete shim 经 NODE_OPTIONS=--require 注入拦截 fs.unlink→中文路径 .nsis.7z 移回收站失败→构建退 1；修复 `NODE_OPTIONS="" npx electron-builder --win --publish never` 退 0（~29s）。CI 无此 shim 本就退 0
-- 产物 dist/：Setup 1.0.0.exe(nsis) + 1.0.0.exe(portable) + latest.yml + .blockmap 四件齐全，verify-release-assets OK
-- 遗留：Android APK 需 SDK/gradle（本环境无）；iOS/HarmonyOS 仅源码工程；便携/nsis 双目标已恢复
-- 1.0.3 新增 Windows 安装包「文件关联/默认打开方式」：package.json fileAssociations（pdf/ofd/lvjx/docx/xlsx/pptx）+ electron/file-args.js（参数解析，可单测）+ electron/main.js（argv/second-instance/open-file→IPC app:open-file）+ app/js/shell.js（importFileObj + 监听打开）；构建 Setup 1.0.3.exe 已落地，asar 已含改动
-- 1.0.14 修复桌面端「静默更新」根因：此前 feed-config 对非 GitHub 的 version.json.url 返回 null + electron-updater 未装本地 + 前端 _autoEnabled 前置 → 桌面永远走「前往下载」手动重装；现三处修正（feed-config 返回 generic provider / 前端去掉前置默认静默 / 装 electron-updater ^6.8.9），桌面默认应用内静默更新；仍须把 dist/（Setup 1.0.14.exe + latest.yml + .blockmap）托管到 https://lujax.fun/releases 供 latest.yml 拉取（无 remote，git tag v1.0.14 未 push）
+## 收口发布（遗留人工/环境）
+- version.json.url = https://lujax.fun/releases；release:check 通过
+- 构建根因：genie-safe-delete shim 拦截 fs.unlink（中文路径 .nsis.7z 移回收站失败→退 1）；`NODE_OPTIONS="" npx electron-builder --win --publish never` 退 0（~30s），nsis+portable 双目标 + latest.yml + .blockmap
+- **遗留（P0 功能生效前提）**：须把 dist/ 的 `Setup 1.0.15.exe` + `latest.yml` + `.blockmap` 托管到 https://lujax.fun/releases，旧客户端才会真正拉 latest.yml 走应用内自动更新
+- 遗留：Android APK 需 SDK/gradle（本环境无）；iOS/HarmonyOS 仅源码工程
+- git 无 remote：v1.0.0~v1.0.15 仅本地 tag，配 remote 后 `git push --tags`
 
 ## 限制（沙箱零依赖）
 - 真实 Canvas / pdf.js DOM 集成路径沙箱无运行环境，渲染/交互依赖目检
-- 全局并行测试子进程资源争用→偶发抖动（非阻断，隔离稳定）
-- API 频率限制：长会话需分段
+- 全局并行测试子进程资源争用→偶发抖动（非阻断）
 
 ## 关键交接文档
-- .workbuddy/handoff-2026-08-19.md（30 轮回顾+完成度表+第 31 轮清单）
+- .workbuddy/handoff-2026-08-19.md
