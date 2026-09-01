@@ -4,7 +4,7 @@
 > 最后更新：2026-08-31
 
 ## 当前基线
-- **84 套件 0 失败** + 四端同源 ✅（S→AM 全特性 + 登录设定 + Windows 安装包文件关联/默认打开方式已落地并验证；AC→AM + 登录 + 文件关联均已新增；Android APK 已实测构建成功，Windows NSIS/便携双目标 + 文件关联已落地；Electron 顶部菜单栏已改为中文；**Writer「开始」选项卡补齐 Word P0 功能区（剪贴板/字体字号/上标下标/行距/多级列表/查找替换拆分/全选），覆盖率 32%→64%**；git repo 已存在且已打 tag v1.0.0~v1.0.12，仅无 remote 未 push）
+- **85 套件 0 失败** + 四端同源 ✅（S→AN 全特性 + 登录设定 + Windows 安装包文件关联/默认打开方式已落地并验证；AC→AM + 登录 + 文件关联均已新增；Android APK 已实测构建成功，Windows NSIS/便携双目标 + 文件关联已落地；Electron 顶部菜单栏已改为中文；**Writer「开始」选项卡补齐 Word P0 功能区（剪贴板/字体字号/上标下标/行距/多级列表/查找替换拆分/全选），覆盖率 32%→64%**；git repo 已存在且已打 tag v1.0.0~v1.0.13，仅无 remote 未 push）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
@@ -38,6 +38,8 @@
 - AH 链接提取：标注内 /URI 字面串须从 action 子串（act）相对偏移调用 matchLiteral，误用全局 txt 会使括号平衡扫描错位 → 垃圾条目 + 来源判定错（annotation 误判为 action）；独立兜底扫描用全局 txt 正确
 - AI 加密检测：/Encrypt 字典含 /CF 嵌套 <<>>（/StdCF 内还有 /CFM 等），提取字典必须用平衡切分（depth 计数到 0）而非非贪婪 `.*?>>`，否则在内层 `>>` 处截断丢失 /StmF//StrF；pdf-encrypt.js sliceDict 用 `<<`/`>>` 双字符配对
 - AJ 签名验证：PDF 字面串必须**字节级**解析——`bytesToString` 逐字节转 latin1 会让 UTF-8 中文变成 Mojibake（如「张三」→`å¼ ä¸`）。修复：从原始 bytes 切片字面串字节再用 TextDecoder('utf-8') 解码；先判 UTF-16BE(<FEFF>)，再 UTF-8，再 Latin-1；同时处理 PDF 转义(\n \r \t \b \f \( \) \\ \ddd)。txt 与 bytes 是 1:1 索引映射，可直接用 txt 上的 match index 切 bytes。
+- AM 页面属性：① `countTopLevelKeys` 的 `/` 分支必须 `i++` 跳过 `/` 自身，否则**死循环挂死进程**（冒烟务必加 `timeout 60` 保护）；② `/Resources` 子字典（/Font /XObject）必须用**平衡切分** `sliceDict`，非贪婪 `.*?>>` 会在内层 `>>` 截断嵌套子字典；③ 图像计数须解析**间接引用**（真实 PDF 多为 `/Im1 8 0 R`），只数内联 `/Subtype /Image` 会漏
+- AN 字体信息：① **`/Flags` 规范上属于 FontDescriptor（PDF 32000-1 Table 122），不在字体字典里**——只查字体字典会全为 null；正确做法：字体字典优先、FontDescriptor 兜底；② Type0 复合字体自身无 /FontDescriptor，须经 **/DescendantFonts → CIDFont 对象**下钻才能拿到 FontFile2 判定嵌入；③ Type3 字形由内容流过程定义，**无嵌入文件也应视为已嵌入**（否则误报风险）；④ 判定"未嵌入风险"须**排除标准 14 字体**（Courier/Helvetica/Times/Symbol/ZapfDingbats 等 14 个查看器内置）；⑤ 同一字体对象常被多页共用，须**按对象号去重**再合并 pages 数组，否则清单重复膨胀；⑥ 资源可声明在 /Pages 父节点，页面自身无 /Resources 时须沿 **/Parent 链向上继承**
 - 图标不可臆造：新增 ribbon 按钮前先 grep app/js/icons.js
 - AL 文档信息：① lit() 的 blockBytes 必须与 blockTxt（infoDict 子串）在全局字节的同一起始位置 1:1 对齐，否则 `m.index`（子串内偏移）切到错误字节 → 字段全乱；用 `getObjDict` 返回的 `o.start` 切 `bytes.subarray(start, start+len)`；② XMP 的 `pdf:Title` 等常以**属性形式**出现（`pdf:Title="XMP Title"` 写在 `<rdf:Description ...>` 上），`pick(tag)` 须同时支持元素 `<tag>v</tag>` 与属性 `tag="v"` 两种写法；③ 测试构造 UTF-16BE 字面串时字节**必须包在 `(...)` 内**（真实 PDF 即 `<FEFF>...` 内嵌于括号），否则 lit 匹配不到
 
@@ -72,6 +74,7 @@
 | PDF 表单字段提取 FormFields(AK) | ✅ parseFormFields 字节级解析 /AcroForm → /Fields 含 /Kids 递归，提取字段名/类型(文本框·复选·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填等标志/所在页；兼容 UTF-16BE/UTF-8 中文名值；面板浏览+导出清单 MD；_pdf_formfields_test 34 断言，全链 82 套件 |
 | PDF 文档信息/元数据提取 DocInfo(AL) | ✅ parseDocInfo 字节级解析 /Info 字典 + /Metadata XMP 流（元素形式与属性形式双解析），兼容 UTF-16BE·UTF-8·Latin-1 字面值；PDF 日期串 D:…→可读；面板浏览 Info+XMP + 导出报告 MD；取代旧「文档属性」按钮（OS.PdfProps 已解耦）；_pdf_docinfo_test 33 断言，全链 83 套件 |
 | PDF 页面属性/页面树信息提取 PageInfo(AM) | ✅ parsePageTree 字节级解析页面树（/Pages→/Kids 递归，支持嵌套 /Pages 与间接 MediaBox 引用）：逐页 MediaBox/CropBox/Rotate/资源(字体·图像·XObject 计数，图像含间接引用解析)；识别标准纸张(A4/Letter/…)、有效方向(旋转90/270翻转盒方向)、旋转角；派生摘要(尺寸分布·一致性·主流纸张·方向·旋转分布)；面板逐页浏览(点跳页)+导出报告 MD；_pdf_pageinfo_test 50 断言，全链 84 套件 |
+| PDF 字体信息提取 Fonts(AN) | ✅ parseFonts 遍历页面树收集每页 /Resources /Font（页面缺失时沿 /Parent 链继承）：BaseFont(ABCDEF+ 子集前缀剥离)/Subtype/Encoding(预定义名·引用 BaseEncoding·Differences)/ToUnicode/嵌入标志(FontFile·2·3，Type0 经 /DescendantFonts 下钻 CIDFont 的 FontDescriptor；Type3 字形过程视为已嵌入)/Flags 九位/字符范围与宽度表；按字体对象去重合并使用页；派生摘要(类型分布·嵌入·子集·标准14·ToUnicode·未嵌入且非标准14 风险清单)；面板浏览(风险红条)+导出 MD；_pdf_fonts_test 74 断言，全链 85 套件 |
 
 ## 收口发布（2026-08-30 已完成 · 遗留人工/环境）
 - version.json.url 已修正为 https://lujax.fun/releases，release:check 通过

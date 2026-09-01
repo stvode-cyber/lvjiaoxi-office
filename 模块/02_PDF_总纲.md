@@ -52,13 +52,14 @@ Web 真源位于 `app/js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js`，本�
 | PDF 表单字段提取（FormFields） | ✅ 已实现 | `OS.PdfFormFields` 解析 /AcroForm → /Fields（含 /Kids 递归）：字段名/类型(文本框·复选·单选·下拉·列表·签名域)/当前值/默认值/选项/只读·必填等标志位/所在页；兼容 UTF-16BE/UTF-8 中文名值；面板浏览 + 导出清单(MD)；_pdf_formfields_test 34 断言 |
 | PDF 文档信息/元数据提取（DocInfo） | ✅ 已实现 | `OS.PdfDocInfo` 解析 /Info 字典（标题/作者/主题/关键词/创建者/生产者/创建时间/修改时间，兼容 UTF-16BE·UTF-8·Latin-1 字面值）+ /Metadata XMP 流（pdf:Title/dc:creator/dc:description/xmp:CreateDate/xmp:ModifyDate/xmp:CreatorTool/pdf:Producer/pdf:Keywords/xmpMM:DocumentID，兼容元素形式与属性形式）；PDF 日期串 D:YYYYMMDD…→可读；面板浏览(Info+XMP) + 导出报告(MD)；取代旧 OS.PdfProps「文档属性」按钮（更全面、中文解码更强）；_pdf_docinfo_test 33 断言 |
 | PDF 页面属性/页面树信息提取（PageInfo） | ✅ 已实现 | `OS.PdfPageInfo` 解析页面树（/Pages → /Kids 递归，支持嵌套 /Pages 与间接 MediaBox 引用）：逐页提取 MediaBox/CropBox/Rotate/资源（字体·图像·XObject 计数，图像含间接引用解析）；识别标准纸张(A4/Letter/…)、有效方向(旋转90/270翻转)、旋转角；派生摘要（尺寸分布·一致性·主流纸张·方向·旋转分布）；面板浏览逐页属性(点击跳页) + 导出报告(MD)；_pdf_pageinfo_test 50 断言 |
+| PDF 字体信息提取（Fonts） | ✅ 已实现 | `OS.PdfFonts` 遍历页面树收集每页 /Resources /Font（页面缺失时沿 /Parent 链继承）：逐字体解析 BaseFont（含 ABCDEF+ 子集前缀剥离）/ Subtype(Type0·Type1·TrueType·MMType1·Type3·CIDFontType0/2)/ Encoding(预定义名·引用 BaseEncoding·Differences)/ ToUnicode/ 嵌入标志(FontFile·FontFile2·FontFile3，Type0 经 /DescendantFonts 下钻 CIDFont 的 FontDescriptor；Type3 视为已嵌入)/ Flags 九位(字体字典优先、FontDescriptor 兜底)/ 字符范围与宽度表；按对象去重合并使用页；派生摘要(类型分布·嵌入·子集·标准14·ToUnicode·**未嵌入且非标准14 的风险字体清单**)；面板浏览(风险红条) + 导出报告(MD)；_pdf_fonts_test 74 断言 |
 
 ## 四、与其他模块关系
 
 - **下游 → 格式兼容（03）**：导出带批注 DOCX 复用 `OS.Exporter.buildDocx`；PDF→DOCX 是 PDF⇄Office 转换的一环。
 - **上游 ← 文档编辑（01）**：Presentation/Writer 可导出 PDF；批注/表单持久化于文档 `data`。
 - **上游 ← 账户云端（04）**：PDF 文档经统一账号备档/同步。
-- **被 测试质量（08）** 覆盖（批注模型 31、光栅 14、签名 17、文本索引 28、表单 24、PDF 文本提取 19、PDF 文本转换 19、PDF→Excel 文本/聚类/多表块 18/15/15、AP 位图 15、AP 矢量 28、图层+RGBA 25、范围预设 18、搜索过滤 23、审阅清单 16、文档属性 15、图层可见性 7、批量操作 19、文档对比 40、书签目录 29、附件提取 28、页码标签 32、批注统计 67、文档结构树 28、批注时间线 34、表单字段 34、文档信息 33、页面属性 50 等，整链 84 套件 0 失败）。
+- **被 测试质量（08）** 覆盖（批注模型 31、光栅 14、签名 17、文本索引 28、表单 24、PDF 文本提取 19、PDF 文本转换 19、PDF→Excel 文本/聚类/多表块 18/15/15、AP 位图 15、AP 矢量 28、图层+RGBA 25、范围预设 18、搜索过滤 23、审阅清单 16、文档属性 15、图层可见性 7、批量操作 19、文档对比 40、书签目录 29、附件提取 28、页码标签 32、批注统计 67、文档结构树 28、批注时间线 34、表单字段 34、文档信息 33、页面属性 50、字体信息 74 等，整链 85 套件 0 失败）。
 
 ## 五、具体内容入口
 

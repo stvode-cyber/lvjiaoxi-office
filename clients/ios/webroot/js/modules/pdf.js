@@ -715,6 +715,9 @@
             ] },
             { label: "页面属性", items: [
               { kind: "btn", icon: "layout", title: "提取 PDF 页面属性 / 页面树信息：解析页面树，逐页列出纸张尺寸(A4/Letter…)/方向(纵·横)/旋转角/字体·图像资源，并派生纸张分布·尺寸一致性·主流纸张·方向·旋转摘要，可跳页、可导出报告(MD)", label: "页面属性", onClick: () => showPageInfo() }
+            ] },
+            { label: "字体信息", items: [
+              { kind: "btn", icon: "font-size", title: "提取 PDF 字体信息：遍历页面树收集每页 /Resources /Font（含父节点继承），解析字体名(BaseFont·子集前缀)/类型(Type0·TrueType·Type1·Type3…)/编码/ToUnicode/嵌入标志(FontFile·FontFile2·FontFile3，Type0 下钻 DescendantFonts)/标志位(等宽·衬线·符号·斜体)，按对象去重合并使用页，标出「未嵌入且非标准 14」的显示·打印·转换风险字体，并导出报告(MD)", label: "字体信息", onClick: () => showFonts() }
             ] }
           ]
         }
@@ -1312,6 +1315,38 @@
           const c = view.querySelector('canvas[data-p="' + p + '"]');
           if (c) { c.scrollIntoView({ behavior: "smooth", block: "start" }); if (pageInput) pageInput.value = p; }
           ov.remove();
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    // AN：PDF 字体信息提取（/Resources /Font，含父节点继承与 Type0 DescendantFonts 下钻）
+    function showFonts() {
+      if (!data || !data.dataUrl) { OS.toast("请先打开一个 PDF 再提取字体信息", "warn"); return; }
+      const bytes = dataUrlToBytes(data.dataUrl);
+      if (!(bytes instanceof Uint8Array)) { OS.toast("无法读取 PDF 字节", "err"); return; }
+      if (!OS.PdfFonts) { OS.toast("字体信息引擎未就绪", "err"); return; }
+      const res = OS.PdfFonts.parseFonts(bytes);
+      if (!res.hasFonts) { OS.toast("该文档未发现字体资源", "info"); return; }
+      const body = OS.PdfFonts.toHtml(res);
+      const s = res.summary;
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(640px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 字体信息" +
+          "<span style='font-size:12px;color:#888;font-weight:normal'> · 共 " + s.totalFonts + " 个字体 · 已嵌入 " +
+          s.embeddedCount + " · 未嵌入 " + s.notEmbeddedCount +
+          (s.riskyCount ? " · <span style='color:#d1242f'>风险 " + s.riskyCount + "</span>" : " · 无风险") + "</span></h3>" +
+          "<div id='ft_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 10px;background:#fafafa;margin-top:8px'>" + body + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='ft_md'>导出报告(MD)</button> <button class='btn primary' id='ft_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "ft_close") { ov.remove(); return; }
+        if (e.target.id === "ft_md") {
+          const md = OS.PdfFonts.toMarkdown(res, { title: (doc.name || "文档") + " 字体信息" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_字体信息.md");
+          OS.toast("已导出字体信息报告（Markdown）", "ok");
         }
       });
       document.body.appendChild(ov);

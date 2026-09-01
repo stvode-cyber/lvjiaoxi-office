@@ -1,10 +1,10 @@
 {
-  "version": "1.0.12",
-  "publishedAt": "2026-08-31",
+  "version": "1.0.13",
+  "publishedAt": "2026-09-01",
   "channel": "stable",
   "minVersion": "1.0.0",
   "notes": [
-    "AM=PDF 页面属性/页面树信息提取（OS.PdfPageInfo 解析页面树 /Pages→/Kids 递归，逐页提取 MediaBox/CropBox/Rotate/资源计数，识别标准纸张 A4/Letter…，有效方向(旋转翻转)，派生纸张分布·一致性·主流纸张·方向·旋转摘要，面板逐页浏览(跳页)+导出 MD，50 断言，整链 84 套件 0 失败）"
+    "AN=PDF 字体信息提取（OS.PdfFonts 遍历页面树收集每页 /Resources /Font 含父节点继承，解析 BaseFont 子集前缀/Subtype/Encoding/ToUnicode/嵌入标志(Type0 下钻 DescendantFonts·Type3 字形过程)/Flags 九位/字符范围，按对象去重合并使用页，标出未嵌入且非标准 14 的风险字体，面板浏览+导出 MD，74 断言，整链 85 套件 0 失败）"
   ],
   "url": "https://lujax.fun/releases"
 }
