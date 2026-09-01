@@ -19,6 +19,7 @@
  *  node scripts/publish-desktop-feed.js --latest-only   # 仅发布 latest.yml 指向的最新版本（避免上传历史版本堆积）
  *  node scripts/publish-desktop-feed.js --dist ./dist   # 指定目录
  *  node scripts/publish-desktop-feed.js --dry-run       # 只列出将上传的文件与目标机制
+ *  REMOTE_DIR 可省略：SSH 模式下自动 `find` 定位远端第一个 releases 目录（无需手动记路径）
  */
 
 const fs = require('fs');
@@ -113,20 +114,67 @@ function orderForUpload(files) {
   return [...installers, ...blockmaps, ...metas];
 }
 
-function publishViaSsh(files, env) {
-  if (!env.LVJX_FEED_SSH_USER || !env.LVJX_FEED_SSH_KEY || !env.LVJX_FEED_REMOTE_DIR) {
-    throw new Error(
-      'SSH 发布缺少必要变量：LVJX_FEED_SSH_USER / LVJX_FEED_SSH_KEY(base64) / LVJX_FEED_REMOTE_DIR'
-    );
-  }
+// 写临时私钥文件（用完调用方负责删除）；返回临时路径，无 key 返回 null
+function ensureTempKey(env) {
+  if (!env.LVJX_FEED_SSH_KEY) return null;
   const keyPath = path.join(os.tmpdir(), 'lvjx_feed_' + Date.now() + '.key');
   fs.writeFileSync(keyPath, Buffer.from(env.LVJX_FEED_SSH_KEY, 'base64'));
   fs.chmodSync(keyPath, 0o600);
-  const remote = `${env.LVJX_FEED_SSH_USER}@${env.LVJX_FEED_SSH_HOST}:${env.LVJX_FEED_REMOTE_DIR.replace(/\/$/, '')}/`;
-  const sshOpt = `ssh -i ${keyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
-  execFileSync('rsync', ['-azP', '-e', sshOpt, ...files, remote], {
-    stdio: 'inherit',
-  });
+  return keyPath;
+}
+
+// 返回 ssh 基础参数数组（不含 host/cmd），供 rsync -e 与 sshExec 复用
+function sshBaseArgs(env, keyPath) {
+  return ['-i', keyPath, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null'];
+}
+
+// 经 SSH 在远端执行命令并返回 stdout（用于只读探测，如定位 releases 目录）
+function sshExec(env, cmd) {
+  const keyPath = ensureTempKey(env);
+  if (!keyPath) throw new Error('SSH 发布缺少 LVJX_FEED_SSH_KEY(base64)');
+  try {
+    return execFileSync('ssh', [
+      ...sshBaseArgs(env, keyPath),
+      `${env.LVJX_FEED_SSH_USER}@${env.LVJX_FEED_SSH_HOST}`,
+      cmd,
+    ], { encoding: 'utf8' });
+  } finally {
+    try { fs.unlinkSync(keyPath); } catch (e) {}
+  }
+}
+
+// 从 `find` 输出中挑第一个非空且以 releases 结尾的目录行
+function pickReleasesDir(findOutput) {
+  if (!findOutput) return null;
+  for (const line of findOutput.split('\n')) {
+    const t = line.trim();
+    if (t && /releases$/.test(t)) return t;
+  }
+  return null;
+}
+
+// 解析 REMOTE_DIR：显式设置优先；否则 SSH 模式下自动 find 定位第一个 releases 目录
+function resolveRemoteDir(env) {
+  if (env.LVJX_FEED_REMOTE_DIR) return env.LVJX_FEED_REMOTE_DIR;
+  if (!env.LVJX_FEED_SSH_HOST || !env.LVJX_FEED_SSH_USER || !env.LVJX_FEED_SSH_KEY) return null;
+  const findCmd = "find /var/www /opt /srv /usr/share/nginx -maxdepth 4 -type d -name releases 2>/dev/null | head -1";
+  const out = sshExec(env, findCmd);
+  return pickReleasesDir(out);
+}
+
+function publishViaSsh(files, env) {
+  if (!env.LVJX_FEED_SSH_USER) throw new Error('SSH 发布缺少 LVJX_FEED_SSH_USER');
+  const keyPath = ensureTempKey(env);
+  if (!keyPath) throw new Error('SSH 发布缺少 LVJX_FEED_SSH_KEY(base64)');
+  const remoteDir = (env.LVJX_FEED_REMOTE_DIR || '').replace(/\/$/, '');
+  if (!remoteDir) throw new Error('SSH 发布缺少 LVJX_FEED_REMOTE_DIR（或自动定位失败，请显式设置）');
+  const remote = `${env.LVJX_FEED_SSH_USER}@${env.LVJX_FEED_SSH_HOST}:${remoteDir}/`;
+  const sshOpt = ['-i', keyPath, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null'];
+  try {
+    execFileSync('rsync', ['-azP', '-e', 'ssh ' + sshOpt.join(' '), ...files, remote], { stdio: 'inherit' });
+  } finally {
+    try { fs.unlinkSync(keyPath); } catch (e) {}
+  }
 }
 
 function publishViaS3(files, env) {
@@ -162,6 +210,9 @@ function main() {
       console.log(`  [${tag}] ${f}`);
     }
     console.log(`[dry-run] mechanism=${mech} latestOnly=${latestOnly}`);
+    if (mech === 'ssh' && !process.env.LVJX_FEED_REMOTE_DIR) {
+      console.log('[dry-run] REMOTE_DIR 未设置，发布时将自动 SSH 定位 releases 目录（需 LVJX_FEED_SSH_* 凭证）');
+    }
     return 0;
   }
 
@@ -178,13 +229,19 @@ function main() {
 
   const feed = process.env.LVJX_UPDATE_FEED || '(unknown)';
   console.log(`发布 ${ordered.length} 个产物（机制=${mech}）到 feed: ${feed}`);
-  if (mech === 'ssh') publishViaSsh(ordered, process.env);
-  else if (mech === 's3') publishViaS3(ordered, process.env);
+  if (mech === 'ssh') {
+    const dir = resolveRemoteDir(process.env);
+    if (dir) {
+      process.env.LVJX_FEED_REMOTE_DIR = dir;
+      console.log(`[auto] 已定位 releases 目录: ${dir}`);
+    }
+    publishViaSsh(ordered, process.env);
+  } else if (mech === 's3') publishViaS3(ordered, process.env);
   console.log('发布完成。');
   return 0;
 }
 
-module.exports = { collectArtifacts, detectMechanism, orderForUpload, META_RE, BLOCKMAP_RE };
+module.exports = { collectArtifacts, detectMechanism, orderForUpload, META_RE, BLOCKMAP_RE, pickReleasesDir, resolveRemoteDir };
 
 if (require.main === module) {
   process.exit(main());

@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { collectArtifacts, detectMechanism, orderForUpload, META_RE, BLOCKMAP_RE } =
+const { collectArtifacts, detectMechanism, orderForUpload, META_RE, BLOCKMAP_RE, pickReleasesDir } =
   require('./scripts/publish-desktop-feed.js');
 
 let pass = 0;
@@ -96,6 +96,16 @@ ok(
   '1.0.0 安装包（nsis + 便携）均保留'
 );
 fs.rmSync(tmp2, { recursive: true, force: true });
+
+console.log('pickReleasesDir（自动定位解析）:');
+ok(pickReleasesDir('') === null, '空输出 → null');
+ok(pickReleasesDir('/var/www/lujax.fun\n/opt/other\n') === null, '无 releases 结尾行 → null');
+ok(pickReleasesDir('/var/www/lujax.fun/releases\n') === '/var/www/lujax.fun/releases', '单行 releases → 提取');
+ok(
+  pickReleasesDir('\n/opt/x/releases\n\n/var/www/y/releases\n') === '/opt/x/releases',
+  '多行取第一个 releases 目录'
+);
+ok(pickReleasesDir('  /srv/releases  \n') === '/srv/releases', '容忍首尾空白');
 
 console.log('空目录容错:');
 const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'lvjx-empty-'));
