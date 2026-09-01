@@ -79,6 +79,24 @@ ok(
   'S3 优先于 SSH'
 );
 
+console.log('collectArtifacts --latest-only（仅最新版）:');
+const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'lvjx-dist2-'));
+fs.writeFileSync(path.join(tmp2, '绿角犀 Office Setup 1.0.0.exe'), 'x');
+fs.writeFileSync(path.join(tmp2, '绿角犀 Office Setup 1.0.0.exe.blockmap'), 'x');
+fs.writeFileSync(path.join(tmp2, '绿角犀 Office 1.0.0.exe'), 'x');
+fs.writeFileSync(path.join(tmp2, '绿角犀 Office Setup 1.0.1.exe'), 'x'); // 旧版本，应被排除
+fs.writeFileSync(path.join(tmp2, '绿角犀 Office Setup 1.0.1.exe.blockmap'), 'x');
+fs.writeFileSync(path.join(tmp2, 'latest.yml'), 'version: 1.0.0\npath: 绿角犀 Office Setup 1.0.0.exe\n');
+const r2 = collectArtifacts(tmp2, { latestOnly: true });
+ok(r2.all.length === 4, `latest-only 仅 4 个（1.0.0 的 nsis+portable+blockmap+latest.yml），实际 ${r2.all.length}`);
+ok(!r2.all.some((f) => f.includes('1.0.1')), '旧版本 1.0.1 被排除');
+ok(
+  r2.all.some((f) => f.includes('绿角犀 Office Setup 1.0.0.exe')) &&
+  r2.all.some((f) => f.includes('绿角犀 Office 1.0.0.exe')),
+  '1.0.0 安装包（nsis + 便携）均保留'
+);
+fs.rmSync(tmp2, { recursive: true, force: true });
+
 console.log('空目录容错:');
 const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'lvjx-empty-'));
 const re = collectArtifacts(empty);

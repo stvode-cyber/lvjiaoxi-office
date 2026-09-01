@@ -15,7 +15,8 @@
  *    不依赖任何外部凭证即可测试。
  *
  * 用法：
- *  node scripts/publish-desktop-feed.js                 # 默认发布 dist/
+ *  node scripts/publish-desktop-feed.js                 # 默认发布 dist/（全部版本）
+ *  node scripts/publish-desktop-feed.js --latest-only   # 仅发布 latest.yml 指向的最新版本（避免上传历史版本堆积）
  *  node scripts/publish-desktop-feed.js --dist ./dist   # 指定目录
  *  node scripts/publish-desktop-feed.js --dry-run       # 只列出将上传的文件与目标机制
  */
@@ -38,7 +39,21 @@ const BLOCKMAP_RE = /\.blockmap$/;
  * @param {string} distDir
  * @returns {{installers:string[], metas:string[], blockmaps:string[], all:string[]}}
  */
-function collectArtifacts(distDir) {
+function parseLatestVersion(distDir) {
+  try {
+    const txt = fs.readFileSync(path.join(distDir, 'latest.yml'), 'utf8');
+    const m = txt.match(/^version:\s*([\d.]+)/m);
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+
+/**
+ * 收集 dist/ 根级需要上传到 feed 的文件。
+ * @param {string} distDir
+ * @param {{latestOnly?:boolean}} [opts] latestOnly=true 时仅保留 latest.yml 指向的最新版本产物
+ * @returns {{installers:string[], metas:string[], blockmaps:string[], all:string[]}}
+ */
+function collectArtifacts(distDir, opts) {
   if (!fs.existsSync(distDir)) {
     return { installers: [], metas: [], blockmaps: [], all: [] };
   }
@@ -52,6 +67,15 @@ function collectArtifacts(distDir) {
     // 仅保留 latest*.yml；其它 .yml/.yaml（如配置）排除
     if ((ext === '.yml' || ext === '.yaml') && !META_RE.test(base)) continue;
     all.push(path.join(distDir, base));
+  }
+  // --latest-only：仅保留 latest.yml 指向版本号的最新产物（安装包/blockmap），避免上传历史版本堆积
+  if (opts && opts.latestOnly) {
+    const ver = parseLatestVersion(distDir);
+    if (!ver) return { installers: [], metas: [], blockmaps: [], all: [] };
+    const verRe = new RegExp(ver.replace(/\./g, '\\.') + '\\.(exe|exe\\.blockmap)$');
+    const kept = all.filter((f) => META_RE.test(path.basename(f)) || verRe.test(path.basename(f)));
+    all.length = 0;
+    for (const f of kept) all.push(f);
   }
   const name = (f) => path.basename(f);
   const metas = all.filter((f) => META_RE.test(name(f)));
@@ -121,7 +145,8 @@ function main() {
   const di = argv.indexOf('--dist');
   if (di !== -1 && argv[di + 1]) distDir = path.resolve(argv[di + 1]);
 
-  const { installers, metas, blockmaps, all } = collectArtifacts(distDir);
+  const latestOnly = argv.includes('--latest-only');
+  const { installers, metas, blockmaps, all } = collectArtifacts(distDir, { latestOnly });
   const ordered = orderForUpload(all);
   const mech = detectMechanism(process.env);
 
@@ -132,11 +157,11 @@ function main() {
       const tag = META_RE.test(path.basename(f))
         ? 'meta'
         : BLOCKMAP_RE.test(path.basename(f))
-        ? 'blockmap'
-        : 'installer';
+          ? 'blockmap'
+          : 'installer';
       console.log(`  [${tag}] ${f}`);
     }
-    console.log(`[dry-run] mechanism=${mech}`);
+    console.log(`[dry-run] mechanism=${mech} latestOnly=${latestOnly}`);
     return 0;
   }
 
