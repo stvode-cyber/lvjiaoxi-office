@@ -1,10 +1,10 @@
 {
-  "version": "1.0.14",
+  "version": "1.0.15",
   "publishedAt": "2026-09-01",
   "channel": "stable",
   "minVersion": "1.0.0",
   "notes": [
-    "桌面端应用内静默更新（提示更新→一键完成，无需手动下载原件）"
+    "桌面端全自动更新（启动检查+后台自动下载+退出自动安装/可一键立即重启）"
   ],
   "url": "https://lujax.fun/releases"
 }

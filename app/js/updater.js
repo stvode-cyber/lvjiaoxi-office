@@ -1,10 +1,10 @@
 /* 绿角犀 Office · 后台自动更新器
-   目标：让未来的版本更新「无感」——后台轮询发布清单，发现新版本即提示用户一键刷新/下载。
+   目标：全自动后台更新——启动即检查，发现新版本后台静默下载，退出时（或一键）自动安装，全程零点击。
    跨平台策略：
    - Web / PWA：轮询同源 ./version.json，命中新版本后由 Service Worker 后台接管（skipWaiting），
      用户点「立即更新」即刷新到最新外壳与资源。
-   - Electron（桌面）：优先经主进程 IPC（updater:check）比对远程发布清单（LVJX_UPDATE_FEED），
-     未配置 feed 时回退为同源比对；命中后「前往下载」打开发布页。
+   - Electron（桌面）：主进程 electron-updater 自动检查 + autoDownload=true 后台静默下载，
+     autoInstallOnAppQuit=true 退出时自动安装；下载完成后前端提供「立即重启」一键即时生效，或「稍后」退出时自动装。
    - 移动端 WebView（Android/iOS/HarmonyOS）：走同源轮询；原生壳资源由各自应用商店/ OTA 管控。 */
 (function (global) {
   const OS = global.OS = global.OS || {};
@@ -92,21 +92,17 @@
     bar.innerHTML = "";
     const msg = document.createElement("div");
     msg.className = "updater-msg";
-    msg.innerHTML = "<b>绿角犀 Office v" + info.version + "</b> 已发布" +
+    msg.innerHTML = "<b>绿角犀 Office v" + info.version + "</b> 已发布，正在后台自动下载更新…" +
       (info.notes && info.notes.length
         ? "<br><span class=\"muted\">" + info.notes.slice(0, 2).join("；") + "</span>"
         : "");
     const actions = document.createElement("div");
     actions.className = "updater-actions";
-    const btnUpdate = document.createElement("button");
-    btnUpdate.className = "btn primary";
-    btnUpdate.textContent = "立即更新"; // 桌面/Web 均走应用内更新（桌面为静默下载安装，无需手动下载原件）
-    btnUpdate.onclick = function () { applyUpdate(info); };
+    // 自动更新模式：下载由主进程 autoDownload 后台完成，无需用户点「立即更新」；仅提供「稍后」收起横幅
     const btnClose = document.createElement("button");
     btnClose.className = "btn";
     btnClose.textContent = "稍后";
     btnClose.onclick = function () { bar.remove(); };
-    actions.appendChild(btnUpdate);
     actions.appendChild(btnClose);
     bar.appendChild(msg);
     bar.appendChild(actions);
@@ -162,9 +158,33 @@
       if (bar) { const m = bar.querySelector(".updater-msg"); if (m) m.innerHTML = "<b>正在下载更新… " + (pct || 0) + "%</b>"; }
     });
     global.electronAPI.on("updater:downloaded", function () {
-      const bar = document.getElementById("updater-banner");
-      if (bar) { const a = bar.querySelector(".updater-actions"); if (a) a.innerHTML = "<span class=\"muted\">下载完成，即将重启安装…</span>"; }
-      if (global.electronAPI.invoke) global.electronAPI.invoke("updater:install");
+      // 下载完成：自动更新模式下不强制重启，提供「立即重启」一键即时生效；
+      // 用户不点则 autoInstallOnAppQuit 在应用退出时自动安装，全程零必须点击。
+      let bar = document.getElementById("updater-banner");
+      if (!bar) {
+        bar = document.createElement("div");
+        bar.id = "updater-banner";
+        bar.className = "updater-banner";
+        document.body.appendChild(bar);
+      }
+      bar.innerHTML = "";
+      const msg = document.createElement("div");
+      msg.className = "updater-msg";
+      msg.innerHTML = "<b>新版本已下载完成</b><br><span class=\"muted\">可立即重启生效，或退出应用时自动安装</span>";
+      const actions = document.createElement("div");
+      actions.className = "updater-actions";
+      const btnNow = document.createElement("button");
+      btnNow.className = "btn primary";
+      btnNow.textContent = "立即重启";
+      btnNow.onclick = function () { if (global.electronAPI.invoke) global.electronAPI.invoke("updater:install"); };
+      const btnLater = document.createElement("button");
+      btnLater.className = "btn";
+      btnLater.textContent = "稍后";
+      btnLater.onclick = function () { bar.remove(); };
+      actions.appendChild(btnNow);
+      actions.appendChild(btnLater);
+      bar.appendChild(msg);
+      bar.appendChild(actions);
     });
     global.electronAPI.on("updater:error", function (msg, downloadUrl) {
       if (OS.toast) OS.toast("自动更新失败：" + msg, "warn");

@@ -83,8 +83,8 @@ let updateDownloadUrl = ""; // github 回退通道下，供安装失败兜底打
     updateProvider = resolveUpdateProvider({ feed, releaseUrl, versionJsonUrl, githubRepo });
     if (!updateProvider) return; // 无远程更新源，桌面视为已最新
     try {
-      autoUpdater.autoDownload = false;        // 由用户/IPC 主动触发下载，避免抢占带宽
-      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.autoDownload = true;         // 自动更新模式：发现更新即后台静默下载，无需用户触发
+      autoUpdater.autoInstallOnAppQuit = true; // 应用退出时自动安装（不打断当前会话；亦可经前端「立即重启」即时生效）
       if (updateProvider.provider === "github") {
         autoUpdater.setFeedURL({ provider: "github", owner: updateProvider.owner, repo: updateProvider.repo });
         updateDownloadUrl = updateProvider.downloadUrl;
@@ -107,6 +107,8 @@ let updateDownloadUrl = ""; // github 回退通道下，供安装失败兜底打
         const msg = String(e && e.message || e);
         if (win && !win.isDestroyed()) win.webContents.send("updater:error", msg, updateDownloadUrl);
       });
+      // 自动更新模式：启动即检查（无需等待前端 IPC；前端 checkNow 仅作补充轮询）
+      autoUpdater.checkForUpdates().catch(() => {});
     } catch (e) {
       autoUpdater = null; // 任意异常都回退到现有横幅行为
       updateProvider = null;
