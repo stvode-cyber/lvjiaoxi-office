@@ -75,6 +75,7 @@
 | PDF 文档信息/元数据提取 DocInfo(AL) | ✅ parseDocInfo 字节级解析 /Info 字典 + /Metadata XMP 流（元素形式与属性形式双解析），兼容 UTF-16BE·UTF-8·Latin-1 字面值；PDF 日期串 D:…→可读；面板浏览 Info+XMP + 导出报告 MD；取代旧「文档属性」按钮（OS.PdfProps 已解耦）；_pdf_docinfo_test 33 断言，全链 83 套件 |
 | PDF 页面属性/页面树信息提取 PageInfo(AM) | ✅ parsePageTree 字节级解析页面树（/Pages→/Kids 递归，支持嵌套 /Pages 与间接 MediaBox 引用）：逐页 MediaBox/CropBox/Rotate/资源(字体·图像·XObject 计数，图像含间接引用解析)；识别标准纸张(A4/Letter/…)、有效方向(旋转90/270翻转盒方向)、旋转角；派生摘要(尺寸分布·一致性·主流纸张·方向·旋转分布)；面板逐页浏览(点跳页)+导出报告 MD；_pdf_pageinfo_test 50 断言，全链 84 套件 |
 | PDF 字体信息提取 Fonts(AN) | ✅ parseFonts 遍历页面树收集每页 /Resources /Font（页面缺失时沿 /Parent 链继承）：BaseFont(ABCDEF+ 子集前缀剥离)/Subtype/Encoding(预定义名·引用 BaseEncoding·Differences)/ToUnicode/嵌入标志(FontFile·2·3，Type0 经 /DescendantFonts 下钻 CIDFont 的 FontDescriptor；Type3 字形过程视为已嵌入)/Flags 九位/字符范围与宽度表；按字体对象去重合并使用页；派生摘要(类型分布·嵌入·子集·标准14·ToUnicode·未嵌入且非标准14 风险清单)；面板浏览(风险红条)+导出 MD；_pdf_fonts_test 74 断言，全链 85 套件 |
+| 桌面端应用内静默更新（更新机制修复） | ✅ feed-config 对非 GitHub 的 version.json.url（https://lujax.fun/releases）返回 generic provider → 桌面默认启用 electron-updater 静默下载安装；前端 app/js/updater.js 去掉 _autoEnabled 前置、按钮统一「立即更新」、下载失败兜底打开发布页；本地装 electron-updater(^6.8.9) 使打包运行时可用；新增 _feed_config_test 10 断言；整链 85 套件 0 失败；v1.0.14 安装包已落 |
 
 ## 收口发布（2026-08-30 已完成 · 遗留人工/环境）
 - version.json.url 已修正为 https://lujax.fun/releases，release:check 通过
@@ -82,6 +83,7 @@
 - 产物 dist/：Setup 1.0.0.exe(nsis) + 1.0.0.exe(portable) + latest.yml + .blockmap 四件齐全，verify-release-assets OK
 - 遗留：Android APK 需 SDK/gradle（本环境无）；iOS/HarmonyOS 仅源码工程；便携/nsis 双目标已恢复
 - 1.0.3 新增 Windows 安装包「文件关联/默认打开方式」：package.json fileAssociations（pdf/ofd/lvjx/docx/xlsx/pptx）+ electron/file-args.js（参数解析，可单测）+ electron/main.js（argv/second-instance/open-file→IPC app:open-file）+ app/js/shell.js（importFileObj + 监听打开）；构建 Setup 1.0.3.exe 已落地，asar 已含改动
+- 1.0.14 修复桌面端「静默更新」根因：此前 feed-config 对非 GitHub 的 version.json.url 返回 null + electron-updater 未装本地 + 前端 _autoEnabled 前置 → 桌面永远走「前往下载」手动重装；现三处修正（feed-config 返回 generic provider / 前端去掉前置默认静默 / 装 electron-updater ^6.8.9），桌面默认应用内静默更新；仍须把 dist/（Setup 1.0.14.exe + latest.yml + .blockmap）托管到 https://lujax.fun/releases 供 latest.yml 拉取（无 remote，git tag v1.0.14 未 push）
 
 ## 限制（沙箱零依赖）
 - 真实 Canvas / pdf.js DOM 集成路径沙箱无运行环境，渲染/交互依赖目检
