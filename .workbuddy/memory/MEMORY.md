@@ -57,6 +57,8 @@
 - version.json.url = https://lujax.fun/releases；release:check 通过
 - 构建根因：genie-safe-delete shim 拦截 fs.unlink（中文路径 .nsis.7z 移回收站失败→退 1）；`NODE_OPTIONS="" npx electron-builder --win --publish never` 退 0（~30s），nsis+portable 双目标 + latest.yml + .blockmap
 - **遗留（P0 功能生效前提）**：须把 dist/ 的 `Setup 1.0.16.exe` + `latest.yml` + `.blockmap` 托管到 https://lujax.fun/releases，旧客户端才会真正拉 latest.yml 走应用内自动更新
+- **沙箱网络限制（2026-09-02 实测）**：本沙箱到 VPS `8.149.245.252:22` **连接超时（exit 255）**，无出口，故发布上传无法在沙箱内执行。私钥 `~/.ssh/id_ed25519_rcprod` 已在沙箱但用不上；发布须在有 VPS 出口的机器跑 `bash scripts/publish-latest.sh`（自动设 host/user/key 并 SSH find 定位 releases 目录）
+- 构建通道坑（2026-09-02）：用 **PowerShell 后台包装**起 electron-builder 会被回收成僵尸（进程亡、TaskOutput 仍 running、无产物）；改用 **Bash 后台通道**更稳。`win-unpacked` 缓存后二次构建显著更快
 - 遗留：Android APK 需 SDK/gradle（本环境无）；iOS/HarmonyOS 仅源码工程
 - git 无 remote：v1.0.0~v1.0.15 仅本地 tag，配 remote 后 `git push --tags`
 
