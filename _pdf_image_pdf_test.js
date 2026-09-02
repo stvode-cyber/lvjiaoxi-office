@@ -30,18 +30,18 @@ function rgba(w, h, fill) {
   ok("含 PDF 二进制标记", head.indexOf("PDF") >= 0);
 
   // 解析回页数
-  const parsed = T.parsePdf(pdf);
+  const parsed = await T.parsePdf(pdf);
   ok("parsePdf 解析页数=3", parsed.pages.length === 3);
   ok("含 Root/Catalog 引用", /Root\s+\d+\s+\d+\s+R/.test(String.fromCharCode.apply(null, pdf)));
 
   // 单页最小情形
   const one = await T.writeImagePdf([{ width: 2, height: 2, data: rgba(2, 2, [10, 20, 30]) }]);
   ok("单页 PDF 生成", one instanceof Uint8Array && one.length > 50);
-  ok("单页解析页数=1", T.parsePdf(one).pages.length === 1);
+  ok("单页解析页数=1", (await T.parsePdf(one)).pages.length === 1);
 
   // 尺寸映射：MediaBox 等于传入 width/height（1:1 铺满）
   const big = await T.writeImagePdf([{ width: 100, height: 60, data: rgba(100, 60, [1, 2, 3]) }]);
-  ok("大尺寸页面生成且可解析", T.parsePdf(big).pages.length === 1 && big.length > 200);
+  ok("大尺寸页面生成且可解析", (await T.parsePdf(big)).pages.length === 1 && big.length > 200);
 
   console.log((fail === 0 ? "✓ 全部通过" : "✗ 有失败") + "：通过 " + pass + " / " + (pass + fail));
   process.exit(fail === 0 ? 0 : 1);

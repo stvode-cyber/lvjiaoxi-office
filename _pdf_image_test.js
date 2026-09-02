@@ -20,7 +20,7 @@
   ok("writeImagePdf 返回 Uint8Array", out instanceof Uint8Array);
   ok("输出以 %PDF 开头", T._toStr(out).indexOf("%PDF") === 0);
 
-  const parsed = T.parsePdf(out);
+  const parsed = await T.parsePdf(out);
   ok("解析出 3 页", parsed.pages.length === 3);
   ok("Root 已解析", parsed.root > 0);
 
@@ -44,7 +44,7 @@
 
   // 重新解析后再次 writeImagePdf（组合健壮性）
   const out2 = await T.writeImagePdf([makePage(4, 4, [10, 20, 30])]);
-  ok("二次生成仍有效且 1 页", T.parsePdf(out2).pages.length === 1);
+  ok("二次生成仍有效且 1 页", (await T.parsePdf(out2)).pages.length === 1);
 
   // —— _deflate / _inflate 像素往返 ——
   const sample = new Uint8Array([1, 2, 3, 4, 5, 6, 200, 100, 0, 255, 7, 8]);

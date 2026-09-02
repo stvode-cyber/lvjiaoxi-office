@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.lvjiaoxi.office</string>
     <key>CFBundleVersion</key>
-    <string>10015</string>
+    <string>10016</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.15</string>
+    <string>1.0.16</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>UILaunchStoryboardName</key>

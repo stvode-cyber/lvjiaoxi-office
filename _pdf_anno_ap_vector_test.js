@@ -83,7 +83,7 @@ const near = (a, b) => Math.abs(a - b) <= 1.5; // 颜色取整容差
   S("trailer\n<< /Root 1 0 R >>\n%%EOF\n");
   const pdfBytes = new Uint8Array(Buffer.concat(parts));
 
-  const parsed = OS.PdfTool.parsePdf(pdfBytes);
+  const parsed = await OS.PdfTool.parsePdf(pdfBytes);
   ok("端到端 parsePdf 找到 1 页", parsed.pages.length === 1);
   const res = await A.resolvePdfAnnotations(parsed, (num) => ({ w: 612, h: 792 }));
   ok("端到端 解析出 2 个批注", res.annotations.length === 2);

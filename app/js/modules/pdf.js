@@ -507,7 +507,7 @@
       try {
         const parts = [];
         for (const f of files) parts.push(dataUrlToU8(await OS.util.readFile(f, true)));
-        const merged = OS.PdfTool.mergePdfs(parts);
+        const merged = await OS.PdfTool.mergePdfs(parts);
         await openPdfBytes(merged, "合并结果.pdf");
         OS.toast("已合并 " + files.length + " 个 PDF", "ok");
       } catch (e) { OS.toast("合并失败：" + e.message, "err"); }
@@ -542,7 +542,7 @@
       }).filter(r => r[0] >= 1 && r[1] >= r[0]);
       if (!ranges.length) { OS.toast("页范围格式有误", "warn"); return; }
       try {
-        const outs = OS.PdfTool.splitPdf(dataUrlToU8(data.dataUrl), ranges);
+        const outs = await OS.PdfTool.splitPdf(dataUrlToU8(data.dataUrl), ranges);
         for (let i = 0; i < outs.length; i++) {
           if (outs[i] && outs[i].length) await openPdfBytes(outs[i], "拆分_" + (i + 1) + ".pdf");
         }

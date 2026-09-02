@@ -1,10 +1,11 @@
 /* ============================================================
    绿角犀 Office · PDF 合并 / 拆分（零依赖，字节级）
    ------------------------------------------------------------
-   支持：PDF 1.4 风格、xref 表、内联对象（含 stream）。
-   不支持：object stream / xref stream（PDF 1.5+ 压缩结构）。
-   说明：合并/拆分采用重编号 + 引用重映射 + 重建页面树 +
-   重建 xref/trailer 的标准做法；输出可被本模块及 pdf.js 重新解析。
+   支持：PDF 1.4 风格内联对象；PDF 1.5+ 对象流（/ObjStm，FlateDecode 压缩）经解析展开。
+   xref stream 作为内联对象被原生正则捕获（仅用于定位 /Root，对象偏移由全文扫描获得）。
+   说明：合并/拆分采用重编号 + 引用重映射 + 重建页面树 + 重建 xref/trailer 的标准做法；
+   输出标准 PDF 1.4 结构，可被本模块及 pdf.js 重新解析。
+   注意：parsePdf / mergePdfs / splitPdf 现为异步（ObjStm 解压依赖 DecompressionStream）。
    纯函数以 Uint8Array 输入输出，浏览器与 Node 双导出，便于测试。
    ============================================================ */
 (function (global) {
@@ -40,9 +41,66 @@
     return -1;
   }
 
-  // ---------------- 解析 ----------------
+  // 取对象 innerBytes 的字典部分（"stream" 关键字之前）
+  function dictStrOf(innerBytes) {
+    const si = findAscii(innerBytes, "stream", 0);
+    return si >= 0 ? toStr(innerBytes.subarray(0, si)) : toStr(innerBytes);
+  }
+
+  // 从 innerBytes（含 "stream...endstream"）提取 stream 数据（解压前字节）
+  function extractStreamData(innerBytes) {
+    const si = findAscii(innerBytes, "stream", 0);
+    if (si < 0) return null;
+    let start = si + 6; // "stream" 长度 6
+    if (innerBytes[start] === 0x0a) start++;
+    else if (innerBytes[start] === 0x0d) { start++; if (innerBytes[start] === 0x0a) start++; }
+    const es = findAscii(innerBytes, "endstream", start);
+    let end = es >= 0 ? es : innerBytes.length;
+    // endstream 前的 EOL（\r\n / \n / \r）不属于流数据，剥除以免 deflate 报 "Trailing junk"
+    if (end > start) {
+      if (innerBytes[end - 1] === 0x0a) { end--; if (end > start && innerBytes[end - 1] === 0x0d) end--; }
+      else if (innerBytes[end - 1] === 0x0d) end--;
+    }
+    if (end <= start) return null;
+    return innerBytes.subarray(start, end);
+  }
+
+  // 在字符串中找第一个完整平衡 <<...>>，返回含定界符的子串（用于从 ObjStm 对象体提取字典）
+  function extractFirstBalancedDict(seg) {
+    const open = seg.indexOf("<<");
+    if (open < 0) return null;
+    let depth = 0;
+    for (let i = open; i < seg.length; i++) {
+      if (seg[i] === "<" && seg[i + 1] === "<") { depth++; i++; }
+      else if (seg[i] === ">" && seg[i + 1] === ">") { depth--; i++; if (depth === 0) return seg.slice(open, i + 1); }
+    }
+    return null;
+  }
+
+  // 解析 ObjStm 解压后的 body：前 /First 字节为偏移表（N 对 整数），其后按偏移切分对象体
+  // 对象体格式 "Ni Oi <<dict>>"（紧凑，无 obj/endobj 关键字）。返回 Map<对象号, 字典字节>
+  function parseObjStmBody(comp, dict) {
+    const N = parseInt((dict.match(/\/N\s+(\d+)/) || [])[1] || "0", 10);
+    const First = parseInt((dict.match(/\/First\s+(\d+)/) || [])[1] || "0", 10);
+    const out = new Map();
+    if (!N) return out;
+    const s = toStr(comp);
+    const headTokens = s.slice(0, First).trim().split(/\s+/).filter(t => t.length);
+    const offs = [];
+    for (let i = 1; i < headTokens.length; i += 2) offs.push(parseInt(headTokens[i], 10) || 0);
+    for (let i = 0; i < N; i++) {
+      const start = First + (offs[i] || 0);
+      const end = (i + 1 < N) ? First + (offs[i + 1] || s.length) : s.length;
+      let seg = s.slice(start, end).replace(/^\s*\d+\s+\d+\s*/, "");
+      const d = extractFirstBalancedDict(seg);
+      if (d) out.set(parseInt(headTokens[i * 2], 10), toBytes(d));
+    }
+    return out;
+  }
+
+  // ---------------- 解析（异步：ObjStm 解压依赖 inflate） ----------------
   // 返回 { objects: Map<num,{num,innerBytes}>, dictStr(num), pages:[num...], root, maxId }
-  function parsePdf(input) {
+  async function parsePdf(input) {
     const bytes = toBytes(input);
     const str = toStr(bytes);
     const objects = new Map();
@@ -57,16 +115,29 @@
       const innerBytes = bytes.subarray(innerBytesStart, innerEnd);
       objects.set(num, { num, innerBytes });
     }
+
+    // 展开 /ObjStm（PDF 1.5+ 对象流）：解压后把内部对象并入 objects，并移除 ObjStm 容器
+    for (const [num, o] of Array.from(objects.entries())) {
+      const d = dictStrOf(o.innerBytes);
+      if (!/\/Type\s*\/?\s*ObjStm\b/.test(d)) continue;
+      const sd = extractStreamData(o.innerBytes);
+      if (!sd) continue;
+      let comp;
+      try { comp = await inflate(sd); } catch (e) { continue; } // 解压失败则跳过该对象流
+      const expanded = parseObjStmBody(comp, d);
+      for (const [kn, kb] of expanded) if (!objects.has(kn)) objects.set(kn, { num: kn, innerBytes: kb });
+      objects.delete(num);
+    }
+
     const maxId = objects.size ? Math.max.apply(null, Array.from(objects.keys())) : 0;
 
     function dictStr(num) {
       const o = objects.get(num);
       if (!o) return "";
-      const si = findAscii(o.innerBytes, "stream", 0);
-      return si >= 0 ? toStr(o.innerBytes.subarray(0, si)) : toStr(o.innerBytes);
+      return dictStrOf(o.innerBytes);
     }
 
-    // 定位 Root（取最后一个 /Root 引用）
+    // 定位 Root（取最后一个 /Root 引用；xref stream 的 /Root 写在容器 dict 中，全文扫描可命中）
     let root = 0;
     const rootMatches = str.match(/\/Root\s+(\d+)\s+\d+\s+R/g);
     if (rootMatches && rootMatches.length) {
@@ -157,12 +228,12 @@
   }
 
   // ---------------- 合并 ----------------
-  function mergePdfs(list) {
+  async function mergePdfs(list) {
     let offset = 0;
     const ordered = [];
     const allPageNums = [];
     for (const input of list) {
-      const p = parsePdf(input);
+      const p = await parsePdf(input);
       p.objects.forEach((o) => { writeObject(ordered, o.num + offset, o.innerBytes, offset); });
       for (const pg of p.pages) allPageNums.push(pg + offset);
       offset += p.maxId;
@@ -176,8 +247,8 @@
   }
 
   // ---------------- 拆分 ----------------
-  function splitPdf(input, ranges) {
-    const p = parsePdf(input);
+  async function splitPdf(input, ranges) {
+    const p = await parsePdf(input);
     const results = [];
     const baseMax = p.maxId;
     for (const range of ranges) {
@@ -268,7 +339,7 @@
     return assemble(ordered);
   }
 
-  const api = { parsePdf, mergePdfs, splitPdf, remapRefs, writeImagePdf, _deflate: deflate, _inflate: inflate, _concat: concat, _toBytes: toBytes, _toStr: toStr };
+  const api = { parsePdf, mergePdfs, splitPdf, remapRefs, writeImagePdf, parseObjStm: parseObjStmBody, _deflate: deflate, _inflate: inflate, _concat: concat, _toBytes: toBytes, _toStr: toStr };
   OS.PdfTool = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   return api;
