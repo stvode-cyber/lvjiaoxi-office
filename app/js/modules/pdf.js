@@ -721,6 +721,9 @@
             ] },
             { label: "安全审计", items: [
               { kind: "btn", icon: "eye", title: "PDF 动作/JavaScript 安全审计：扫描 /OpenAction 与 /AA 附加动作、全文档动作对象（JavaScript·Launch·SubmitForm·ImportData·GoToR/E·URI·Named…）与 /Names JavaScript 名称树，解码 /JS 脚本片段（UTF-16BE/UTF-8/八进制转义）与目标（文件/URL），按高/中/低风险分级并标出自动执行项，可跳页、可导出审计报告(MD)", label: "安全审计", onClick: () => showActions() }
+            ] },
+            { label: "结构预检", items: [
+              { kind: "btn", icon: "check-all", title: "PDF 结构预检/完整性诊断：只读体检 17 项——PDF 头版本、%%EOF、startxref、xref 表/流、trailer /Root 与 Root 对象定义、/Catalog 类型、/Size 一致性、悬挂引用（引用未定义对象）、重复对象定义、页面树环（安全走树防栈溢出）、页数为 0、流 /Length 缺失/间接引用/失配（±2 容差）、PDF 1.5+ 对象流解压失败、孤儿对象；按错误/警告/提示分级给出结论，可导出诊断报告(MD)", label: "结构预检", onClick: () => showPreflight() }
             ] }
           ]
         }
@@ -1390,6 +1393,39 @@
           const c = view.querySelector('canvas[data-p="' + p + '"]');
           if (c) { c.scrollIntoView({ behavior: "smooth", block: "start" }); if (pageInput) pageInput.value = p; }
           ov.remove();
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    // AQ：PDF 结构预检/完整性诊断（17 项只读体检，error/warn/info 三级）—— 由 OS.PdfPreflight 提供
+    async function showPreflight() {
+      if (!data || !data.dataUrl) { OS.toast("请先打开一个 PDF 再做结构预检", "warn"); return; }
+      const bytes = dataUrlToBytes(data.dataUrl);
+      if (!(bytes instanceof Uint8Array)) { OS.toast("无法读取 PDF 字节", "err"); return; }
+      if (!OS.PdfTool || !OS.PdfPreflight) { OS.toast("结构预检引擎未就绪", "err"); return; }
+      let res;
+      try { res = await OS.PdfPreflight.parse(bytes); } catch (e) { OS.toast("预检失败：" + (e && e.message || e), "err"); return; }
+      const body = OS.PdfPreflight.toHtml(res);
+      const s = res.summary;
+      const verdictText = { errors: "存在结构错误", warnings: "存在警告", pass: "结构完好" }[s.verdict] || s.verdict;
+      const vColor = s.verdict === "errors" ? "#d1242f" : s.verdict === "warnings" ? "#8a6d00" : "#1a7f37";
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(680px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 结构预检" +
+          "<span style='font-size:12px;color:#888;font-weight:normal'> · 对象 " + s.objectCount + " · 页数 " + s.pageCount +
+          " · <span style='color:" + vColor + "'>" + verdictText + "（错误 " + s.errors + " / 警告 " + s.warnings + " / 提示 " + s.infos + "）</span></span></h3>" +
+          "<div id='pf_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 10px;background:#fafafa;margin-top:8px'>" + body + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='pf_md'>导出诊断报告(MD)</button> <button class='btn primary' id='pf_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "pf_close") { ov.remove(); return; }
+        if (e.target.id === "pf_md") {
+          const md = OS.PdfPreflight.toMarkdown(res, { title: (doc.name || "文档") + " 结构预检" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_结构预检.md");
+          OS.toast("已导出结构预检报告（Markdown）", "ok");
         }
       });
       document.body.appendChild(ov);

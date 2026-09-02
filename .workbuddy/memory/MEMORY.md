@@ -37,6 +37,8 @@
 - 图标不可臆造：新增 ribbon 按钮前 grep app/js/icons.js
 - **sliceDict 族末位 `>` 丢失（AP 轮修复，6 模块）**：pdf-actions/pdf-fonts/pdf-docinfo/pdf-encrypt/pdf-formfields/pdf-pageinfo 的平衡切分闭合 `>>` 处 `slice(startIdx,i)` 丢末位 `>`（AO 同族），单层字典靠 lastIndexOf 启发式侥幸、嵌套字典（/Names 三层）必失衡；统一 `slice(startIdx,i+1)`。pdf-pagelabels 的 extractBalanced（i++; break 后 slice）是另一套正确实现勿动
 - **合成解析测试 PDF 必须带 `trailer << /Root N 0 R >>`**：findRootDict 锚 /Root regex，缺 trailer 全表挂
+- **ObjStm 合成偏移表必须 `num off` 严格交错**（"2 0 3 38 4 84 "）：错一位 parseObjStm 把 offset 当对象号→幻影对象（AQ 轮实测）
+- **OS.PdfTool.parsePdf 页面树 walk 无环保护**：/Kids 环→栈溢出；做页面树遍历的模块须自带 visited 安全走树（AQ=pdf-preflight 已内置，勿改为依赖 parsePdf.pages）
 - **Edit 工具幻影写入（会话级现象，已两度实测）**：回执成功但磁盘未变——每次 Edit 后必须 grep/Read 回查；批量修改优先整文件 Write 原子重写
 - AO 对象流(ObjStm)：parsePdf 须异步（FlateDecode 解压依赖 DecompressionStream）；extractStreamData 须剥 `endstream` 前 EOL（否则 deflate 报 Trailing junk）；extractFirstBalancedDict 遇 `>>` 须 `slice(open, i+1)` 含末位 `>`（否则 ObjStm 对象字典丢末位 `>`，合并真实 1.5+ PDF 输出畸形页面字典）；偏移表偏移相对 First 计量
 
