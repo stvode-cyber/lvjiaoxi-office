@@ -13,7 +13,7 @@ Web 真源位于 `app/js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js`，本�
 | 子文件 | 内容 | 状态 |
 |--------|------|------|
 | `reading.md` | pdf.js 离线渲染阅读器、覆盖层、页面导航 | ✅ 已实现 |
-| `merge-split.md` | 零依赖字节级合并/拆分（PDF 1.4 内联对象；不支持 object/xref stream） | ✅ 已实现 |
+| `merge-split.md` | 零依赖字节级合并/拆分（PDF 1.4 内联对象 + PDF 1.5+ 对象流 /ObjStm 经解析展开；不支持 xref stream） | ✅ 已实现 |
 | `annotate.md` | 高亮/画笔/文字/矩形/签名/自由文本/图章/链接/表单；`data.annotations` 持久化、JSON 侧车、扁平化、图层、搜索过滤、审阅清单、AP 位图/矢量解析、导入(FDF/XFDF) | ✅ 已实现 |
 | `text-layer.md` | 文本层覆盖（可选中/复制）+ 全文搜索高亮（`OS.PdfText` 纯逻辑可单测） | ✅ 已实现 |
 | `form.md` | 文本框拖拽绘制可编辑、复选框勾选；参与导出带批注 PDF 扁平化 | ✅ 已实现 |
@@ -53,6 +53,7 @@ Web 真源位于 `app/js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js`，本�
 | PDF 文档信息/元数据提取（DocInfo） | ✅ 已实现 | `OS.PdfDocInfo` 解析 /Info 字典（标题/作者/主题/关键词/创建者/生产者/创建时间/修改时间，兼容 UTF-16BE·UTF-8·Latin-1 字面值）+ /Metadata XMP 流（pdf:Title/dc:creator/dc:description/xmp:CreateDate/xmp:ModifyDate/xmp:CreatorTool/pdf:Producer/pdf:Keywords/xmpMM:DocumentID，兼容元素形式与属性形式）；PDF 日期串 D:YYYYMMDD…→可读；面板浏览(Info+XMP) + 导出报告(MD)；取代旧 OS.PdfProps「文档属性」按钮（更全面、中文解码更强）；_pdf_docinfo_test 33 断言 |
 | PDF 页面属性/页面树信息提取（PageInfo） | ✅ 已实现 | `OS.PdfPageInfo` 解析页面树（/Pages → /Kids 递归，支持嵌套 /Pages 与间接 MediaBox 引用）：逐页提取 MediaBox/CropBox/Rotate/资源（字体·图像·XObject 计数，图像含间接引用解析）；识别标准纸张(A4/Letter/…)、有效方向(旋转90/270翻转)、旋转角；派生摘要（尺寸分布·一致性·主流纸张·方向·旋转分布）；面板浏览逐页属性(点击跳页) + 导出报告(MD)；_pdf_pageinfo_test 50 断言 |
 | PDF 字体信息提取（Fonts） | ✅ 已实现 | `OS.PdfFonts` 遍历页面树收集每页 /Resources /Font（页面缺失时沿 /Parent 链继承）：逐字体解析 BaseFont（含 ABCDEF+ 子集前缀剥离）/ Subtype(Type0·Type1·TrueType·MMType1·Type3·CIDFontType0/2)/ Encoding(预定义名·引用 BaseEncoding·Differences)/ ToUnicode/ 嵌入标志(FontFile·FontFile2·FontFile3，Type0 经 /DescendantFonts 下钻 CIDFont 的 FontDescriptor；Type3 视为已嵌入)/ Flags 九位(字体字典优先、FontDescriptor 兜底)/ 字符范围与宽度表；按对象去重合并使用页；派生摘要(类型分布·嵌入·子集·标准14·ToUnicode·**未嵌入且非标准14 的风险字体清单**)；面板浏览(风险红条) + 导出报告(MD)；_pdf_fonts_test 74 断言 |
+| PDF 动作/JavaScript 安全审计（Actions） | ✅ 已实现 | `OS.PdfActions` 解析 /OpenAction（动作引用/内联动作/目标数组三形态）+ /AA 附加动作（Catalog/页面/批注，事件 O/E/X/U/D/Po/PC/WP/WC/DS/DC…）+ /A 动作引用 + /Names /JavaScript 名称树 + 全文档动作对象（JavaScript·Launch·SubmitForm·ImportData·GoTo(R/E)·URI·Named 等）；/JS 片段字节级解码（字面串 PDF 转义+八进制 / 十六进制；UTF-16BE→UTF-8→Latin-1）；Launch/SubmitForm/ImportData 目标(文件/URL)提取；风险分级 高(JS·Launch)/中(SubmitForm·ImportData)/低/info + 自动执行判定（OpenAction 或自动事件 O/Po/WP/WC/WS/DS/DC…）；面板(风险降序 + data-page 跳页) + 导出审计报告(MD)；_pdf_actions_test 37 断言。**同轮修复 sliceDict 族末位 `>` 丢失缺陷（六模块，AO 同族）** |
 
 ## 四、与其他模块关系
 

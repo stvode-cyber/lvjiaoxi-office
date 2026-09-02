@@ -718,6 +718,9 @@
             ] },
             { label: "字体信息", items: [
               { kind: "btn", icon: "font-size", title: "提取 PDF 字体信息：遍历页面树收集每页 /Resources /Font（含父节点继承），解析字体名(BaseFont·子集前缀)/类型(Type0·TrueType·Type1·Type3…)/编码/ToUnicode/嵌入标志(FontFile·FontFile2·FontFile3，Type0 下钻 DescendantFonts)/标志位(等宽·衬线·符号·斜体)，按对象去重合并使用页，标出「未嵌入且非标准 14」的显示·打印·转换风险字体，并导出报告(MD)", label: "字体信息", onClick: () => showFonts() }
+            ] },
+            { label: "安全审计", items: [
+              { kind: "btn", icon: "eye", title: "PDF 动作/JavaScript 安全审计：扫描 /OpenAction 与 /AA 附加动作、全文档动作对象（JavaScript·Launch·SubmitForm·ImportData·GoToR/E·URI·Named…）与 /Names JavaScript 名称树，解码 /JS 脚本片段（UTF-16BE/UTF-8/八进制转义）与目标（文件/URL），按高/中/低风险分级并标出自动执行项，可跳页、可导出审计报告(MD)", label: "安全审计", onClick: () => showActions() }
             ] }
           ]
         }
@@ -1347,6 +1350,46 @@
           const md = OS.PdfFonts.toMarkdown(res, { title: (doc.name || "文档") + " 字体信息" });
           OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_字体信息.md");
           OS.toast("已导出字体信息报告（Markdown）", "ok");
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    // AP：PDF 动作/JavaScript 安全审计（/OpenAction、/AA、动作对象、/JS 解码、风险分级）—— 由 OS.PdfActions 提供
+    function showActions() {
+      if (!data || !data.dataUrl) { OS.toast("请先打开一个 PDF 再做安全审计", "warn"); return; }
+      const bytes = dataUrlToBytes(data.dataUrl);
+      if (!(bytes instanceof Uint8Array)) { OS.toast("无法读取 PDF 字节", "err"); return; }
+      if (!OS.PdfActions) { OS.toast("安全审计引擎未就绪", "err"); return; }
+      const res = OS.PdfActions.parseActions(bytes);
+      if (!res.hasCatalog) { OS.toast("未发现文档目录，无法解析动作", "info"); return; }
+      const body = OS.PdfActions.toHtml(res);
+      const s = res.summary;
+      const verdictText = { high: "高风险", medium: "中风险", low: "低风险", clean: "干净" }[s.verdict] || s.verdict;
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(640px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 动作/JavaScript 安全审计" +
+          "<span style='font-size:12px;color:#888;font-weight:normal'> · 动作 " + s.total + " 个 · 自动执行 " + s.autoRunCount +
+          " · <span style='color:" + (s.verdict === "high" ? "#d1242f" : s.verdict === "medium" ? "#8a6d00" : "#1a7f37") + "'>" + verdictText + "</span></span></h3>" +
+          "<div id='ac_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 10px;background:#fafafa;margin-top:8px'>" + body + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='ac_md'>导出审计报告(MD)</button> <button class='btn primary' id='ac_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "ac_close") { ov.remove(); return; }
+        if (e.target.id === "ac_md") {
+          const md = OS.PdfActions.toMarkdown(res, { title: (doc.name || "文档") + " 安全审计" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_安全审计.md");
+          OS.toast("已导出安全审计报告（Markdown）", "ok");
+          return;
+        }
+        const jump = e.target.closest ? e.target.closest("[data-page]") : null;
+        if (jump) {
+          const p = jump.getAttribute("data-page");
+          const c = view.querySelector('canvas[data-p="' + p + '"]');
+          if (c) { c.scrollIntoView({ behavior: "smooth", block: "start" }); if (pageInput) pageInput.value = p; }
+          ov.remove();
         }
       });
       document.body.appendChild(ov);

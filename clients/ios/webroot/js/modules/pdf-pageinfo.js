@@ -34,7 +34,7 @@
     let depth = 0, i = startIdx;
     for (; i < txt.length; i++) {
       if (txt[i] === "<" && txt[i + 1] === "<") { depth++; i++; }
-      else if (txt[i] === ">" && txt[i + 1] === ">") { depth--; i++; if (depth === 0) return txt.slice(startIdx, i); }
+      else if (txt[i] === ">" && txt[i + 1] === ">") { depth--; i++; if (depth === 0) return txt.slice(startIdx, i + 1); }
     }
     return null;
   }

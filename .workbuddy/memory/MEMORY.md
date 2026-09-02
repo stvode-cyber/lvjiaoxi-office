@@ -35,6 +35,9 @@
 - AN 字体：/Flags 属 FontDescriptor 非字体字典；Type0 经 /DescendantFonts→CIDFont 下钻；Type3 无嵌入文件视为已嵌入；未嵌入风险须排除标准14字体；字体对象按号去重；资源缺时沿 /Parent 继承
 - AL：lit() 的 blockBytes 须与 blockTxt 同起始 1:1 对齐（用 getObjDict o.start）；XMP 属性形式 `pdf:Title="..."` 须支持；UTF-16BE 字面串字节须包在 `(...)` 内
 - 图标不可臆造：新增 ribbon 按钮前 grep app/js/icons.js
+- **sliceDict 族末位 `>` 丢失（AP 轮修复，6 模块）**：pdf-actions/pdf-fonts/pdf-docinfo/pdf-encrypt/pdf-formfields/pdf-pageinfo 的平衡切分闭合 `>>` 处 `slice(startIdx,i)` 丢末位 `>`（AO 同族），单层字典靠 lastIndexOf 启发式侥幸、嵌套字典（/Names 三层）必失衡；统一 `slice(startIdx,i+1)`。pdf-pagelabels 的 extractBalanced（i++; break 后 slice）是另一套正确实现勿动
+- **合成解析测试 PDF 必须带 `trailer << /Root N 0 R >>`**：findRootDict 锚 /Root regex，缺 trailer 全表挂
+- **Edit 工具幻影写入（会话级现象，已两度实测）**：回执成功但磁盘未变——每次 Edit 后必须 grep/Read 回查；批量修改优先整文件 Write 原子重写
 - AO 对象流(ObjStm)：parsePdf 须异步（FlateDecode 解压依赖 DecompressionStream）；extractStreamData 须剥 `endstream` 前 EOL（否则 deflate 报 Trailing junk）；extractFirstBalancedDict 遇 `>>` 须 `slice(open, i+1)` 含末位 `>`（否则 ObjStm 对象字典丢末位 `>`，合并真实 1.5+ PDF 输出畸形页面字典）；偏移表偏移相对 First 计量
 
 ## 关键产物路径

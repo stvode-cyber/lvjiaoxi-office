@@ -38,7 +38,7 @@
       if (txt[i] === "<" && txt[i + 1] === "<") { depth++; i++; }
       else if (txt[i] === ">" && txt[i + 1] === ">") {
         depth--; i++;
-        if (depth === 0) return txt.slice(startIdx, i);
+        if (depth === 0) return txt.slice(startIdx, i + 1);
       }
     }
     return null;
