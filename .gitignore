@@ -35,3 +35,8 @@ _replace_result.txt
 _sheettools_result.txt
 _sortfilter_result.txt
 _toc_result.txt
+_transition_result.txt
+_importer_result.txt
+
+# Android 构建中间产物（二进制，避免误提交）
+clients/android/app/build/

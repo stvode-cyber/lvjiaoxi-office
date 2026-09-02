@@ -4,7 +4,7 @@
 > 最后更新：2026-09-01
 
 ## 当前基线
-- **85 套件 0 失败** + 四端同源 ✅（S→AN 全特性 + 登录 + Windows 安装包文件关联/默认打开 + 桌面端全自动更新已落地并验证；Android APK 需 SDK/gradle 本环境无；git repo 已打 tag v1.0.0~v1.0.15，仅无 remote 未 push）
+- **87 套件 0 失败** + 四端同源 ✅（S→AN 全特性 + 登录 + Windows 安装包文件关联/默认打开 + 桌面端全自动更新已落地并验证 + **PDF 1.5+ 对象流(ObjStm)合并/拆分已实现**；Android APK 需 SDK/gradle 本环境无；git repo 已打 tag v1.0.0~v1.0.16，仅无 remote 未 push）
 - **🔴 大型已消解**：PDF→Excel、docx→PDF
 - **🟡 进行中边界**：PDF→DOCX/TXT/MD/Excel(CSV) 版面还原有限（文本提取，非像素级）
 
@@ -35,6 +35,7 @@
 - AN 字体：/Flags 属 FontDescriptor 非字体字典；Type0 经 /DescendantFonts→CIDFont 下钻；Type3 无嵌入文件视为已嵌入；未嵌入风险须排除标准14字体；字体对象按号去重；资源缺时沿 /Parent 继承
 - AL：lit() 的 blockBytes 须与 blockTxt 同起始 1:1 对齐（用 getObjDict o.start）；XMP 属性形式 `pdf:Title="..."` 须支持；UTF-16BE 字面串字节须包在 `(...)` 内
 - 图标不可臆造：新增 ribbon 按钮前 grep app/js/icons.js
+- AO 对象流(ObjStm)：parsePdf 须异步（FlateDecode 解压依赖 DecompressionStream）；extractStreamData 须剥 `endstream` 前 EOL（否则 deflate 报 Trailing junk）；extractFirstBalancedDict 遇 `>>` 须 `slice(open, i+1)` 含末位 `>`（否则 ObjStm 对象字典丢末位 `>`，合并真实 1.5+ PDF 输出畸形页面字典）；偏移表偏移相对 First 计量
 
 ## 关键产物路径
 - Web 真源：app/（js/modules/{pdf,pdf-anno,pdf-text,pdf-convert}.js）；客户端副本：ios/、harmonyos/（sync-clients）
@@ -45,7 +46,7 @@
 | 模块 | 状态 |
 |---|---|
 | 五大编辑 + MindMap + OOXML + OFD + 云端 + 单账号 + 商店 | ✅ |
-| PDF 全特性（阅读/批注/光栅/签名/文本层/表单/导出 + AA~AN 解析族） | ✅ 单测共 85 套件 0 失败 |
+| PDF 全特性（阅读/批注/光栅/签名/文本层/表单/导出 + AA~AN 解析族 + 1.5+ ObjStm 合并/拆分） | ✅ 单测共 87 套件 0 失败（含 _pdf_merge_test 12 断言） |
 | docx→PDF + Writer/Presentation/Spreadsheet「下载 PDF 文件」 | ✅ |
 | 批注图层分组/搜索过滤(V)/审阅清单(W)/图层可见性(Y)/批量(Z)/导入导出 round-trip/AP 解析 | ✅ |
 | 登录设定（可选登录，游客直进） | ✅ _auth_policy_test 7 断言 |
@@ -55,7 +56,7 @@
 ## 收口发布（遗留人工/环境）
 - version.json.url = https://lujax.fun/releases；release:check 通过
 - 构建根因：genie-safe-delete shim 拦截 fs.unlink（中文路径 .nsis.7z 移回收站失败→退 1）；`NODE_OPTIONS="" npx electron-builder --win --publish never` 退 0（~30s），nsis+portable 双目标 + latest.yml + .blockmap
-- **遗留（P0 功能生效前提）**：须把 dist/ 的 `Setup 1.0.15.exe` + `latest.yml` + `.blockmap` 托管到 https://lujax.fun/releases，旧客户端才会真正拉 latest.yml 走应用内自动更新
+- **遗留（P0 功能生效前提）**：须把 dist/ 的 `Setup 1.0.16.exe` + `latest.yml` + `.blockmap` 托管到 https://lujax.fun/releases，旧客户端才会真正拉 latest.yml 走应用内自动更新
 - 遗留：Android APK 需 SDK/gradle（本环境无）；iOS/HarmonyOS 仅源码工程
 - git 无 remote：v1.0.0~v1.0.15 仅本地 tag，配 remote 后 `git push --tags`
 
