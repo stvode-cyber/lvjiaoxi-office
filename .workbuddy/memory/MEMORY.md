@@ -38,6 +38,7 @@
 - **sliceDict 族末位 `>` 丢失（AP 轮修复，6 模块）**：pdf-actions/pdf-fonts/pdf-docinfo/pdf-encrypt/pdf-formfields/pdf-pageinfo 的平衡切分闭合 `>>` 处 `slice(startIdx,i)` 丢末位 `>`（AO 同族），单层字典靠 lastIndexOf 启发式侥幸、嵌套字典（/Names 三层）必失衡；统一 `slice(startIdx,i+1)`。pdf-pagelabels 的 extractBalanced（i++; break 后 slice）是另一套正确实现勿动
 - **合成解析测试 PDF 必须带 `trailer << /Root N 0 R >>`**：findRootDict 锚 /Root regex，缺 trailer 全表挂
 - **ObjStm 合成偏移表必须 `num off` 严格交错**（"2 0 3 38 4 84 "）：错一位 parseObjStm 把 offset 当对象号→幻影对象（AQ 轮实测）
+- **AR 增量更新回溯：/Prev 链是权威依据**——从最后一个 startxref 起沿 trailer /Prev 回溯还原全部版本；%%EOF/startxref/xref 段计数仅交叉验证。readTrailerAt 双路径：优先找 `trailer` 关键字（经典 xref 表后），找不到再按 `/Type /XRef` 取 xref 流对象字典（PDF 1.5+ xref stream 版无独立 trailer 段）。合成测试 startxref 偏移用 `pdf.length` 实时计算，手算必错位
 - **OS.PdfTool.parsePdf 页面树 walk 无环保护**：/Kids 环→栈溢出；做页面树遍历的模块须自带 visited 安全走树（AQ=pdf-preflight 已内置，勿改为依赖 parsePdf.pages）
 - **Edit 工具幻影写入（会话级现象，已两度实测）**：回执成功但磁盘未变——每次 Edit 后必须 grep/Read 回查；批量修改优先整文件 Write 原子重写
 - AO 对象流(ObjStm)：parsePdf 须异步（FlateDecode 解压依赖 DecompressionStream）；extractStreamData 须剥 `endstream` 前 EOL（否则 deflate 报 Trailing junk）；extractFirstBalancedDict 遇 `>>` 须 `slice(open, i+1)` 含末位 `>`（否则 ObjStm 对象字典丢末位 `>`，合并真实 1.5+ PDF 输出畸形页面字典）；偏移表偏移相对 First 计量

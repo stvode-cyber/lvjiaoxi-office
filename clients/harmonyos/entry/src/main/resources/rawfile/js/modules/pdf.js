@@ -724,6 +724,9 @@
             ] },
             { label: "结构预检", items: [
               { kind: "btn", icon: "check-all", title: "PDF 结构预检/完整性诊断：只读体检 17 项——PDF 头版本、%%EOF、startxref、xref 表/流、trailer /Root 与 Root 对象定义、/Catalog 类型、/Size 一致性、悬挂引用（引用未定义对象）、重复对象定义、页面树环（安全走树防栈溢出）、页数为 0、流 /Length 缺失/间接引用/失配（±2 容差）、PDF 1.5+ 对象流解压失败、孤儿对象；按错误/警告/提示分级给出结论，可导出诊断报告(MD)", label: "结构预检", onClick: () => showPreflight() }
+            ] },
+            { label: "文档历史", items: [
+              { kind: "btn", icon: "arrow-redo", title: "PDF 文档历史/增量更新审计：沿 trailer /Prev 链还原每次保存留下的版本（版本数、逐版 /Size、/Root、/Info、xref 表/流格式），统计 %%EOF/startxref/xref 段计数，检测线性化(Web 优化)、/Prev 链断裂、计数不一致(截断/损坏)，判断文档被修改保存过几次、是否多工具编辑；可导出历史报告(MD)", label: "文档历史", onClick: () => showHistory() }
             ] }
           ]
         }
@@ -1426,6 +1429,38 @@
           const md = OS.PdfPreflight.toMarkdown(res, { title: (doc.name || "文档") + " 结构预检" });
           OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_结构预检.md");
           OS.toast("已导出结构预检报告（Markdown）", "ok");
+        }
+      });
+      document.body.appendChild(ov);
+    }
+
+    // AR：PDF 文档历史/增量更新审计（沿 trailer /Prev 链还原保存历史）—— 由 OS.PdfHistory 提供
+    function showHistory() {
+      if (!data || !data.dataUrl) { OS.toast("请先打开一个 PDF 再查看文档历史", "warn"); return; }
+      const bytes = dataUrlToBytes(data.dataUrl);
+      if (!(bytes instanceof Uint8Array)) { OS.toast("无法读取 PDF 字节", "err"); return; }
+      if (!OS.PdfHistory) { OS.toast("文档历史引擎未就绪", "err"); return; }
+      let res;
+      try { res = OS.PdfHistory.parse(bytes); } catch (e) { OS.toast("解析失败：" + (e && e.message || e), "err"); return; }
+      const body = OS.PdfHistory.toHtml(res);
+      const s = res.summary;
+      const verdictText = { single: "单版本（仅保存一次）", multi: "多版本（增量更新，链完整）", broken: "版本链异常（断裂或计数不一致）" }[s.verdict] || s.verdict;
+      const vColor = s.verdict === "broken" ? "#d1242f" : "#1a7f37";
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999";
+      ov.innerHTML =
+        "<div style='background:#fff;color:#222;width:min(680px,94vw);max-height:86vh;display:flex;flex-direction:column;border-radius:10px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,.3)'>" +
+          "<h3 style='margin:0 0 4px'>PDF 文档历史" +
+          "<span style='font-size:12px;color:#888;font-weight:normal'> · <span style='color:" + vColor + "'>" + verdictText + "</span> · 共 " + s.versionCount + " 版</span></h3>" +
+          "<div id='hi_body' style='flex:1;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 10px;background:#fafafa;margin-top:8px'>" + body + "</div>" +
+          "<div style='text-align:right;margin-top:12px'><button class='btn' id='hi_md'>导出历史报告(MD)</button> <button class='btn primary' id='hi_close'>关闭</button></div>" +
+        "</div>";
+      ov.addEventListener("click", e => {
+        if (e.target === ov || e.target.id === "hi_close") { ov.remove(); return; }
+        if (e.target.id === "hi_md") {
+          const md = OS.PdfHistory.toMarkdown(res, { title: (doc.name || "文档") + " 文档历史" });
+          OS.util.download(new Blob([md], { type: "text/markdown;charset=utf-8" }), (doc.name || "文档") + "_文档历史.md");
+          OS.toast("已导出文档历史报告（Markdown）", "ok");
         }
       });
       document.body.appendChild(ov);
