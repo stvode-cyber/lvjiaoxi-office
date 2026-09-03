@@ -23,7 +23,7 @@
 
 - 项目长期笔记：`.workbuddy/memory/MEMORY.md`
 - 每日日志：`.workbuddy/memory/YYYY-MM-DD.md`
-- 工程交接：`.workbuddy/handoff-2026-08-19.md`
+- 工程交接：`.workbuddy/handoff-2026-09-03.md`（最新，v1.0.16 · 90 套件 0 失败 · 四端同源；含 §6.1 两项待用户侧卡点）｜历史交接：`.workbuddy/handoff-2026-08-19.md`
 
 ---
 

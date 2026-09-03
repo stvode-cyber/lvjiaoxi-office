@@ -73,4 +73,4 @@
 - 全局并行测试子进程资源争用→偶发抖动（非阻断）
 
 ## 关键交接文档
-- .workbuddy/handoff-2026-08-19.md
+- .workbuddy/handoff-2026-09-03.md（最新，v1.0.16 · 90 套件）｜历史：.workbuddy/handoff-2026-08-19.md
