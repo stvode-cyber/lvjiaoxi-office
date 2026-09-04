@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { resolveUpdateProvider } = require("./feed-config");
 const { extractFilePaths } = require("./file-args");
+const { cmpVer, mimeFor, safeStaticResolve, MAX_OPEN_BYTES } = require("./main-utils");
 
 // 桌面静默更新（可选依赖：未安装 electron-updater 时自动回退到现有横幅行为）
 let autoUpdater = null;
@@ -21,13 +22,6 @@ let updateDownloadUrl = ""; // github 回退通道下，供安装失败兜底打
     : path.join(__dirname, "..", "app");
 
   // 后台自动更新：渲染进程经此比对远程发布清单（仅当配置了 LVJX_UPDATE_FEED）
-  function cmpVer(a, b) {
-    const A = ("" + a).split(".").map(x => parseInt(x, 10) || 0);
-    const B = ("" + b).split(".").map(x => parseInt(x, 10) || 0);
-    const n = Math.max(A.length, B.length);
-    for (let i = 0; i < n; i++) { const x = A[i] || 0, y = B[i] || 0; if (x > y) return 1; if (x < y) return -1; }
-    return 0;
-  }
   ipcMain.handle("updater:check", async () => {
     const cur = require("../package.json").version; // 注意：main.js 在 electron/，package.json 在仓库根
     // 已启用 electron-updater + 已解析出更新源：走真正的静默下载/安装通道
@@ -118,30 +112,15 @@ let updateDownloadUrl = ""; // github 回退通道下，供安装失败兜底打
 
 let PORT = process.env.LVJX_PORT ? parseInt(process.env.LVJX_PORT, 10) : 0; // 0 => 随机空闲端口，避免被固定占用/探测
 
-const MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".webmanifest": "application/manifest+json",
-  ".pdf": "application/pdf",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".map": "application/json"
-};
-
 const server = http.createServer((req, res) => {
-  let p = decodeURIComponent(req.url.split("?")[0]);
-  if (p === "/") p = "/index.html";
-  const file = path.join(ROOT, p);
-  // 防目录穿越
-  if (!file.startsWith(ROOT)) {
+  const { file, forbidden } = safeStaticResolve(ROOT, req.url || "/");
+  if (forbidden) {
     res.writeHead(403);
     return res.end("forbidden");
+  }
+  if (!file) {
+    res.writeHead(404);
+    return res.end("not found");
   }
   fs.readFile(file, (err, data) => {
     if (err) {
@@ -149,7 +128,7 @@ const server = http.createServer((req, res) => {
       return res.end("not found");
     }
     res.writeHead(200, {
-      "Content-Type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
+      "Content-Type": mimeFor(file),
       "Cache-Control": "no-cache"
     });
     res.end(data);
@@ -159,7 +138,6 @@ const server = http.createServer((req, res) => {
 // 文件关联：待打开文档队列（窗口未就绪前先缓存，did-finish-load 后统一推送前端）
 let pendingFiles = [];
 let webReady = false;
-const MAX_OPEN_BYTES = 200 * 1024 * 1024; // 200MB 上限，避免超大文件撑爆内存
 
 function openFileAt(p) {
   try {
