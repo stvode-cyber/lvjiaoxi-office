@@ -105,12 +105,12 @@ function ok(name, cond) { if (cond) pass++; else { fail++; fails.push(name); } }
   ok("超过20份自动修剪到20", bks.length === A.MAX_BACKUPS);
   ok("备份列表按时间倒序", bks[0].createdAt >= bks[bks.length - 1].createdAt);
 
-  // 12) 回滚到指定版本
-  const v1 = bks.find(b => b.data.x === 0) || (await S.listAllBackups()).find(b => b.data.x === 0);
-  ok("存在 x=0 的备份", !!v1);
-  const restored = await S.restoreBackup(v1.id);
+  // 12) 回滚到指定版本（回滚到修剪后仍必然存在的最旧一份，避免依赖已被 prune 的历史备份）
+  const vOld = bks[bks.length - 1];
+  ok("存在可回滚的备份", !!vOld);
+  const restored = await S.restoreBackup(vOld.id);
   const got = await S.get("d1");
-  ok("回滚恢复 x=0 数据", got && got.data.x === 0);
+  ok("回滚恢复指定版本数据", got && got.data.x === vOld.data.x);
 
   // 13) 备份计入空间
   used = await S.spaceUsed();

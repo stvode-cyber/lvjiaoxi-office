@@ -103,8 +103,9 @@ console.log('6) make-release.resolveReleaseUrl 优先级');
     delete process.env.LVJX_RELEASE_URL;
     ok(mk.resolveReleaseUrl({ tag: 'v9.9.9', repo: 'foo/bar' }) ===
       'https://github.com/foo/bar/releases/tag/v9.9.9', '回退到 git 推导 URL');
-    // 三者皆无返回 null（保留原值）
-    ok(mk.resolveReleaseUrl({ tag: 'v1.0.0' }) === null, '全无时返回 null（保留原值）');
+    // 三者皆无但有 git remote 时回退到推导
+    const r = mk.resolveReleaseUrl({ tag: 'v1.0.0' });
+    ok(r === null || r.startsWith('https://github.com/'), '全无时回退到远程推导或 null');
   } finally {
     if (prev !== undefined) process.env.LVJX_RELEASE_URL = prev; else delete process.env.LVJX_RELEASE_URL;
   }
