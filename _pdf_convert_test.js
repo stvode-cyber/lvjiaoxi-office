@@ -84,6 +84,58 @@ function ok(name, cond) { if (cond) pass++; else { fail++; fails.push(name); } }
   ok("pdfToDocxHtml(null) 返回空串", C.pdfToDocxHtml(null) === "");
   ok("pdfToDocx(空pages) 仍返回 zip", !!C.pdfToDocx([], "空"));
 
+  // —— 改进：列表检测 ——
+  ok("detectListType 无序 •", C.detectListType("• item") === "unordered");
+  ok("detectListType 无序 -", C.detectListType("- item") === "unordered");
+  ok("detectListType 无序 *", C.detectListType("* item") === "unordered");
+  ok("detectListType 有序 1.", C.detectListType("1. item") === "ordered");
+  ok("detectListType 有序 1)", C.detectListType("1) item") === "ordered");
+  ok("detectListType 有序 (1)", C.detectListType("(1) item") === "ordered");
+  ok("detectListType 非列表正文", C.detectListType("普通正文") === null);
+
+  // —— 改进：列表 HTML 输出 ——
+  const listPages = [[
+    { text: "• First item", x: 0.1, y: 0.1, h: 0.015 },
+    { text: "• Second item", x: 0.1, y: 0.14, h: 0.015 },
+    { text: "• Third item", x: 0.1, y: 0.18, h: 0.015 },
+    { text: "Normal paragraph", x: 0.1, y: 0.25, h: 0.015 }
+  ]];
+  const listHtml = C.pdfToDocxHtml(listPages);
+  ok("pdfToDocxHtml 列表含 <ul>", /<ul>/.test(listHtml));
+  ok("pdfToDocxHtml 列表含 <li>", /<li>/.test(listHtml));
+  ok("pdfToDocxHtml 列表后关闭 </ul>", /<\/ul>/.test(listHtml));
+  ok("pdfToDocxHtml 列表后跟正文", /<\/ul>\s*<p>Normal/.test(listHtml));
+
+  // —— 改进：段落合并 ——
+  const paraPages = [[
+    { text: "First line of paragraph.", x: 0.1, y: 0.1, h: 0.015 },
+    { text: "Second line same paragraph.", x: 0.1, y: 0.116, h: 0.015 },  // 间距 0.016 → 同段
+    { text: "New paragraph starts.", x: 0.1, y: 0.16, h: 0.015 }           // 间距 0.044 → 新段
+  ]];
+  const paraHtml = C.pdfToDocxHtml(paraPages);
+  ok("pdfToDocxHtml 段落合并含 <br>", /<br>/.test(paraHtml));
+  ok("pdfToDocxHtml 段落合并: 两段, 每段含正确文本",
+    /<p>First line of paragraph\.<br>Second line same paragraph\.<\/p>/.test(paraHtml));
+  ok("pdfToDocxHtml 段落分离: 新段独立",
+    /<p>New paragraph starts\.<\/p>/.test(paraHtml));
+
+  // —— 改进：多级标题 ——
+  const hPages = [[
+    { text: "Level 1 Heading", x: 0.1, y: 0.05, h: 0.050 },  // 远大于 med → h1
+    { text: "Level 2 Heading", x: 0.1, y: 0.12, h: 0.035 },  // 明显大于 med → h2
+    { text: "Level 3 Heading", x: 0.1, y: 0.19, h: 0.024 },  // 稍大于 med → h3
+    { text: "Body text line 1", x: 0.1, y: 0.26, h: 0.015 },
+    { text: "Body text line 2", x: 0.1, y: 0.30, h: 0.015 },
+    { text: "Body text line 3", x: 0.1, y: 0.34, h: 0.015 },
+    { text: "Body text line 4", x: 0.1, y: 0.38, h: 0.015 },
+    { text: "Body text line 5", x: 0.1, y: 0.42, h: 0.015 }
+  ]];
+  const hHtml = C.pdfToDocxHtml(hPages);
+  ok("pdfToDocxHtml 多级标题 h1", /<h1>Level 1 Heading<\/h1>/.test(hHtml));
+  ok("pdfToDocxHtml 多级标题 h2", /<h2>Level 2 Heading<\/h2>/.test(hHtml));
+  ok("pdfToDocxHtml 多级标题 h3", /<h3>Level 3 Heading<\/h3>/.test(hHtml));
+  ok("pdfToDocxHtml 多级标题后正文 <p>", /<p>Body text line 1<\/p>/.test(hHtml));
+
   console.log(`\n_pdf_convert_test: ${pass} 通过, ${fail} 失败`);
   if (fail) { console.log("失败项:", fails.join("; ")); process.exit(1); }
 })();
