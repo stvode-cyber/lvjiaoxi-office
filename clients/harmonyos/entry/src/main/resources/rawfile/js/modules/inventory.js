@@ -62,7 +62,7 @@
     const rows = await list();
     const s = summarize(rows);
     el.innerHTML = `
-      <div class="panel-head"><h2>库存</h2><span class="muted">商品与库存台账 · 本地存储</span></div>
+      <div class="panel-head"><h2>库存</h2><span class="muted">商品与库存台账 · 本地存储</span><button class="btn tiny" data-export>导出 CSV</button></div>
       <div class="panel-grid">
         <div class="panel-card"><div class="pt-name">品项</div><div class="pt-desc">${s.totalKinds}</div></div>
         <div class="panel-card"><div class="pt-name">库存总量</div><div class="pt-desc">${s.totalQty}</div></div>
@@ -115,6 +115,13 @@
       ["#inv-name", "#inv-qty", "#inv-safety", "#inv-unit", "#inv-note"].forEach(id => el.querySelector(id).value = "");
       await render(el);
     });
+    // 导出 CSV
+    const ex = el.querySelector("[data-export]");
+    if (ex && OS.export) ex.addEventListener("click", () =>
+      OS.export.csv("库存.csv",
+        ["品名", "数量", "安全库存", "单位", "备注"],
+        rows.map(r => [r.data.name, r.data.qty, r.data.safety, r.data.unit, r.data.note])));
+
     el.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
       if (confirm("确定删除该品项？")) { await remove(b.dataset.del); await render(el); }
     }));

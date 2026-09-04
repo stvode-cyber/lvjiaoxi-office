@@ -60,7 +60,7 @@
     const rows = await list();
     const s = summarize(rows);
     el.innerHTML = `
-      <div class="panel-head"><h2>审批</h2><span class="muted">单据审批流 · 本地存储</span></div>
+      <div class="panel-head"><h2>审批</h2><span class="muted">单据审批流 · 本地存储</span><button class="btn tiny" data-export>导出 CSV</button></div>
       <div class="panel-grid">
         <div class="panel-card"><div class="pt-name">待审批</div><div class="pt-desc">${s.pending}</div></div>
         <div class="panel-card"><div class="pt-name">已通过</div><div class="pt-desc">${s.byStatus["已通过"]}</div></div>
@@ -112,6 +112,13 @@
       ["#apr-subject", "#apr-applicant", "#apr-note"].forEach(id => el.querySelector(id).value = "");
       await render(el);
     });
+    // 导出 CSV
+    const ex = el.querySelector("[data-export]");
+    if (ex && OS.export) ex.addEventListener("click", () =>
+      OS.export.csv("审批.csv",
+        ["事由", "类型", "申请人", "状态", "备注"],
+        rows.map(r => [r.data.subject, r.data.kind, r.data.applicant, r.data.status, r.data.note])));
+
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", async () => {
       await update(b.dataset.id, { status: b.dataset.act === "pass" ? "已通过" : "已驳回" });
       await render(el);

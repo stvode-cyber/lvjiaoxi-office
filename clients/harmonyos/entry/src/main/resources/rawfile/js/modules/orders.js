@@ -80,7 +80,7 @@
     const rows = await list();
     const s = summarize(rows);
     el.innerHTML = `
-      <div class="panel-head"><h2>订单</h2><span class="muted">销售与采购订单 · 本地存储</span></div>
+      <div class="panel-head"><h2>订单</h2><span class="muted">销售与采购订单 · 本地存储</span><button class="btn tiny" data-export>导出 CSV</button></div>
       <div class="panel-grid">
         <div class="panel-card"><div class="pt-name">订单总数</div><div class="pt-desc">${s.count}</div></div>
         <div class="panel-card"><div class="pt-name">成交总额</div><div class="pt-desc">${fmtMoney(s.sum)}</div></div>
@@ -130,6 +130,13 @@
       for (const id of ["#ord-customer", "#ord-amount", "#ord-note"]) el.querySelector(id).value = "";
       await render(el); // 刷新列表与统计
     });
+
+    // 导出 CSV
+    const ex = el.querySelector("[data-export]");
+    if (ex && OS.export) ex.addEventListener("click", () =>
+      OS.export.csv("订单.csv",
+        ["客户", "金额", "状态", "备注", "创建时间"],
+        rows.map(r => [r.data.customer, r.data.amount, r.data.status, r.data.note, fmtDate(r.createdAt)])));
 
     el.querySelectorAll("[data-del]").forEach(b => {
       b.addEventListener("click", async () => {
