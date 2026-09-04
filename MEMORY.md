@@ -23,16 +23,15 @@
 
 - 项目长期笔记：`.workbuddy/memory/MEMORY.md`
 - 每日日志：`.workbuddy/memory/YYYY-MM-DD.md`
-- 工程交接：`.workbuddy/handoff-2026-09-03.md`（最新，v1.0.16 · 90 套件 0 失败 · 四端同源；含 §6.1 两项待用户侧卡点）｜历史交接：`.workbuddy/handoff-2026-08-19.md`
+- 工程交接：`.workbuddy/handoff-2026-09-04.md`（最新，v1.0.16 · 92 套件 91 通过 · 四端同源 · GitHub 已推 · 含 E2E 测试 + PDF 转换改进；§6.1 两项卡点：① 发布到 VPS 待用户侧 ② iOS/HarmonyOS 编译 · 原 §6.1② git remote 已解决）
 
 ---
 
-## 三、当前基线（2026-08-30 更新）
+## 三、当前基线（2026-09-04 更新）
 
-- **78 套件 0 失败** + 四端同源 ✅（S→AH 全特性 + 登录设定已落地并验证；AC/AD/AE/AF/AG/AH 已新增 + 登录可选；Android APK 与 make-release 打 tag 受限于本环境无 SDK / 无 git 仓库，需在有工具链环境执行）
-- 🔴 大型均已消解：PDF→Excel（坐标列边界聚类）、docx→PDF（浏览器 print-to-PDF）
-- 🟡 边界：PDF→DOCX/TXT/MD/Excel 版面还原有限（仅文本提取）
-- **Windows 安装包已重建（2026-08-30）**：`dist:local` 经 `NODE_OPTIONS=""` 绕过 WorkBuddy 安全删除 shim → 退出码 0，产出 Setup exe + 便携 exe + latest.yml + blockmap；`release:check` 与 `verify-release-assets` 全绿。
-- 待办（人工/环境）：Android APK 需 SDK（本环境无）；iOS/HarmonyOS 仅源码工程。
+- **92 套件 91 通过**（1 云服务偶发超时） + 四端同源 ✅ + GitHub 已推（`stvode-cyber/lvjiaoxi-office`，41 commit + 17 tag）
+- E2E 测试已补（171 断言），PDF 转换改进（段落合并/列表检测/多级标题）
+- 大型均已消解，Windows 安装包 v1.0.16 已重建
+- 🟡 待办：发布到 VPS（用户侧 `publish-latest.bat`）、iOS/HarmonyOS 编译（需本地工具链）
 
 > 变更详情见 [CHANGELOG.md](CHANGELOG.md)；状态总览见 [STATUS.md](STATUS.md)。
