@@ -959,3 +959,11 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
 .tag-muted{color:var(--muted);background:var(--hover)}
 @media (max-width:720px){.order-form{grid-template-columns:1fr 1fr}.order-form .btn{grid-column:1/-1}}
 
+/* 业务板块：我的（账户 / 偏好 / 关于） */
+.profile-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
+.profile-user{font-size:15px;font-weight:600;color:var(--ink)}
+.profile-actions{display:flex;gap:8px;flex-shrink:0}
+.pf-row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--rule2);font-size:13.5px;color:var(--ink);cursor:pointer}
+.pf-row:last-of-type{border-bottom:0}
+.pf-row input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+
