@@ -48,6 +48,8 @@
   }
   function renderTopPanel(view) {
     const el = $("#panel-" + view); if (!el) return;
+    // 已做实为业务模块的板块：委托给对应 OS.biz 渲染（如订单）
+    if (OS.biz && OS.biz[view] && OS.biz[view].render) { OS.biz[view].render(el); return; }
     const v = TOPNAV_VIEWS[view];
     const tiles = (v.tiles || []).map(t =>
       `<div class="panel-tile" data-panel-action="${view}:${t.k}"><div class="pt-name">${t.n}</div><div class="pt-desc">${t.d}</div></div>`).join("");
