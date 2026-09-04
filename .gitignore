@@ -37,6 +37,8 @@ _sortfilter_result.txt
 _toc_result.txt
 _transition_result.txt
 _importer_result.txt
+_e2e_roundtrip_result.txt
+_e2e_scenarios_result.txt
 
 # Android 构建中间产物（二进制，避免误提交）
 clients/android/app/build/
