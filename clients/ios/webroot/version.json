@@ -1,10 +1,12 @@
 {
-  "version": "1.0.16",
-  "publishedAt": "2026-09-02",
+  "version": "1.0.17",
+  "publishedAt": "2026-09-04",
   "channel": "stable",
   "minVersion": "1.0.0",
   "notes": [
-    "桌面端全自动更新（启动检查+后台自动下载+退出自动安装/可一键立即重启）"
+    "顶部导航五板块做实",
+    "业务台账倒入Excel",
+    "我的板块"
   ],
   "url": "https://lujax.fun/releases"
 }

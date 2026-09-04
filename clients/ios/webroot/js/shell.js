@@ -111,6 +111,9 @@
 
     initTopNav(); // 主导航：工作台 / 订单 / 库存 / 审批 / 我的
 
+    // 「我的」板块内的账户按钮 → 打开账户抽屉
+    document.addEventListener("app:open-account", () => openAccount());
+
     if (global.pdfjsLib) global.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
     // 原生壳（Electron / Capacitor / HarmonyOS WebView）下跳过 Service Worker 注册，避免离线双缓存与 file:// 协议报错
     var isNativeShell = /Electron/i.test(navigator.userAgent) || (global.Capacitor && global.Capacitor.isNativePlatform && global.Capacitor.isNativePlatform());
