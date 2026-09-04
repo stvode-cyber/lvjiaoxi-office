@@ -17,6 +17,72 @@
   function activeTab() { return tabs.find(t => t.id === activeId); }
   function activeInst() { const t = activeTab(); return t && t.instance; }
 
+  /* ---------------- 主导航：工作台 / 订单 / 库存 / 审批 / 我的 ---------------- */
+  const TOPNAV_PANELS = ["orders", "inventory", "approvals", "profile"];
+  const TOPNAV_VIEWS = {
+    orders: { title: "订单", desc: "销售与采购订单的统一视图", tiles: [
+      { k: "new", n: "新建订单", d: "创建一笔销售 / 采购订单" },
+      { k: "list", n: "订单列表", d: "按状态筛选与企业盘点全部订单" },
+      { k: "stats", n: "订单统计", d: "成交额、数量与趋势概览" }] },
+    inventory: { title: "库存", desc: "商品与库存台账", tiles: [
+      { k: "list", n: "库存台账", d: "现有量 / 预警 / 仓位" },
+      { k: "inout", n: "出入库记录", d: "最近入库、出库与调拨明细" },
+      { k: "alerts", n: "库存预警", d: "低于安全库存的品项提醒" }] },
+    approvals: { title: "审批", desc: "待办与已办的审批流程", tiles: [
+      { k: "todo", n: "待我审批", d: "他人提交、待你处理的事项" },
+      { k: "submit", n: "我发起的", d: "已提交单据的流转状态" },
+      { k: "done", n: "已办结", d: "历史归档的审批记录" }] },
+    profile: { title: "我的", desc: "账户、设置与使用偏好", tiles: [
+      { k: "account", n: "账户与存储", d: "登录状态、50MB 个人云空间" },
+      { k: "prefs", n: "偏好设置", d: "主题、自动保存等本地选项" },
+      { k: "about", n: "关于", d: "版本与兼容信息" }] }
+  };
+
+  function _navHighlight(view) {
+    document.querySelectorAll(".app-nav-item").forEach(b =>
+      b.classList.toggle("active", b.dataset.view === view));
+  }
+  function _toWorkbenchNav() { // 编辑态 / 返回工作台时，面板隐藏并将高亮复位到工作台
+    TOPNAV_PANELS.forEach(v => { const p = $("#panel-" + v); if (p) p.hidden = true; });
+    _navHighlight("workbench");
+  }
+  function renderTopPanel(view) {
+    const el = $("#panel-" + view); if (!el) return;
+    const v = TOPNAV_VIEWS[view];
+    const tiles = (v.tiles || []).map(t =>
+      `<div class="panel-tile" data-panel-action="${view}:${t.k}"><div class="pt-name">${t.n}</div><div class="pt-desc">${t.d}</div></div>`).join("");
+    el.innerHTML = `<div class="panel-head"><h2>${v.title}</h2><span class="muted">${v.desc}</span></div>` +
+      `<div class="panel-card"><div class="panel-grid">${tiles}</div><div class="panel-empty" style="margin-top:12px">该板块为框架首发（骨架），业务数据与云端对接将在后续版本接入。</div></div>`;
+    el.querySelectorAll(".panel-tile").forEach(tile => {
+      tile.addEventListener("click", () => {
+        const a = tile.dataset.panelAction;
+        if (a === "profile:account") { openAccount && openAccount(); return; }
+        OS.toast("「" + tile.querySelector(".pt-name").textContent + "」功能建设中", "");
+      });
+    });
+  }
+  function switchTopNav(view) {
+    TOPNAV_PANELS.forEach(v => { const p = $("#panel-" + v); if (p) p.hidden = true; });
+    _navHighlight(view);
+    $("#editor").hidden = true;
+    $("#ribbon-host") && ($("#ribbon-host").hidden = true);
+    if (view === "workbench") {
+      $("#dashboard").hidden = false;
+    } else {
+      $("#dashboard").hidden = true;
+      const p = $("#panel-" + view);
+      if (p) { if (!p.dataset.rendered) { renderTopPanel(view); p.dataset.rendered = "1"; } p.hidden = false; }
+    }
+    closeBackstage && closeBackstage();
+  }
+  function initTopNav() {
+    const nav = $("#app-nav"); if (!nav) return;
+    nav.addEventListener("click", e => {
+      const b = e.target.closest(".app-nav-item"); if (!b) return;
+      switchTopNav(b.dataset.view);
+    });
+  }
+
   function boot() {
     // 顶栏图标注入
     $("#qa-save").innerHTML = ICON().svg("save", 18);
@@ -40,6 +106,8 @@
     const mustLogin = !!(OS.AuthPolicy && OS.AuthPolicy.shouldGate()) && !OS.auth.isLoggedIn();
     if (mustLogin) showLogin();
     else enterApp();
+
+    initTopNav(); // 主导航：工作台 / 订单 / 库存 / 审批 / 我的
 
     if (global.pdfjsLib) global.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
     // 原生壳（Electron / Capacitor / HarmonyOS WebView）下跳过 Service Worker 注册，避免离线双缓存与 file:// 协议报错
@@ -233,6 +301,7 @@
   async function openDoc(doc) {
     const existing = tabs.find(t => t.id === doc.id);
     if (existing) { activate(existing); return; }
+    _toWorkbenchNav(); // 进入编辑：面板隐藏、导航高亮复位到工作台
     $("#dashboard").hidden = true;
     $("#editor").hidden = false;
     $("#ribbon-host").hidden = false;
@@ -321,6 +390,7 @@
     $("#editor").hidden = true; $("#dashboard").hidden = false;
     $("#ribbon-host").hidden = true; $("#ribbon-host").innerHTML = "";
     $("#statusbar").hidden = true;
+    _toWorkbenchNav(); // 返回工作台：面板隐藏、导航高亮复位
     $("#doc-title").textContent = "";
     closeBackstage();
     document.title = "绿角犀 Office · 跨平台办公套件";

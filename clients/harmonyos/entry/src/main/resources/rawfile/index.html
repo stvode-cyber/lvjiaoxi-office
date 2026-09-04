@@ -40,6 +40,15 @@
       </div>
     </header>
 
+    <!-- 主导航：工作台 / 订单 / 库存 / 审批 / 我的 -->
+    <nav class="app-nav" id="app-nav" aria-label="主导航">
+      <button class="app-nav-item active" data-view="workbench">工作台</button>
+      <button class="app-nav-item" data-view="orders">订单</button>
+      <button class="app-nav-item" data-view="inventory">库存</button>
+      <button class="app-nav-item" data-view="approvals">审批</button>
+      <button class="app-nav-item" data-view="profile">我的</button>
+    </nav>
+
     <!-- 功能区（仅编辑态显示） -->
     <div class="ribbon-host" id="ribbon-host" hidden></div>
 
@@ -76,6 +85,12 @@
       <div class="tabbar" id="tabbar"></div>
       <div class="module-host" id="module-host"><!-- 模块挂载点 --></div>
     </main>
+
+    <!-- 业务板块面板（默认激活"工作台"= #dashboard） -->
+    <section class="app-panel" id="panel-orders" data-view="orders" hidden></section>
+    <section class="app-panel" id="panel-inventory" data-view="inventory" hidden></section>
+    <section class="app-panel" id="panel-approvals" data-view="approvals" hidden></section>
+    <section class="app-panel" id="panel-profile" data-view="profile" hidden></section>
 
     <!-- 状态栏（仅编辑态显示） -->
     <footer class="statusbar" id="statusbar" hidden></footer>

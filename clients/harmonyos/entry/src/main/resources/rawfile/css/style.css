@@ -920,3 +920,26 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
 .remember-label input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
 .login-pw-warn{margin:6px 0 0;font-size:11.5px;line-height:1.4;color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent);border-radius:6px;padding:6px 8px}
 
+/* ============================================================
+   主导航（工作台 / 订单 / 库存 / 审批 / 我的）
+   中性 chrome 底，激活项用品牌蓝下划线，简洁无杂饰
+   =========================================================== */
+.app-nav{display:flex;align-items:center;gap:2px;height:38px;padding:0 12px;background:var(--chrome2);border-bottom:1px solid var(--rule);user-select:none}
+.app-nav-item{appearance:none;border:0;background:transparent;font:inherit;font-size:13.5px;color:var(--muted);padding:0 14px;height:100%;cursor:pointer;position:relative;white-space:nowrap;border-radius:2px}
+.app-nav-item:hover{color:var(--ink);background:var(--hover)}
+.app-nav-item.active{color:var(--ink);font-weight:600}
+.app-nav-item.active::after{content:"";position:absolute;left:14px;right:14px;bottom:0;height:2px;background:var(--accent);border-radius:1px}
+
+/* 业务板块面板（订单 / 库存 / 审批 / 我的） */
+.app-panel{overflow:auto;flex:1;padding:28px 32px 40px;background:var(--bg)}
+.panel-head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+.panel-head h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.panel-head .muted{font-size:12.5px;color:var(--faint)}
+.panel-card{border:1px solid var(--rule);border-radius:var(--radius);background:var(--bg2);padding:16px}
+.panel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:16px}
+.panel-tile{border:1px solid var(--rule);border-radius:var(--radius);background:var(--bg2);padding:14px;cursor:pointer}
+.panel-tile:hover{border-color:var(--accent);background:var(--accent-soft)}
+.panel-tile .pt-name{font-size:14px;font-weight:600;color:var(--ink)}
+.panel-tile .pt-desc{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4}
+.panel-empty{border:1.5px dashed var(--rule);border-radius:var(--radius);padding:24px;text-align:center;color:var(--faint);font-size:13px}
+
