@@ -55,9 +55,198 @@
       SUMIF: (range, crit, sumr) => {
         const rv = flat(range), sv = sumr ? flat(sumr) : rv; let t = 0;
         for (let i = 0; i < rv.length; i++) if (matchCrit(rv[i], crit)) t += +sv[i] || 0; return t;
-      }
+      },
+      COUNTIF: (range, crit) => {
+        const rv = flat(range); let c = 0;
+        for (const v of rv) if (matchCrit(v, crit)) c++; return c;
+      },
+      COUNTIFS: (...args) => {
+        if (args.length < 2 || args.length % 2 !== 0) return "#VALUE!";
+        const pairs = [];
+        for (let i = 0; i < args.length; i += 2) pairs.push({ r: flat(args[i]), c: args[i + 1] });
+        const len = pairs[0].r.length; let total = 0;
+        for (const p of pairs) if (p.r.length !== len) return "#VALUE!";
+        for (let i = 0; i < len; i++) { let ok = true; for (const p of pairs) if (!matchCrit(p.r[i], p.c)) { ok = false; break; } if (ok) total++; }
+        return total;
+      },
+      SUMIFS: (sumr, ...args) => {
+        if (args.length < 2 || args.length % 2 !== 0) return "#VALUE!";
+        const sv = flat(sumr); const pairs = [];
+        for (let i = 0; i < args.length; i += 2) pairs.push({ r: flat(args[i]), c: args[i + 1] });
+        const len = sv.length; let total = 0;
+        for (const p of pairs) if (p.r.length !== len) return "#VALUE!";
+        for (let i = 0; i < len; i++) { let ok = true; for (const p of pairs) if (!matchCrit(p.r[i], p.c)) { ok = false; break; } if (ok) total += +sv[i] || 0; }
+        return total;
+      },
+      AVERAGEIF: (range, crit, avgr) => {
+        const rv = flat(range), sv = avgr ? flat(avgr) : rv; const vals = [];
+        for (let i = 0; i < rv.length; i++) if (matchCrit(rv[i], crit)) { const n = parseFloat(sv[i]); if (!isNaN(n)) vals.push(n); }
+        return vals.length ? sum(vals) / vals.length : 0;
+      },
+      AVERAGEIFS: (avgr, ...args) => {
+        if (args.length < 2 || args.length % 2 !== 0) return "#VALUE!";
+        const sv = flat(avgr); const pairs = [];
+        for (let i = 0; i < args.length; i += 2) pairs.push({ r: flat(args[i]), c: args[i + 1] });
+        const len = sv.length; const vals = [];
+        for (const p of pairs) if (p.r.length !== len) return "#VALUE!";
+        for (let i = 0; i < len; i++) { let ok = true; for (const p of pairs) if (!matchCrit(p.r[i], p.c)) { ok = false; break; } if (ok) { const n = parseFloat(sv[i]); if (!isNaN(n)) vals.push(n); } }
+        return vals.length ? sum(vals) / vals.length : 0;
+      },
+      MAXIFS: (maxr, ...args) => {
+        if (args.length < 2 || args.length % 2 !== 0) return "#VALUE!";
+        const sv = flat(maxr); const pairs = [];
+        for (let i = 0; i < args.length; i += 2) pairs.push({ r: flat(args[i]), c: args[i + 1] });
+        const len = sv.length; const vals = [];
+        for (const p of pairs) if (p.r.length !== len) return "#VALUE!";
+        for (let i = 0; i < len; i++) { let ok = true; for (const p of pairs) if (!matchCrit(p.r[i], p.c)) { ok = false; break; } if (ok) { const n = parseFloat(sv[i]); if (!isNaN(n)) vals.push(n); } }
+        return vals.length ? Math.max(...vals) : 0;
+      },
+      MINIFS: (minr, ...args) => {
+        if (args.length < 2 || args.length % 2 !== 0) return "#VALUE!";
+        const sv = flat(minr); const pairs = [];
+        for (let i = 0; i < args.length; i += 2) pairs.push({ r: flat(args[i]), c: args[i + 1] });
+        const len = sv.length; const vals = [];
+        for (const p of pairs) if (p.r.length !== len) return "#VALUE!";
+        for (let i = 0; i < len; i++) { let ok = true; for (const p of pairs) if (!matchCrit(p.r[i], p.c)) { ok = false; break; } if (ok) { const n = parseFloat(sv[i]); if (!isNaN(n)) vals.push(n); } }
+        return vals.length ? Math.min(...vals) : 0;
+      },
+      IFERROR: (v, fallback) => { if (typeof v === "string" && v.startsWith("#")) return fallback; return v; },
+      IFNA: (v, fallback) => { if (v === "#N/A") return fallback; return v; },
+      IFS: (...args) => {
+        if (args.length < 2 || args.length % 2 !== 0) return "#N/A";
+        for (let i = 0; i < args.length; i += 2) if (args[i]) return args[i + 1];
+        return "#N/A";
+      },
+      SWITCH: (expr, ...args) => {
+        if (args.length < 1) return "#N/A";
+        for (let i = 0; i + 1 < args.length; i += 2) if (args[i] == expr) return args[i + 1];
+        if (args.length % 2 === 1) return args[args.length - 1];
+        return "#N/A";
+      },
+      ROUNDUP: (a, b) => { const p = Math.pow(10, b || 0); const n = num(a); return n >= 0 ? Math.ceil(n * p) / p : -Math.ceil(-n * p) / p; },
+      ROUNDDOWN: (a, b) => { const p = Math.pow(10, b || 0); const n = num(a); return n >= 0 ? Math.floor(n * p) / p : -Math.floor(-n * p) / p; },
+      TRUNC: (a, b) => { const p = Math.pow(10, b || 0); const n = num(a); return (n >= 0 ? Math.floor(n * p) : -Math.floor(-n * p)) / p; },
+      EVEN: a => { const n = Math.ceil(Math.abs(a)); const r = n % 2 === 0 ? n : n + 1; return a >= 0 ? r : -r; },
+      ODD: a => { const n = Math.ceil(Math.abs(a)); const r = n % 2 === 1 ? n : n + 1; return a >= 0 ? r : -r; },
+      RANK: (x, r, order) => { const arr = numList(r).sort((a, b) => order ? a - b : b - a); let rank = 1; for (let i = 0; i < arr.length; i++) { if ((order ? arr[i] < x : arr[i] > x)) rank++; else break; } return arr.length ? rank : "#N/A"; },
+      "RANK.EQ": (x, r, order) => FUNCS.RANK(x, r, order),
+      LARGE: (r, k) => { const arr = numList(r).sort((a, b) => b - a); return k < 1 || k > arr.length ? "#NUM!" : arr[k - 1]; },
+      SMALL: (r, k) => { const arr = numList(r).sort((a, b) => a - b); return k < 1 || k > arr.length ? "#NUM!" : arr[k - 1]; },
+      MEDIAN: (...a) => {
+        const arr = numList(a).sort((x, y) => x - y);
+        if (!arr.length) return "#NUM!";
+        const m = Math.floor(arr.length / 2);
+        return arr.length % 2 ? arr[m] : (arr[m - 1] + arr[m]) / 2;
+      },
+      MODE: (...a) => {
+        const arr = numList(a); if (!arr.length) return "#N/A";
+        const freq = new Map(); let best = null, bestCount = 0;
+        for (const v of arr) { const c = (freq.get(v) || 0) + 1; freq.set(v, c); if (c > bestCount) { bestCount = c; best = v; } }
+        return best;
+      },
+      "MODE.SNGL": (...a) => FUNCS.MODE(...a),
+      STDEV: (...a) => _sampleVarStd(a, true),
+      "STDEV.S": (...a) => FUNCS.STDEV(...a),
+      "STDEV.P": (...a) => _popVarStd(a, true),
+      VAR: (...a) => _sampleVarStd(a, false),
+      "VAR.S": (...a) => FUNCS.VAR(...a),
+      "VAR.P": (...a) => _popVarStd(a, false),
+      PERCENTILE: (a, k) => _percentile(numList(a).sort((x, y) => x - y), k),
+      QUARTILE: (a, q) => {
+        const s = numList(a).sort((x, y) => x - y);
+        if (q === 0) return s.length ? s[0] : "#NUM!";
+        if (q === 1) return _percentile(s, 0.25);
+        if (q === 2) return _percentile(s, 0.5);
+        if (q === 3) return _percentile(s, 0.75);
+        if (q === 4) return s.length ? s[s.length - 1] : "#NUM!";
+        return "#NUM!";
+      },
+      SUBSTITUTE: (txt, oldStr, newStr, n) => {
+        const s = String(txt), o = String(oldStr), ne = newStr == null ? "" : String(newStr);
+        if (o === "") return s;
+        if (n == null) return s.split(o).join(ne);
+        let i = 0, count = 0, out = "";
+        while (i < s.length) {
+          if (s.slice(i, i + o.length) === o) { count++; if (count === n) { out += ne; i += o.length; } else { out += s[i]; i++; } }
+          else { out += s[i]; i++; }
+        }
+        return out;
+      },
+      REPT: (s, n) => { let r = ""; const t = String(s); for (let i = 0; i < +n; i++) r += t; return r; },
+      FIND: (needle, hay, start) => {
+        const idx = String(hay).indexOf(String(needle), ((start || 1) - 1));
+        return idx < 0 ? "#VALUE!" : idx + 1;
+      },
+      SEARCH: (needle, hay, start) => {
+        const idx = String(hay).toLowerCase().indexOf(String(needle).toLowerCase(), ((start || 1) - 1));
+        return idx < 0 ? "#VALUE!" : idx + 1;
+      },
+      CLEAN: s => String(s).replace(/[\x00-\x1F\x7F]/g, ""),
+      PROPER: s => String(s).replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()),
+      EXACT: (a, b) => String(a) === String(b),
+      ISNUMBER: v => typeof v === "number" || (typeof v === "string" && v !== "" && !isNaN(parseFloat(v))),
+      ISTEXT: v => typeof v === "string" && !(typeof v === "string" && v.startsWith("#")),
+      ISBLANK: v => v == null || v === "",
+      ISERROR: v => typeof v === "string" && v.startsWith("#"),
+      ISNA: v => v === "#N/A",
+      ISLOGICAL: v => typeof v === "boolean",
+      NA: () => "#N/A",
+      RAND: () => Math.random(),
+      RANDBETWEEN: (a, b) => { const lo = Math.ceil(+a), hi = Math.floor(+b); return lo > hi ? "#NUM!" : Math.floor(Math.random() * (hi - lo + 1)) + lo; }
     };
-    function matchCrit(v, c) { if (typeof c === "string" && /^[<>]=?/.test(c)) { const op = c.match(/^[<>]=?/)[0]; const n = parseFloat(c.slice(op.length)); return ({ ">": v > n, ">=": v >= n, "<": v < n, "<=": v <= n })[op]; } return v == c; }
+    function _percentile(sorted, k) {
+      if (!sorted.length) return "#NUM!";
+      if (k < 0 || k > 1) return "#NUM!";
+      const pos = k * (sorted.length - 1);
+      const lo = Math.floor(pos), hi = Math.ceil(pos), fr = pos - lo;
+      return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * fr;
+    }
+    function _sampleVarStd(a, std) {
+      const arr = numList(a); const n = arr.length;
+      if (n < 2) return "#DIV/0!";
+      const mean = sum(arr) / n;
+      let v = 0; for (const x of arr) v += (x - mean) * (x - mean);
+      v = v / (n - 1);
+      return std ? Math.sqrt(v) : v;
+    }
+    function _popVarStd(a, std) {
+      const arr = numList(a); const n = arr.length;
+      if (n === 0) return "#DIV/0!";
+      const mean = sum(arr) / n;
+      let v = 0; for (const x of arr) v += (x - mean) * (x - mean);
+      v = v / n;
+      return std ? Math.sqrt(v) : v;
+    }
+    function matchCrit(v, c) {
+      if (typeof c === "string") {
+        // 通配符：等于号前缀 + * ? ~，仅在明确 = 开头或无比较符时启用
+        let eq = /^=/.test(c);
+        let crit = eq ? c.slice(1) : c;
+        if (/^[<>]=?/.test(crit)) {
+          const op = crit.match(/^[<>]=?/)[0]; const n = parseFloat(crit.slice(op.length));
+          return ({ ">": num(v) > n, ">=": num(v) >= n, "<": num(v) < n, "<=": num(v) <= n })[op];
+        }
+        if (eq) { /* 明确等号：字面比较 + 通配符 */ }
+        if (typeof v !== "string" && !eq && typeof crit === "string" && !isNaN(parseFloat(crit))) {
+          return num(v) == parseFloat(crit);
+        }
+        const hasWC = /[*?~]/.test(crit);
+        if (hasWC) {
+          let re = "", i = 0;
+          while (i < crit.length) {
+            const ch = crit[i];
+            if (ch === "~" && i + 1 < crit.length) { re += _reE(crit[i + 1]); i += 2; }
+            else if (ch === "*") { re += ".*"; i++; }
+            else if (ch === "?") { re += "."; i++; }
+            else { re += _reE(ch); i++; }
+          }
+          return new RegExp("^" + re + "$", "i").test(String(v));
+        }
+        return String(v) == crit;
+      }
+      return v == c;
+    }
+    function _reE(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
     function numList(a) { return flat(a).map(x => typeof x === "number" ? x : parseFloat(x)).filter(x => !isNaN(x)); }
     function sum(a) { return a.reduce((s, x) => s + (isNaN(x) ? 0 : x), 0); }
     function flat(a) { return Array.isArray(a) ? a.reduce((acc, x) => acc.concat(flat(x)), []) : [a]; }
