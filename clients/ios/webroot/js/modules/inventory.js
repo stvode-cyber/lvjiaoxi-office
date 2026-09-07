@@ -56,6 +56,17 @@
   }
   async function remove(id) { await OS.store.remove(id); }
 
+  // 批量删除：仅删除存在且 type=inventory 的目标，返回缺失项（幂等安全，不误删其他类型）
+  async function batchRemove(ids) {
+    const all = await OS.store.list();
+    const valid = new Set((all || []).filter(d => d.type === "inventory").map(d => d.id));
+    const targets = [...new Set((ids || []).filter(Boolean))];
+    const present = targets.filter(id => valid.has(id));
+    await Promise.all(present.map(id => OS.store.remove(id)));
+    return { requested: targets.length, removed: present.length,
+      missing: targets.filter(id => !valid.has(id)) };
+  }
+
   // ---------- DOM 渲染 ----------
   async function render(el) {
     if (!el) return;
@@ -81,10 +92,15 @@
         <p id="inv-msg" class="form-msg" hidden></p>
       </div>
       <div class="panel-card" style="margin-top:14px">
-        <div class="pt-name">库存台账</div>
+        <div class="pt-name">库存台账
+          <span class="batch-tools" hidden>
+            <span class="muted" data-bc>已选 0 项</span>
+            <button class="btn tiny danger" data-batch-del>批量删除</button>
+          </span>
+        </div>
         ${rows.length
           ? `<table class="biz-table">
-              <thead><tr><th>品名</th><th>数量</th><th>安全库存</th><th>单位</th><th>状态</th><th></th></tr></thead>
+              <thead><tr><th><input type="checkbox" data-check-all title="全选" /></th><th>品名</th><th>数量</th><th>安全库存</th><th>单位</th><th>状态</th><th></th></tr></thead>
               <tbody>
                 ${rows.map(r => {
                   const low = normInt(r.data.safety) > 0 && (normInt(r.data.qty) || 0) < normInt(r.data.safety);
@@ -92,6 +108,7 @@
                   const cls = zero ? "muted" : (low ? "warn" : "ok");
                   const label = zero ? "缺货" : (low ? "偏低" : "正常");
                   return `<tr data-inv-id="${r.id}">
+                    <td><input type="checkbox" data-check="${r.id}" title="选择" /></td>
                     <td>${esc(r.data.name)}</td>
                     <td>${normInt(r.data.qty) ?? 0}</td>
                     <td class="muted">${normInt(r.data.safety) ?? 0}</td>
@@ -125,6 +142,9 @@
     el.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
       if (confirm("确定删除该品项？")) { await remove(b.dataset.del); await render(el); }
     }));
+
+    // 批量勾选 + 批量删除
+    if (OS.biz.common) OS.biz.common.bindBatchTools(el, { batchFn: batchRemove, reload: () => render(el) });
   }
 
   function esc(s) {
@@ -134,5 +154,5 @@
   }
 
   OS.biz = OS.biz || {};
-  OS.biz.inventory = { validateItem, summarize, list, create, remove, render };
+  OS.biz.inventory = { validateItem, summarize, list, create, remove, batchRemove, render };
 })(window);

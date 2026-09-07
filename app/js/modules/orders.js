@@ -62,6 +62,17 @@
   }
   async function remove(id) { await OS.store.remove(id); }
 
+  // 批量删除：仅删除存在且 type=order 的目标，返回缺失项（幂等安全，不误删其他类型）
+  async function batchRemove(ids) {
+    const all = await OS.store.list();
+    const valid = new Set((all || []).filter(d => d.type === "order").map(d => d.id));
+    const targets = [...new Set((ids || []).filter(Boolean))];
+    const present = targets.filter(id => valid.has(id));
+    await Promise.all(present.map(id => OS.store.remove(id)));
+    return { requested: targets.length, removed: present.length,
+      missing: targets.filter(id => !valid.has(id)) };
+  }
+
   // ---------- 格式 ----------
   function fmtMoney(n) {
     const x = normAmount(n); if (x === null) return "—";
@@ -98,13 +109,19 @@
         <p id="ord-msg" class="form-msg" hidden></p>
       </div>
       <div class="panel-card" style="margin-top:14px">
-        <div class="pt-name">订单列表</div>
+        <div class="pt-name">订单列表
+          <span class="batch-tools" hidden>
+            <span class="muted" data-bc>已选 0 项</span>
+            <button class="btn tiny danger" data-batch-del>批量删除</button>
+          </span>
+        </div>
         ${rows.length
           ? `<table class="biz-table">
-              <thead><tr><th>客户</th><th>金额</th><th>状态</th><th>创建时间</th><th></th></tr></thead>
+              <thead><tr><th><input type="checkbox" data-check-all title="全选" /></th><th>客户</th><th>金额</th><th>状态</th><th>创建时间</th><th></th></tr></thead>
               <tbody>
                 ${rows.map(r => `
                   <tr data-order-id="${r.id}">
+                    <td><input type="checkbox" data-check="${r.id}" title="选择" /></td>
                     <td>${esc(r.data.customer)}</td>
                     <td>${fmtMoney(r.data.amount)}</td>
                     <td><span class="tag tag-${tagCls(r.data.status)}">${esc(r.data.status)}</span></td>
@@ -143,6 +160,9 @@
         if (confirm("确定删除该订单？")) { await remove(b.dataset.del); await render(el); }
       });
     });
+
+    // 批量勾选 + 批量删除
+    if (OS.biz.common) OS.biz.common.bindBatchTools(el, { batchFn: batchRemove, reload: () => render(el) });
   }
 
   function tagCls(status) {
@@ -157,6 +177,6 @@
   OS.biz = OS.biz || {};
   OS.biz.orders = {
     ORDER_STATUSES, DEFAULT_AMOUNT,
-    validateOrder, summarize, list, create, remove, render, fmtMoney, fmtDate
+    validateOrder, summarize, list, create, remove, batchRemove, render, fmtMoney, fmtDate
   };
 })(window);

@@ -54,6 +54,36 @@
   }
   async function remove(id) { await OS.store.remove(id); }
 
+  // 批量删除：仅删除存在且 type=approval 的目标，返回缺失项（幂等安全，不误删其他类型）
+  async function batchRemove(ids) {
+    const all = await OS.store.list();
+    const valid = new Set((all || []).filter(d => d.type === "approval").map(d => d.id));
+    const targets = [...new Set((ids || []).filter(Boolean))];
+    const present = targets.filter(id => valid.has(id));
+    await Promise.all(present.map(id => OS.store.remove(id)));
+    return { requested: targets.length, removed: present.length,
+      missing: targets.filter(id => !valid.has(id)) };
+  }
+
+  // 批量流转：仅对待审批项生效（终态不再流转），返回跳过项
+  async function batchSetStatus(ids, status) {
+    const valid = APPROVAL_STATUSES.includes(status) && status !== "待审批";
+    const targets = [...new Set((ids || []).filter(Boolean))];
+    const all = await OS.store.list();
+    const byId = {}; (all || []).forEach(d => { byId[d.id] = d; });
+    let updated = 0;
+    const skipped = [];
+    for (const id of targets) {
+      const d = byId[id];
+      if (!d || d.type !== "approval") { skipped.push(id); continue; }
+      if (d.data.status !== "待审批" || !valid) { skipped.push(id); continue; }
+      d.data = Object.assign({}, d.data, { status });
+      await OS.store.put(d);
+      updated++;
+    }
+    return { requested: targets.length, updated, skipped };
+  }
+
   // ---------- DOM 渲染 ----------
   async function render(el) {
     if (!el) return;
@@ -79,13 +109,21 @@
         <p id="apr-msg" class="form-msg" hidden></p>
       </div>
       <div class="panel-card" style="margin-top:14px">
-        <div class="pt-name">审批列表</div>
+        <div class="pt-name">审批列表
+          <span class="batch-tools" hidden>
+            <span class="muted" data-bc>已选 0 项</span>
+            <button class="btn tiny" data-batch-pass>批量通过</button>
+            <button class="btn tiny" data-batch-reject>批量驳回</button>
+            <button class="btn tiny danger" data-batch-del>批量删除</button>
+          </span>
+        </div>
         ${rows.length
           ? `<table class="biz-table">
-              <thead><tr><th>事由</th><th>类型</th><th>申请人</th><th>状态</th><th></th></tr></thead>
+              <thead><tr><th><input type="checkbox" data-check-all title="全选" /></th><th>事由</th><th>类型</th><th>申请人</th><th>状态</th><th></th></tr></thead>
               <tbody>
                 ${rows.map(r => `
                   <tr data-apr-id="${r.id}">
+                    <td><input type="checkbox" data-check="${r.id}" title="选择" /></td>
                     <td>${esc(r.data.subject)}</td>
                     <td class="muted">${esc(r.data.kind)}</td>
                     <td>${esc(r.data.applicant)}</td>
@@ -126,6 +164,24 @@
     el.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
       if (confirm("确定删除该记录？")) { await remove(b.dataset.del); await render(el); }
     }));
+
+    // 批量勾选：批量通过 / 批量驳回 / 批量删除
+    if (OS.biz.common) OS.biz.common.bindBatchTools(el, {
+      batchFn: batchRemove,
+      reload: () => render(el),
+      actions: [
+        { sel: "[data-batch-pass]", confirm: "确定通过选中的 %n 项？",
+          run: async ids => {
+            const r = await batchSetStatus(ids, "已通过");
+            if (OS.toast) OS.toast("已通过 " + r.updated + " 项" + (r.skipped.length ? "；跳过终态/无效 " + r.skipped.length + " 项" : ""), "");
+          } },
+        { sel: "[data-batch-reject]", confirm: "确定驳回选中的 %n 项？",
+          run: async ids => {
+            const r = await batchSetStatus(ids, "已驳回");
+            if (OS.toast) OS.toast("已驳回 " + r.updated + " 项" + (r.skipped.length ? "；跳过终态/无效 " + r.skipped.length + " 项" : ""), "");
+          } }
+      ]
+    });
   }
 
   function tagCls(status) {
@@ -138,5 +194,5 @@
   }
 
   OS.biz = OS.biz || {};
-  OS.biz.approvals = { APPROVAL_STATUSES, APPROVAL_KINDS, validateRequest, summarize, list, create, update, remove, render };
+  OS.biz.approvals = { APPROVAL_STATUSES, APPROVAL_KINDS, validateRequest, summarize, list, create, update, remove, batchRemove, batchSetStatus, render };
 })(window);
