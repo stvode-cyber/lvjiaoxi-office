@@ -1,10 +1,10 @@
 /* 绿角犀 Office · 登录系统 + 个人空间配额 + 自动备档 测试 */
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
+const { JSDOM } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 const webcrypto = require("crypto").webcrypto;
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 
 const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost/" });
 const { window } = dom;

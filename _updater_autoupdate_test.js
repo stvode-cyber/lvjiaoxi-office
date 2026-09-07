@@ -4,11 +4,11 @@
         3) updater:error 兜底 openExternal(fallbackUrl)；
         4) applyUpdate 桌面分支走静默下载 IPC（updater:download）。
    注：用 Capacitor 桩触发「原生壳走 IPC」分支（与 Electron 分支在 updater.js 中等价）。 */
-const { JSDOM, VirtualConsole } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
+const { JSDOM, VirtualConsole } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 let pass = 0, fail = 0; const fails = [];
 function ok(name, cond) { if (cond) { pass++; } else { fail++; fails.push(name); console.log("  ✗ " + name); } }
 

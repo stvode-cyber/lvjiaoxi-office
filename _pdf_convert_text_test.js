@@ -1,12 +1,12 @@
 /* 绿角犀 Office · PDF → TXT / Markdown 文本提取测试（验证 OS.PdfConvert.pdfToText / pdfToMarkdown 纯逻辑） */
 /* 说明：复用 exporter 测试 harness（jsdom + 真实 npm JSZip）以与 _pdf_convert_test.js 保持一致；
    纯文本/Markdown 导出不依赖 JSZip，但加载 export-ooxml 不影响本测试。 */
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
-const JSZip = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jszip");
+const { JSDOM } = require("jsdom");
+const JSZip = require("jszip");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost/" });
 const { window } = dom;
 window.JSZip = JSZip;

@@ -2,12 +2,12 @@
 /* 说明：复用 jsdom + 真实 npm JSZip（其 async() 在纯 Node 下可解析；jsdom 注入版会挂起）。
    闭环：先用 OS.Exporter.buildDocx 生成含 data: URI 图片的 DOCX（npm JSZip 实例），
    再 OS.Importer.parseDocx 解析，验证图片被读回为 <img data:...>，形成导出+导入图片往返。 */
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
-const JSZip = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jszip");
+const { JSDOM } = require("jsdom");
+const JSZip = require("jszip");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost/" });
 const { window } = dom;
 window.JSZip = JSZip;            // 用真实 npm JSZip：async() 在纯 Node 下可同步解析

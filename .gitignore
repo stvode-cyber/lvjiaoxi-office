@@ -16,6 +16,9 @@ node_modules/
 Thumbs.db
 *.log
 
+# IDE 代码图谱缓存
+.codegraph/
+
 # 本地结果暂存（测试产物）
 _app_boot_result.txt
 _auth_backup_result.txt

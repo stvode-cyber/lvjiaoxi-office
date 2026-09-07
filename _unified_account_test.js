@@ -8,10 +8,10 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
+const { JSDOM } = require("jsdom");
 const webcrypto = require("crypto").webcrypto;
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 
 const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost/" });
 const { window } = dom;

@@ -5,13 +5,17 @@
  *
  * 运行：node _e2e_roundtrip_test.js
  */
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
-const JSZip = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jszip");
+const { JSDOM } = require("jsdom");
+const JSZip = require("jszip");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 const RESULT_FILE = path.join(APP, "..", "_e2e_roundtrip_result.txt");
+// 版本单一真源：从 package.json 读取，避免随升版漂移
+const PKG = JSON.parse(fs.readFileSync(path.join(APP, "..", "package.json"), "utf8"));
+const VER = PKG.version;
+const VER_RE = VER.replace(/\./g, "\\.");
 
 let pass = 0, fail = 0;
 const fails = [];
@@ -67,8 +71,8 @@ async function zipToBuffer(zip) {
   console.log("--- 1. 发布产物完整性 ---");
   const distDir = path.join(APP, "..", "dist");
   const required = [
-    "绿角犀 Office Setup 1.0.16.exe",
-    "绿角犀 Office 1.0.16.exe",
+    "绿角犀 Office Setup " + VER + ".exe",
+    "绿角犀 Office " + VER + ".exe",
     "latest.yml"
   ];
   for (const f of required) {
@@ -82,7 +86,7 @@ async function zipToBuffer(zip) {
   const ymlPath = path.join(distDir, "latest.yml");
   if (fs.existsSync(ymlPath)) {
     const yml = fs.readFileSync(ymlPath, "utf8");
-    ok("RELEASE: latest.yml 版本为 1.0.16", /version:\s*1\.0\.16/.test(yml));
+    ok("RELEASE: latest.yml 版本为 " + VER, new RegExp("version:\\s*" + VER_RE).test(yml));
     ok("RELEASE: latest.yml 含 releaseDate", /releaseDate:/.test(yml));
   }
 

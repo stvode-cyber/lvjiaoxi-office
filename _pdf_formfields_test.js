@@ -1,7 +1,7 @@
 /*
  * _pdf_formfields_test.js · OS.PdfFormFields 单测（node 直接跑，零依赖）
  */
-const C = require("C:/Users/Administrator/Desktop/绿角犀办公软件/app/js/modules/pdf-formfields.js");
+const C = require("D:/源码存档/绿角犀办公软件/app/js/modules/pdf-formfields.js");
 
 let pass = 0, fail = 0;
 function ok(name, cond) {

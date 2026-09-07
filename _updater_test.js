@@ -1,10 +1,10 @@
 /* 绿角犀 Office · 后台自动更新器测试
    验证：版本号解析/比较、checkNow 对新/同/旧版本与拉取失败的处理、更新横幅创建。 */
-const { JSDOM, VirtualConsole } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
+const { JSDOM, VirtualConsole } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 let pass = 0, fail = 0; const fails = [];
 function ok(name, cond) { if (cond) { pass++; } else { fail++; fails.push(name); console.log("  ✗ " + name); } }
 

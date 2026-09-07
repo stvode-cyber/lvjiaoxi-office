@@ -1,12 +1,12 @@
 /* 绿角犀 Office · 原生 OOXML/OFD 导出管线测试（验证 OS.Exporter 真实生成规范包结构） */
 /* 说明：JSZip 的 async()/generateAsync() 在 jsdom 下会挂起（浏览器中正常），故本测试仅做结构断言：
    验证各原生格式构建器运行无异常、且产出符合 OOXML/OFD 规范的部件文件名。内容往返在浏览器中由 OS.Importer 验证。 */
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
-const JSZip = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jszip");
+const { JSDOM } = require("jsdom");
+const JSZip = require("jszip");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost/" });
 const { window } = dom;
 window.JSZip = JSZip;            // 用真实 npm JSZip：其 async() 在纯 Node 下可同步解析；jsdom 注入版会挂起

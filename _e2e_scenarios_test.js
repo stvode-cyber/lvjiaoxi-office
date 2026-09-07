@@ -3,12 +3,12 @@
  *
  * 运行：node _e2e_scenarios_test.js
  */
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
-const JSZip = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jszip");
+const { JSDOM } = require("jsdom");
+const JSZip = require("jszip");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 const RESULT_FILE = path.join(APP, "..", "_e2e_scenarios_result.txt");
 
 let pass = 0, fail = 0;

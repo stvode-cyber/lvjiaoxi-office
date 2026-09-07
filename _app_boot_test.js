@@ -7,11 +7,11 @@
  *   C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2/node.exe _app_boot_test.js
  * 结果写入 _app_boot_result.txt（避免 stdout 被吞）
  */
-const { JSDOM, VirtualConsole } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
+const { JSDOM, VirtualConsole } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 
 // 按 index.html 顺序（去掉 vendor，boot 阶段不需要）
 const SCRIPTS = [

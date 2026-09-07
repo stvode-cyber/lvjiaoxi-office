@@ -1,9 +1,9 @@
 /* 条件格式 jsdom 联调测试 —— 结果写入 _cond_result.txt */
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
+const { JSDOM } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 const code = fs.readFileSync(path.join(APP, "js/modules/spreadsheet.js"), "utf8");
 
 const dom = new JSDOM(`<!DOCTYPE html><html><body></body></html>`, { runScripts: "dangerously" });

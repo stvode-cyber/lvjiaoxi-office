@@ -2,11 +2,11 @@
    验证：
    - 桌面静默通道安装失败（updater:error，如未签名）时，自动打开发布页下载；
    - 桌面默认走静默通道；当主进程无 electron-updater（updater:download 回传 ok:false）时，回退打开发布页。 */
-const { JSDOM, VirtualConsole } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
+const { JSDOM, VirtualConsole } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 const UPDATER = fs.readFileSync(path.join(APP, "js/updater.js"), "utf8");
 
 let pass = 0, fail = 0; const fails = [];

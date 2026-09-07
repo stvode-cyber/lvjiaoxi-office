@@ -2,10 +2,10 @@
  * 覆盖：普通值 / 逗号 / 引号 / 换行 / 中文 / 空值 / 空列表 / pick 映射
  * 运行：node _export_csv_test.js
  */
-const { JSDOM } = require("C:/Users/Administrator/.workbuddy/binaries/node/workspace/node_modules/jsdom");
+const { JSDOM } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
-const APP = "C:/Users/Administrator/Desktop/绿角犀办公软件/app";
+const APP = "D:/源码存档/绿角犀办公软件/app";
 let pass = 0, fail = 0; const fails = [];
 function ok(name, cond) { if (cond) { pass++; } else { fail++; fails.push(name); console.log("  FAIL: " + name); } }
 
