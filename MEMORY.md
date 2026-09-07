@@ -29,8 +29,8 @@
 
 ## 三、当前基线（2026-09-08 更新）
 
-- **99 套件 0 失败**（v1.0.17 门禁）+ 四端同源 ✅ + GitHub 已推（`stvode-cyber/lvjiaoxi-office`，tag v1.0.17）
-- 业务板块已上线：顶部导航五板块（工作台/订单/库存/审批/我的），订单/库存/审批本地 CRUD + CSV 导出
+- **100 套件 0 失败**（批量操作后门禁）+ 四端同源 ✅ + GitHub 已推（`stvode-cyber/lvjiaoxi-office`，tag v1.0.17）
+- 业务板块已上线：顶部导航五板块（工作台/订单/库存/审批/我的），订单/库存/审批本地 CRUD + CSV 导出 + **批量操作**（biz-common 共享工具条；订单/库存批量删除；审批批量通过/驳回/删除）
 - 测试环境已修复：jsdom/jszip 改为项目 devDependency（原外部路径随环境迁移丢失）
 - 🟡 待办：发布 v1.0.17 到 VPS（用户侧 `publish-latest.bat`）、iOS/HarmonyOS 编译（需本地工具链）
 
