@@ -2,7 +2,7 @@
 
 > **导航-only**。每个版本记「一句话变更 + 关键数字 + 明细链接」，不在此堆细节；明细见对应模块总纲 / FD 卡 / `.workbuddy/memory/` 日志。
 > 版本单一真源 = `package.json`（`node scripts/bump-version.js` 同步四端）。
-> 当前版本 **1.0.16**（tag `v1.0.16`，已推 GitHub）；以下代码已提交但**尚未发版**：AP / AQ / AR + E2E 测试 + PDF 转换改进（随下次打包批量走）。
+> 当前版本 **1.0.17**（tag `v1.0.17`，已推 GitHub）。
 
 ***
 
@@ -10,6 +10,7 @@
 
 | 版本      | 日期         | 一句话                                  | 门禁         |
 | ------- | ---------- | ------------------------------------ | ---------- |
+| v1.0.17 | 2026-09-04 | 顶部导航五板块（工作台/订单/库存/审批/我的）+ 台账 CRUD + CSV 导出 | 99 套件 0 失败 |
 | v1.0.16 | 2026-09-02 | PDF 1.5+ 对象流(ObjStm) 合并/拆分支持         | 87 套件 0 失败 |
 | v1.0.15 | 2026-09-01 | 桌面端**全自动更新**（后台下载 + 退出自动装）           | 85 套件 0 失败 |
 | v1.0.14 | 2026-09-01 | 桌面端应用内**静默更新**（generic provider 接通）  | 85 套件 0 失败 |
@@ -30,79 +31,37 @@
 
 ***
 
-## 未发版（已提交，随下次打包）
-
-### 2026-09-04 · E2E 测试 + PDF 转换改进 + GitHub 远程仓库
-
-- 新增 `_e2e_roundtrip_test.js`（73 断言，DOCX/XLSX/PPTX/OFD 往返 + 批量并发导入 + PDF 模块 API 完整性）。
-
-- 新增 `_e2e_scenarios_test.js`（98 断言，覆盖主题切换 / MIME 识别 / 模板构建 / 导出边界 / 云同步纯函数 / Store API / 工具函数 / 兼容性标签）。
-
-- **PDF 转换版面还原大幅改进**：段落合并（软换行合并为 `<p>` + `<br>`）、列表检测（`•`/`-`/`1.`/`A.` → `<ul>`/`<ol>`）、多级标题（字号比例分级 → `<h1>`/`<h2>`/`<h3>`）；Markdown 同步改进。`_pdf_convert_test.js` 新增 18 断言 → 37/37 全绿。
-
-- **git remote 配置 + 推 GitHub**：仓库 `stvode-cyber/lvjiaoxi-office`，41 commit + 17 tag 已推送。
-
-- 清理：删除 `_asar_check` 临时构建产物（2.26 MB）和 `dist/` 旧版本（v1.0.5\~v1.0.15 旧包，保留 v1.0.16）。
-
-- 全量测试 **92 套件，91 通过**（1 个云服务偶发超时，隔离跑 51/51 绿）。
-
-### 2026-09-03 · AR = PDF 文档历史 / 增量更新审计
-
-- 新增 `app/js/modules/pdf-history.js`（`OS.PdfHistory`，零依赖字节级·同步接口）。
-
-- 沿 trailer `/Prev` 链回溯每次保存版本：版本数、逐版 xrefOffset / `/Size` / `/Root` / `/Info` / xref 表·流格式。
-
-- 检测：线性化 `/Linearized`、`/Prev` 链断裂 `chainBroken`、计数不一致 `count-mismatch`（截断/损坏）；verdict = `single` / `multi` / `broken`。
-
-- 面板版本表 + 结论色条 + 导出历史报告 MD；图标 `arrow-redo`。
-
-- 测试 `_pdf_history_test.js` **39 断言**（8 组合成 PDF）→ 整链 **90 套件 0 失败**。
-
-- 明细：[`FD/FD-ar-history.md`](FD/FD-ar-history.md) · [PDF 总纲](模块/02_PDF_总纲.md)
-
-> **PDF 只读审计族至此收齐**：加密 → 签名 → 动作 → 字体 → 结构 → 历史。
-
-### 2026-09-02 · AQ = PDF 结构预检 / 完整性诊断
-
-- 新增 `app/js/modules/pdf-preflight.js`（`OS.PdfPreflight`，异步·复用 `OS.PdfTool._inflate`/`parseObjStm` 展开 PDF 1.5+ 对象流）。
-
-- 只读体检 **17 项**：头版本 / `%%EOF` / `startxref` / xref 表·流 / trailer `/Root` / Root 定义 / `/Catalog` 类型 / `/Size` 一致性 / 悬挂引用 / 重复对象 / **页面树环** / 页数 0 / 流 `/Length` 缺失·间接引用·失配 / ObjStm 解压失败 / 孤儿对象。
-
-- 错误 / 警告 / 提示三级 + verdict(errors·warnings·pass)；面板统计 + 导出诊断报告 MD；图标 `check-all`。
-
-- ⚠️ **设计决策**：不依赖 `OS.PdfTool.parsePdf`（其页面树 walk 无环保护，遇 /Kids 环会栈溢出），自带 **visited 安全走树**。
-
-- 测试 `_pdf_preflight_test.js` **42 断言**（8 组合成 PDF）→ 整链 **89 套件 0 失败**。
-
-- 明细：[`FD/FD-aq-preflight.md`](FD/FD-aq-preflight.md)
-
-### 2026-09-02 · AP = PDF 动作 / JavaScript 安全审计
-
-- 新增 `app/js/modules/pdf-actions.js`（`OS.PdfActions`）。解析 `/OpenAction`（引用/内联/目标数组三形态）+ `/AA` 附加动作 + `/A` 引用 + `/Names /JavaScript` 名称树 + 全文档动作对象（JavaScript / Launch / SubmitForm / ImportData / GoTo(R·E) / URI / Named…）。
-
-- `/JS` 片段**字节级解码**（PDF 转义 + 八进制 / 十六进制，UTF-16BE→UTF-8→Latin-1）；风险分级 高(JS·Launch) / 中(SubmitForm·ImportData) / 低 / info + 自动执行判定。
-
-- 面板（风险降序 + `data-page` 跳页）+ 导出审计报告 MD；图标 `eye`。
-
-- **跨模块修复**：`sliceDict` 族平衡切分闭合 `>>` 处丢末位 `>`（AO 同族缺陷），统一修复 6 模块（pdf-actions / pdf-fonts / pdf-docinfo / pdf-encrypt / pdf-formfields / pdf-pageinfo）为 `slice(startIdx, i + 1)`，六套单测回归全绿。
-
-- 测试 `_pdf_actions_test.js` **37 断言** → 整链 **88 套件 0 失败**。
-
-- 明细：[`FD/FD-ap-actions.md`](FD/FD-ap-actions.md)
-
-***
-
 ## 已发版明细
 
-### v1.0.16 · 2026-09-02 · PDF 1.5+ 对象流(ObjStm) 合并/拆分
+### v1.0.17 · 2026-09-04 · 顶部导航五板块 + 台账 CRUD + CSV 导出
 
-- `parsePdf` / `mergePdfs` / `splitPdf` 改**异步**（ObjStm 解压依赖 `DecompressionStream`）。
+- **顶部主导航**（`app/js/shell.js`）：工作台 / 订单 / 库存 / 审批 / 我的 五视图切换 + 面板骨架（`initTopNav` / `switchTopNav` / `renderTopPanel`），编辑态自动复位高亮。
 
-- 修复两处解析 bug：`extractStreamData` 末行 EOL 未剥（deflate 报 Trailing junk）、`extractFirstBalancedDict` 末位 `>` 偏移（合并真实 1.5+ PDF 会输出畸形页面字典）。
+- **订单板块**（`app/js/modules/orders.js`，`OS.biz.orders`）：本地 CRUD（IndexedDB，doc type="order"）+ 状态机（待处理/进行中/已完成/已取消）+ 统计（成交额/数量/状态分布）+ 表单/列表渲染；纯逻辑 `validateOrder`/`summarize` 与 DOM 分离。`_orders_biz_test.js` 25 断言。
 
-- 新增 `_pdf_merge_test` 12 断言 + `_pdf_tool_test` 回归 → **87 套件 0 失败**。
+- **库存板块**（`app/js/modules/inventory.js`，`OS.biz.inventory`）：商品库存台账 CRUD + 低库存预警 + 出入库记录。`_inventory_biz_test.js` 55 断言（与审批合计 30 断言）。
 
-- 明细：[`FD/FD-objstm.md`](FD/FD-objstm.md)
+- **审批板块**（`app/js/modules/approvals.js`，`OS.biz.approvals`）：待办/已办 CRUD + 通过·驳回流转。`_approvals_biz_test.js`。
+
+- **「我的」板块**（`app/js/modules/profile.js`，`OS.biz.profile`）：账户与存储（登录状态/50MB 空间）、偏好设置（主题/自动保存/数据本地化开关）、关于（版本号 `x-app-version` meta）。`_profile_biz_test.js` 15 断言。
+
+- **业务 CSV 导出**（`app/js/modules/export.js`）：订单/库存/审批 一键导出 CSV（RFC4180 转义 + UTF-8 BOM）。`_export_csv_test.js` 14 断言。
+
+- **随包并入**（v1.0.16 未发版部分）：E2E 测试（roundtrip 73 + scenarios 98 断言）、PDF 转换版面还原改进（段落合并/列表检测/多级标题）、GitHub 仓库 `stvode-cyber/lvjiaoxi-office` 推送、发布脚本版本无关化（`publish-latest.bat` 从 latest.yml 动态读版本）。
+
+- 全量测试 **99 套件，0 失败** + 四端同源 ✅。
+
+### v1.0.16 · 2026-09-02 · PDF 1.5+ 对象流(ObjStm) + 审计族 AP/AQ/AR
+
+- `parsePdf` / `mergePdfs` / `splitPdf` 改**异步**（ObjStm 解压依赖 `DecompressionStream`），修复 `extractStreamData` 末行 EOL 与 `extractFirstBalancedDict` 末位 `>` 两处解析 bug；新增 `_pdf_merge_test` 12 断言 + `_pdf_tool_test` 回归 → **87 套件 0 失败**。明细：[`FD/FD-objstm.md`](FD/FD-objstm.md)
+
+- **AR = PDF 文档历史 / 增量更新审计**（`OS.PdfHistory`，零依赖字节级）：沿 trailer `/Prev` 链回溯每次保存版本，检测线性化 `/Linearized` / `/Prev` 链断裂 / 计数不一致，verdict = single / multi / broken；面板版本表 + 导出报告 MD。`_pdf_history_test.js` **39 断言** → 90 套件 0 失败。明细：[`FD/FD-ar-history.md`](FD/FD-ar-history.md)
+
+- **AQ = PDF 结构预检 / 完整性诊断**（`OS.PdfPreflight`，异步·展开 PDF 1.5+ 对象流）：只读体检 **17 项**（头版本/%%EOF/startxref/xref/trailer Root/Catalog 类型/Size 一致性/悬挂引用/重复对象/**页面树环**/页数 0/流 Length 三态/ObjStm 失败/孤儿对象），错误·警告·提示三级 + verdict，自带 visited 安全走树（不依赖 `parsePdf` 无环保护的递归）。`_pdf_preflight_test.js` **42 断言** → 89 套件 0 失败。明细：[`FD/FD-aq-preflight.md`](FD/FD-aq-preflight.md)
+
+- **AP = PDF 动作 / JavaScript 安全审计**（`OS.PdfActions`）：/OpenAction(引用/内联/目标数组) + /AA 附加动作 + /A 引用 + /Names JavaScript 名称树 + 全文档动作对象，/JS 片段字节级解码（PDF 转义+八进制/十六进制，UTF-16BE→UTF-8→Latin-1），风险分级 高(JS·Launch)/中(SubmitForm·ImportData)/低/info + 自动执行判定；面板风险降序 + 导出报告 MD。**跨模块修复** sliceDict 族闭合丢末位 `>` 缺陷（6 模块统一 `slice(startIdx, i + 1)`）。`_pdf_actions_test.js` **37 断言** → 88 套件 0 失败。明细：[`FD/FD-ap-actions.md`](FD/FD-ap-actions.md)
+
+> **PDF 只读审计族至此收齐**：加密 → 签名 → 动作 → 字体 → 结构 → 历史。
 
 ### v1.0.15 · 2026-09-01 · 桌面端全自动更新
 

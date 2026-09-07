@@ -1,7 +1,7 @@
 # 绿角犀 Office · 功能清单与完成度
 
 > 本文按 **已实现 / 部分实现 / 规划中** 三档标注，避免对外夸大承诺。
-> 标注依据：`app/` 代码回查 + 测试覆盖（90 套件全绿，含云后端 25 断言 + 前端同步 16 断言 + AI 代理 12 断言 + 统一账号回归 + PDF 批注模型 31 断言 + PDF 光栅写入器 14 断言 + PDF 签名 17 断言 + PDF 文本索引 28 断言 + PDF 表单字段 24 断言 + OOXML 导入图片往返 14 断言 + PDF 文本提取 19 断言 + PDF 文本转换(TXT/MD) 19 断言 + PDF→Excel(CSV) 文本提取 18 断言 + PDF→Excel 坐标聚类 15 断言 + PDF→Excel 多表块隔离 15 断言 + MindMap 导出(docx/md/ofd) 16 断言 + PDF 注释导入 14 断言 + PDF 注释导入坐标归一化 15 断言 + PDF 注释 FDF/XFDF 导入 26 断言 + PDF 注释 FDF 扩展(多笔迹/quadPoints) 14 断言 + PDF 注释导入扩展(FreeText/Stamp/Link+图片盖章) 20 断言 + Writer 直接下载 PDF(光栅→PDF) 19 断言 + Presentation 直接下载 PDF(光栅→PDF) 10 断言 + Spreadsheet 直接下载 PDF(光栅→PDF) 18 断言 + PDF 注释导出 JSON round-trip 闭环 50 断言 + PDF 注释 AP 内嵌图像解析 15 断言 + 表格/演示 PDF 导出范围选项 32 断言 + PDF 注释 AP 矢量外观解析 28 断言 + 批注图层分组 + RGBA 叠加合成 25 断言 + PDF 导出范围预设 18 断言 + 批注搜索与过滤 23 断言 + 批注审阅清单导出(MD/CSV) 16 断言 + PDF 文档属性解析 15 断言 + 批注图层可见性 7 断言 + 批注批量操作 19 断言 + PDF 文档对比(文本 Diff) 40 断言 + PDF 书签目录(Outline) 29 断言 + PDF 附件提取 28 断言 + PDF 页码标签 32 断言 + PDF 批注统计面板 67 断言 + PDF 文档结构树 28 断言 + PDF 批注时间线 34 断言 + PDF 链接/URI 提取 27 断言 + PDF 加密与权限检测 43 断言 + PDF 数字签名验证 25 断言 + PDF 表单字段提取 34 断言 + PDF 文档信息/元数据提取 33 断言 + PDF 页面属性/页面树信息提取 50 断言 + PDF 字体信息提取 74 断言 + PDF 动作/JavaScript 安全审计 37 断言 + PDF 结构预检/完整性诊断 42 断言 + PDF 文档历史/增量更新审计 39 断言 + PDF 合并/拆分回归 + PDF 1.5+ 对象流(ObjStm)解析扩展）。
+> 标注依据：`app/` 代码回查 + 测试覆盖（99 套件全绿，含云后端 25 断言 + 前端同步 16 断言 + AI 代理 12 断言 + 统一账号回归 + 业务板块（订单 25 / 库存+审批 30 / 我的 15 / CSV 导出 14 断言）+ E2E 往返 73 + 场景 98 断言 + PDF 批注模型 31 断言 + PDF 光栅写入器 14 断言 + PDF 签名 17 断言 + PDF 文本索引 28 断言 + PDF 表单字段 24 断言 + OOXML 导入图片往返 14 断言 + PDF 文本提取 19 断言 + PDF 文本转换(TXT/MD) 19 断言 + PDF→Excel(CSV) 文本提取 18 断言 + PDF→Excel 坐标聚类 15 断言 + PDF→Excel 多表块隔离 15 断言 + MindMap 导出(docx/md/ofd) 16 断言 + PDF 注释导入 14 断言 + PDF 注释导入坐标归一化 15 断言 + PDF 注释 FDF/XFDF 导入 26 断言 + PDF 注释 FDF 扩展(多笔迹/quadPoints) 14 断言 + PDF 注释导入扩展(FreeText/Stamp/Link+图片盖章) 20 断言 + Writer 直接下载 PDF(光栅→PDF) 19 断言 + Presentation 直接下载 PDF(光栅→PDF) 10 断言 + Spreadsheet 直接下载 PDF(光栅→PDF) 18 断言 + PDF 注释导出 JSON round-trip 闭环 50 断言 + PDF 注释 AP 内嵌图像解析 15 断言 + 表格/演示 PDF 导出范围选项 32 断言 + PDF 注释 AP 矢量外观解析 28 断言 + 批注图层分组 + RGBA 叠加合成 25 断言 + PDF 导出范围预设 18 断言 + 批注搜索与过滤 23 断言 + 批注审阅清单导出(MD/CSV) 16 断言 + PDF 文档属性解析 15 断言 + 批注图层可见性 7 断言 + 批注批量操作 19 断言 + PDF 文档对比(文本 Diff) 40 断言 + PDF 书签目录(Outline) 29 断言 + PDF 附件提取 28 断言 + PDF 页码标签 32 断言 + PDF 批注统计面板 67 断言 + PDF 文档结构树 28 断言 + PDF 批注时间线 34 断言 + PDF 链接/URI 提取 27 断言 + PDF 加密与权限检测 43 断言 + PDF 数字签名验证 25 断言 + PDF 表单字段提取 34 断言 + PDF 文档信息/元数据提取 33 断言 + PDF 页面属性/页面树信息提取 50 断言 + PDF 字体信息提取 74 断言 + PDF 动作/JavaScript 安全审计 37 断言 + PDF 结构预检/完整性诊断 42 断言 + PDF 文档历史/增量更新审计 39 断言 + PDF 合并/拆分回归 + PDF 1.5+ 对象流(ObjStm)解析扩展）。
 > 架构：零构建经典脚本 SPA，全局 `OS.*` 命名空间，本地优先、离线可用。
 
 ## 一、文档模块
@@ -86,7 +86,20 @@
 - 浏览器 / Web 版不受影响（`electronAPI` 不存在时自动跳过，纯前端逻辑不变）。
 - 测试：`_file_args_test.js` 12 项断言覆盖参数提取；全链 **81 套件 0 失败**。
 
-## 六、已知工程事项（见各模块文档）
+## 七、业务板块（顶部导航五板块，v1.0.17）
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| **顶部主导航** | ✅ 已实现 | 工作台 / 订单 / 库存 / 审批 / 我的 五视图（`app/js/shell.js` `initTopNav`/`switchTopNav`/`renderTopPanel`），编辑态自动复位工作台高亮 |
+| **订单板块** | ✅ 已实现 | `OS.biz.orders`：本地 CRUD（IndexedDB，doc type="order"）+ 状态机（待处理/进行中/已完成/已取消）+ 统计（成交额/数量/状态分布）+ 新建/列表/统计表单渲染；纯逻辑 `validateOrder`/`summarize` 与 DOM 分离；`_orders_biz_test` 25 断言 |
+| **库存板块** | ✅ 已实现 | `OS.biz.inventory`：商品库存台账 CRUD + 低库存预警 + 出入库记录；`_inventory_biz_test` |
+| **审批板块** | ✅ 已实现 | `OS.biz.approvals`：待办/已办 CRUD + 通过·驳回流转；`_approvals_biz_test`（库存+审批合计 30 断言） |
+| **「我的」板块** | ✅ 已实现 | `OS.biz.profile`：账户与存储（登录状态/50MB 个人云空间）、偏好设置（主题/自动保存/数据本地化开关）、关于（版本号 `x-app-version` meta）；`_profile_biz_test` 15 断言 |
+| **业务 CSV 导出** | ✅ 已实现 | `OS.biz.export`：订单/库存/审批一键导出 CSV（RFC4180 转义 + UTF-8 BOM）；`_export_csv_test` 14 断言 |
+
+> 业务数据本地优先（IndexedDB），与云端账户相互独立；多端镜像同 `app/`（iOS/HarmonyOS webroot 已同步）。
+
+## 八、已知工程事项（见各模块文档）
 
 - 自动备档默认与文档同库（IndexedDB）；**现已可选接入云端账户**（`server/`），清浏览器数据后可从个人云恢复，不必仅靠 `.lvjx` 外部导出。本地账户仍建议定期导出 `.lvjx` 外部备份。
 - 云端后端默认签名密钥仅用于本地开发，生产须用 `LVJX_CLOUD_SECRET` 设置强密钥；云端账户与「数据不出域」开关相互独立（AI 仍走本地）。

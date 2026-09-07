@@ -23,15 +23,15 @@
 
 - 项目长期笔记：`.workbuddy/memory/MEMORY.md`
 - 每日日志：`.workbuddy/memory/YYYY-MM-DD.md`
-- 工程交接：`.workbuddy/handoff-2026-09-04.md`（最新，v1.0.16 · 92 套件 91 通过 · 四端同源 · GitHub 已推 · 含 E2E 测试 + PDF 转换改进；§6.1 两项卡点：① 发布到 VPS 待用户侧 ② iOS/HarmonyOS 编译 · 原 §6.1② git remote 已解决）
+- 工程交接：`.workbuddy/handoff-2026-09-08.md`（最新，v1.0.17 · 99 套件 0 失败 · 四端同源 · GitHub 已推 · 含业务五板块 + 测试环境修复；卡点：① 发布到 VPS 待用户侧 ② iOS/HarmonyOS 编译）
 
 ---
 
-## 三、当前基线（2026-09-04 更新）
+## 三、当前基线（2026-09-08 更新）
 
-- **92 套件 91 通过**（1 云服务偶发超时） + 四端同源 ✅ + GitHub 已推（`stvode-cyber/lvjiaoxi-office`，41 commit + 17 tag）
-- E2E 测试已补（171 断言），PDF 转换改进（段落合并/列表检测/多级标题）
-- 大型均已消解，Windows 安装包 v1.0.16 已重建
-- 🟡 待办：发布到 VPS（用户侧 `publish-latest.bat`）、iOS/HarmonyOS 编译（需本地工具链）
+- **99 套件 0 失败**（v1.0.17 门禁）+ 四端同源 ✅ + GitHub 已推（`stvode-cyber/lvjiaoxi-office`，tag v1.0.17）
+- 业务板块已上线：顶部导航五板块（工作台/订单/库存/审批/我的），订单/库存/审批本地 CRUD + CSV 导出
+- 测试环境已修复：jsdom/jszip 改为项目 devDependency（原外部路径随环境迁移丢失）
+- 🟡 待办：发布 v1.0.17 到 VPS（用户侧 `publish-latest.bat`）、iOS/HarmonyOS 编译（需本地工具链）
 
 > 变更详情见 [CHANGELOG.md](CHANGELOG.md)；状态总览见 [STATUS.md](STATUS.md)。
