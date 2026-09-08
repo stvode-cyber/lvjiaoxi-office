@@ -48,11 +48,36 @@
   }
   async function update(id, patch) {
     const doc = await OS.store.get(id); if (!doc) return { error: "记录不存在" };
-    doc.data = Object.assign({}, doc.data, patch);
+    const cur = doc.data.status;
+    const next = patch.status;
+    // 状态变更 → 追加 statusHistory 留痕
+    if (next && next !== cur && APPROVAL_STATUSES.includes(next)) {
+      doc.data = Object.assign({}, doc.data, patch, {
+        statusHistory: ((doc.data && doc.data.statusHistory) || []).concat([{ status: next, ts: Date.now() }])
+      });
+    } else {
+      doc.data = Object.assign({}, doc.data, patch);
+    }
     await OS.store.put(doc);
     return { ok: true, doc };
   }
   async function remove(id) { await OS.store.remove(id); }
+
+  // 单条审批详情：结构化返回（含状态流转历史）
+  function detailData(doc) {
+    const d = (doc && doc.data) || {};
+    return {
+      id: doc ? doc.id : "", subject: d.subject, kind: d.kind, applicant: d.applicant,
+      status: d.status, note: d.note, createdAt: doc ? doc.createdAt : 0, updatedAt: doc ? doc.updatedAt : 0,
+      history: (d.statusHistory || []).map(h => ({ status: h.status, ts: h.ts }))
+    };
+  }
+  async function detail(id) {
+    const all = await OS.store.list();
+    const doc = (all || []).find(d => d.id === id && d.type === "approval");
+    if (!doc) return { error: "记录不存在" };
+    return { data: detailData(doc) };
+  }
 
   // 批量删除：仅删除存在且 type=approval 的目标，返回缺失项（幂等安全，不误删其他类型）
   async function batchRemove(ids) {
@@ -77,7 +102,7 @@
       const d = byId[id];
       if (!d || d.type !== "approval") { skipped.push(id); continue; }
       if (d.data.status !== "待审批" || !valid) { skipped.push(id); continue; }
-      d.data = Object.assign({}, d.data, { status });
+      d.data = Object.assign({}, d.data, { status, statusHistory: ((d.data && d.data.statusHistory) || []).concat([{ status, ts: Date.now() }]) });
       await OS.store.put(d);
       updated++;
     }
@@ -129,6 +154,7 @@
                     <td>${esc(r.data.applicant)}</td>
                     <td><span class="tag tag-${tagCls(r.data.status)}">${esc(r.data.status)}</span></td>
                     <td>
+                      <button class="btn tiny" data-detail="${r.id}">详情</button>
                       ${r.data.status === "待审批"
                         ? `<button class="btn tiny" data-act="pass" data-id="${r.id}">通过</button>
                            <button class="btn tiny danger" data-act="reject" data-id="${r.id}">驳回</button>`
@@ -138,7 +164,8 @@
               </tbody>
             </table>`
           : `<div class="panel-empty">暂无审批记录。使用上方表单发起第一笔申请。</div>`}
-      </div>`;
+      </div>
+      <div class="detail-host" data-detail-host hidden></div>`;
 
     const msg = el.querySelector("#apr-msg");
     el.querySelector("#apr-add").addEventListener("click", async () => {
@@ -165,6 +192,17 @@
       if (confirm("确定删除该记录？")) { await remove(b.dataset.del); await render(el); }
     }));
 
+    // 详情展开：填充详情面板并显示；含状态流转时间线
+    el.querySelectorAll("[data-detail]").forEach(b => b.addEventListener("click", async () => {
+      const r = await detail(b.dataset.detail);
+      const host = el.querySelector("[data-detail-host]");
+      if (!r.data) { if (OS.toast) OS.toast(r.error, ""); return; }
+      host.innerHTML = approvalDetailHTML(r.data);
+      host.hidden = false;
+      const c = host.querySelector("[data-detail-close]");
+      if (c) c.addEventListener("click", () => { host.hidden = true; host.innerHTML = ""; });
+    }));
+
     // 批量勾选：批量通过 / 批量驳回 / 批量删除
     if (OS.biz.common) OS.biz.common.bindBatchTools(el, {
       batchFn: batchRemove,
@@ -187,6 +225,31 @@
   function tagCls(status) {
     return status === "已通过" ? "ok" : (status === "已驳回" ? "warn" : "muted");
   }
+  // 详情面板 HTML
+  function approvalDetailHTML(d) {
+    const hist = (d.history || []).map((h, i) =>
+      `<li>${i + 1}. <b>${esc(h.status)}</b> · ${fmtTime(h.ts)}</li>`).join("");
+    return `<div class="panel-card" style="margin-top:14px">
+      <div class="pt-name">审批详情 <button class="btn tiny" data-detail-close>收起</button></div>
+      <table class="kv">
+        <tr><th>事由</th><td>${esc(d.subject)}</td></tr>
+        <tr><th>类型</th><td>${esc(d.kind)}</td></tr>
+        <tr><th>申请人</th><td>${esc(d.applicant)}</td></tr>
+        <tr><th>状态</th><td>${esc(d.status)}</td></tr>
+        <tr><th>备注</th><td>${esc(d.note || "—")}</td></tr>
+        <tr><th>创建时间</th><td>${fmtTime(d.createdAt)}</td></tr>
+        <tr><th>最近更新</th><td>${fmtTime(d.updatedAt)}</td></tr>
+      </table>
+      <div class="pt-name" style="margin-top:8px">状态流转 <span class="muted">${(d.history || []).length} 次</span></div>
+      ${hist ? `<ul class="detail-list">${hist}</ul>` : `<p class="muted">暂无状态变更。</p>`}
+    </div>`;
+  }
+  function fmtTime(t) {
+    if (!t) return "—";
+    const d = new Date(t);
+    return (d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2) +
+      " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2));
+  }
   function esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -194,5 +257,5 @@
   }
 
   OS.biz = OS.biz || {};
-  OS.biz.approvals = { APPROVAL_STATUSES, APPROVAL_KINDS, validateRequest, summarize, list, create, update, remove, batchRemove, batchSetStatus, render };
+  OS.biz.approvals = { APPROVAL_STATUSES, APPROVAL_KINDS, validateRequest, summarize, list, create, update, remove, batchRemove, batchSetStatus, detailData, detail, render };
 })(window);

@@ -96,6 +96,23 @@
     return { ok: true, doc, plan: p };
   }
 
+  // 详情数据（结构化，供详情面板/DOM 使用）。纯逻辑：不转义、金额数字
+  function detailData(doc) {
+    const d = (doc && doc.data) || {};
+    return {
+      id: doc ? doc.id : "", customer: d.customer, amount: normAmount(d.amount),
+      status: d.status, note: d.note, createdAt: doc ? doc.createdAt : 0, updatedAt: doc ? doc.updatedAt : 0,
+      history: (d.statusHistory || []).map(h => ({ status: h.status, ts: h.ts, note: h.note }))
+    };
+  }
+  // 单条详情：返回规格化详情对象（含状态流转历史）
+  async function detail(id) {
+    const all = await OS.store.list();
+    const doc = (all || []).find(d => d.id === id && d.type === "order");
+    if (!doc) return { ok: false, error: "订单不存在" };
+    return { ok: true, data: detailData(doc) };
+  }
+
   // ---------- 格式 ----------
   function fmtMoney(n) {
     const x = normAmount(n); if (x === null) return "—";
@@ -154,12 +171,13 @@
                         ).join("")}</select>
                     </td>
                     <td class="muted">${fmtDate(r.createdAt)}</td>
-                    <td><button class="btn tiny danger" data-del="${r.id}">删除</button></td>
+                    <td><button class="btn tiny" data-detail="${r.id}">详情</button><button class="btn tiny danger" data-del="${r.id}">删除</button></td>
                   </tr>`).join("")}
               </tbody>
             </table>`
           : `<div class="panel-empty">暂无订单。使用上方表单新建第一笔订单。</div>`}
-      </div>`;
+      </div>
+      <div class="detail-host" data-detail-host hidden></div>`;
 
     el.querySelector("#ord-add").addEventListener("click", async () => {
       const msg = el.querySelector("#ord-msg");
@@ -198,6 +216,17 @@
       });
     });
 
+    // 详情展开：填充详情面板并显示；含状态流转时间线
+    el.querySelectorAll("[data-detail]").forEach(b => b.addEventListener("click", async () => {
+      const r = await detail(b.dataset.detail);
+      const host = el.querySelector("[data-detail-host]");
+      if (!r.ok) { if (OS.toast) OS.toast(r.error, ""); return; }
+      host.innerHTML = orderDetailHTML(r.data);
+      host.hidden = false;
+      const c = host.querySelector("[data-detail-close]");
+      if (c) c.addEventListener("click", () => { host.hidden = true; host.innerHTML = ""; });
+    }));
+
     // 批量勾选 + 批量删除
     if (OS.biz.common) OS.biz.common.bindBatchTools(el, { batchFn: batchRemove, reload: () => render(el) });
   }
@@ -207,10 +236,28 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
+  // 详情面板 HTML
+  function orderDetailHTML(d) {
+    const hist = (d.history || []).map((h, i) =>
+      `<li>${i + 1}. <b>${esc(h.status)}</b> · ${fmtDate(h.ts)}${h.note ? " · " + esc(h.note) : ""}</li>`).join("");
+    return `<div class="panel-card" style="margin-top:14px">
+      <div class="pt-name">订单详情 <button class="btn tiny" data-detail-close>收起</button></div>
+      <table class="kv">
+        <tr><th>客户</th><td>${esc(d.customer)}</td></tr>
+        <tr><th>金额</th><td>${fmtMoney(d.amount)}</td></tr>
+        <tr><th>状态</th><td>${esc(d.status)}</td></tr>
+        <tr><th>备注</th><td>${esc(d.note || "—")}</td></tr>
+        <tr><th>创建时间</th><td>${fmtDate(d.createdAt)}</td></tr>
+        <tr><th>最近更新</th><td>${fmtDate(d.updatedAt)}</td></tr>
+      </table>
+      <div class="pt-name" style="margin-top:8px">状态流转 <span class="muted">${(d.history || []).length} 次</span></div>
+      ${hist ? `<ul class="detail-list">${hist}</ul>` : `<p class="muted">暂无状态变更。</p>`}
+    </div>`;
+  }
 
   OS.biz = OS.biz || {};
   OS.biz.orders = {
     ORDER_STATUSES, DEFAULT_AMOUNT,
-    validateOrder, summarize, list, create, remove, batchRemove, planStatus, setStatus, render, fmtMoney, fmtDate
+    validateOrder, summarize, list, create, remove, batchRemove, planStatus, setStatus, detailData, detail, render, fmtMoney, fmtDate
   };
 })(window);
