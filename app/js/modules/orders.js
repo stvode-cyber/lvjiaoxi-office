@@ -73,6 +73,29 @@
       missing: targets.filter(id => !valid.has(id)) };
   }
 
+  // 状态流转计划：纯逻辑（可单测）。目标状态须合法且与当前不同
+  function planStatus(cur, to) {
+    if (!ORDER_STATUSES.includes(to)) return { ok: false, error: "非法状态：" + to };
+    if (to === cur) return { ok: false, error: "状态未变化（当前已是 " + cur + "）" };
+    return { ok: true, cur, to };
+  }
+  // 单条状态流转：校验后更新状态并追加 statusHistory 留痕
+  async function setStatus(id, to, note) {
+    const all = await OS.store.list();
+    const doc = (all || []).find(d => d.id === id && d.type === "order");
+    if (!doc) return { ok: false, error: "订单不存在" };
+    const cur = ORDER_STATUSES.includes(doc.data.status) ? doc.data.status : "待处理";
+    const p = planStatus(cur, to);
+    if (!p.ok) return { ok: false, error: p.error };
+    const hist = ((doc.data && doc.data.statusHistory) || []).concat([
+      { status: p.to, ts: Date.now(), note: String(note == null ? "" : note).trim() }
+    ]);
+    doc.data = Object.assign({}, doc.data, { status: p.to, statusHistory: hist });
+    doc.updatedAt = Date.now();
+    await OS.store.put(doc);
+    return { ok: true, doc, plan: p };
+  }
+
   // ---------- 格式 ----------
   function fmtMoney(n) {
     const x = normAmount(n); if (x === null) return "—";
@@ -124,7 +147,12 @@
                     <td><input type="checkbox" data-check="${r.id}" title="选择" /></td>
                     <td>${esc(r.data.customer)}</td>
                     <td>${fmtMoney(r.data.amount)}</td>
-                    <td><span class="tag tag-${tagCls(r.data.status)}">${esc(r.data.status)}</span></td>
+                    <td>
+                      <select class="ord-st" data-status="${r.id}" title="流转状态"
+                        >${ORDER_STATUSES.map(st =>
+                          `<option value="${st}"${st === r.data.status ? " selected" : ""}>${esc(st)}</option>`
+                        ).join("")}</select>
+                    </td>
                     <td class="muted">${fmtDate(r.createdAt)}</td>
                     <td><button class="btn tiny danger" data-del="${r.id}">删除</button></td>
                   </tr>`).join("")}
@@ -161,13 +189,19 @@
       });
     });
 
+    // 单条状态流转：下拉改状态 → 校验留痕 → 刷新
+    el.querySelectorAll("[data-status]").forEach(sel => {
+      sel.addEventListener("change", async () => {
+        const r = await setStatus(sel.dataset.status, sel.value);
+        if (OS.toast) OS.toast(r.error || ("状态已更新为" + r.plan.to), "");
+        await render(el);
+      });
+    });
+
     // 批量勾选 + 批量删除
     if (OS.biz.common) OS.biz.common.bindBatchTools(el, { batchFn: batchRemove, reload: () => render(el) });
   }
 
-  function tagCls(status) {
-    return ("待处理" === status || "进行中" === status) ? "warn" : ("已完成" === status ? "ok" : "muted");
-  }
   function esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -177,6 +211,6 @@
   OS.biz = OS.biz || {};
   OS.biz.orders = {
     ORDER_STATUSES, DEFAULT_AMOUNT,
-    validateOrder, summarize, list, create, remove, batchRemove, render, fmtMoney, fmtDate
+    validateOrder, summarize, list, create, remove, batchRemove, planStatus, setStatus, render, fmtMoney, fmtDate
   };
 })(window);
