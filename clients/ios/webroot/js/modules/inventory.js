@@ -98,6 +98,56 @@
     return { ok: true, doc, plan: p };
   }
 
+  // 抵扣汇总：仅统计未撤销的流水（入库+/出库−）
+  function summarizeLog(hist) {
+    let inSum = 0, outSum = 0, revoked = 0;
+    (hist || []).forEach(h => {
+      if (h.revoked) { revoked++; return; }
+      const n = normDelta(h.delta);
+      if (n === null) return;
+      if (n > 0) inSum += n; else outSum += -n;
+    });
+    return { inSum, outSum, valid: (hist || []).length - revoked };
+  }
+  // 库存详情：结构化返回（含出入库流水 + 汇总）。纯逻辑：不转义、数量整数
+  function detailData(doc) {
+    const d = (doc && doc.data) || {};
+    const hist = (d.history || []).map(h => ({ delta: normDelta(h.delta), cur: normInt(h.cur), note: h.note, ts: h.ts, revoked: !!h.revoked }));
+    const sum = summarizeLog(hist);
+    return {
+      id: doc ? doc.id : "", name: d.name, qty: normInt(d.qty), safety: normInt(d.safety), unit: d.unit,
+      status: d.status, note: d.note, createdAt: doc ? doc.createdAt : 0, updatedAt: doc ? doc.updatedAt : 0,
+      history: hist, inSum: sum.inSum, outSum: sum.outSum, valid: sum.valid
+    };
+  }
+  // 单条详情（含流水）
+  async function detail(id) {
+    const all = await OS.store.list();
+    const doc = (all || []).find(d => d.id === id && d.type === "inventory");
+    if (!doc) return { ok: false, error: "品项不存在" };
+    return { ok: true, data: detailData(doc) };
+  }
+  // 撤销最近一笔未撤销流水（mark revoked + 追加反向记录，保留审计痕迹）
+  async function undoAdjust(id) {
+    const all = await OS.store.list();
+    const doc = (all || []).find(d => d.id === id && d.type === "inventory");
+    if (!doc) return { ok: false, error: "品项不存在" };
+    const hist = ((doc.data && doc.data.history) || []);
+    let idx = -1;
+    for (let i = hist.length - 1; i >= 0; i--) { if (!hist[i].revoked) { idx = i; break; } }
+    if (idx < 0) return { ok: false, error: "无可撤销的流水" };
+    const target = hist[idx];
+    const tdelta = normDelta(target.delta);
+    const prev = normInt(target.cur) - tdelta;
+    const revoked = hist.map((h, i) => i === idx ? Object.assign({}, h, { revoked: true }) : h);
+    const record = { ts: Date.now(), delta: -tdelta, cur: prev,
+      note: "撤销" + (tdelta > 0 ? "入库" : "出库") + " " + Math.abs(tdelta), revoked: true, revokeOf: target.ts };
+    doc.data = Object.assign({}, doc.data, { qty: prev, history: revoked.concat([record]) });
+    doc.updatedAt = Date.now();
+    await OS.store.put(doc);
+    return { ok: true, doc, prev, delta: tdelta };
+  }
+
   // ---------- DOM 渲染 ----------
   async function render(el) {
     if (!el) return;
@@ -149,6 +199,7 @@
                       <input class="inv-adj" type="number" min="0" step="1" placeholder="数量" title="出入库数量" />
                       <button class="btn tiny" data-adjust="in" data-id="${r.id}">入库</button>
                       <button class="btn tiny danger" data-adjust="out" data-id="${r.id}">出库</button>
+                      <button class="btn tiny" data-log="${r.id}">流水</button>
                       <button class="btn tiny danger" data-del="${r.id}">删除</button>
                     </td>
                   </tr>`;
@@ -156,7 +207,8 @@
               </tbody>
             </table>`
           : `<div class="panel-empty">暂无库存品项。使用上方表单新增第一个品项。</div>`}
-      </div>`;
+      </div>
+      <div class="detail-host" data-detail-host hidden></div>`;
 
     const msg = el.querySelector("#inv-msg");
     el.querySelector("#inv-add").addEventListener("click", async () => {
@@ -189,8 +241,62 @@
       await render(el);
     }));
 
+    // 流水明细：打开面板（可撤销最近一笔）
+    el.querySelectorAll("[data-log]").forEach(b => b.addEventListener("click", () =>
+      openLog(el.querySelector("[data-detail-host]"), b.dataset.log)));
+
     // 批量勾选 + 批量删除
     if (OS.biz.common) OS.biz.common.bindBatchTools(el, { batchFn: batchRemove, reload: () => render(el) });
+  }
+
+  // 打开流水面板并渲染（支持撤销后重填保持展开）
+  async function openLog(host, id) {
+    const r = await detail(id);
+    if (!r.ok) { if (OS.toast) OS.toast(r.error, ""); return; }
+    host.innerHTML = logHTML(r.data);
+    host.hidden = false;
+    const c = host.querySelector("[data-detail-close]");
+    if (c) c.addEventListener("click", () => { host.hidden = true; host.innerHTML = ""; });
+    const u = host.querySelector("[data-undo]");
+    if (u) u.addEventListener("click", async () => {
+      const rr = await undoAdjust(id);
+      if (OS.toast) OS.toast(rr.ok ? ("已撤销，当前 " + rr.prev) : rr.error, "");
+      await openLog(host, id); // 重填面板，保留展开状态
+    });
+  }
+  // 流水面板 HTML
+  function logHTML(d) {
+    const rows = [...(d.history || [])].reverse().map((h, i) => {
+      const t = h.delta > 0 ? "入库" : "出库";
+      return `<tr class="${h.revoked ? "muted" : ""}">
+        <td>${i + 1}</td>
+        <td>${t}</td>
+        <td>${h.delta > 0 ? "+" : ""}${h.delta}</td>
+        <td>${h.cur}</td>
+        <td>${esc(h.note || "—")}</td>
+        <td class="muted">${fmtTime(h.ts)}</td>
+        <td>${h.revoked ? `<span class="tag tag-muted">已撤销</span>` : ""}</td>
+      </tr>`;
+    }).join("");
+    return `<div class="panel-card" style="margin-top:14px">
+      <div class="pt-name">出入库流水 · ${esc(d.name)} <button class="btn tiny" data-detail-close>收起</button></div>
+      <table class="kv">
+        <tr><th>当前库存</th><td>${d.qty} ${esc(d.unit || "")}</td></tr>
+        <tr><th>累计入库</th><td class="ok">+${d.inSum}</td></tr>
+        <tr><th>累计出库</th><td class="warn">-${d.outSum}</td></tr>
+        <tr><th>有效流水</th><td class="muted">${d.valid} 笔${(d.history || []).length - d.valid ? " · 含已撤销 " + ((d.history || []).length - d.valid) + " 笔" : ""}</td></tr>
+        <tr><th>备注</th><td>${esc(d.note || "—")}</td></tr>
+      </table>
+      <div class="pt-name" style="margin-top:8px">明细 <button class="btn tiny" data-undo${d.valid ? "" : " disabled"}>撤销最近一笔</button></div>
+      ${rows ? `<table class="biz-table"><thead><tr><th></th><th>类型</th><th>数量</th><th>结存</th><th>备注</th><th>时间</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="muted">暂无出入库流水。</p>`}
+    </div>`;
+  }
+  function fmtTime(t) {
+    if (!t) return "—";
+    const d = new Date(t);
+    return (d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2) +
+      " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2));
   }
 
   function esc(s) {
@@ -200,5 +306,5 @@
   }
 
   OS.biz = OS.biz || {};
-  OS.biz.inventory = { validateItem, summarize, list, create, remove, batchRemove, planAdjust, adjustQty, render };
+  OS.biz.inventory = { validateItem, summarize, list, create, remove, batchRemove, planAdjust, adjustQty, summarizeLog, detailData, detail, undoAdjust, render };
 })(window);
