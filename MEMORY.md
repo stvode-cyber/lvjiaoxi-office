@@ -23,14 +23,14 @@
 
 - 项目长期笔记：`.workbuddy/memory/MEMORY.md`
 - 每日日志：`.workbuddy/memory/YYYY-MM-DD.md`
-- 工程交接：`.workbuddy/handoff-2026-09-08.md`（最新，v1.0.17 · 102 套件 0 失败 · 四端同源 · GitHub 已推 · 含业务五板块 + 测试环境修复 + 业务批量操作 + 库存出入库 + 订单状态流转；卡点：① 发布到 VPS 待用户侧 ② iOS/HarmonyOS 编译）
+- 工程交接：`.workbuddy/handoff-2026-09-08.md`（最新，v1.0.17 · 103 套件 0 失败 · 四端同源 · GitHub 已推 · 含业务五板块 + 测试环境修复 + 业务批量操作 + 库存出入库 + 订单状态流转 + 详情展开；卡点：① 发布到 VPS 待用户侧 ② iOS/HarmonyOS 编译）
 
 ---
 
 ## 三、当前基线（2026-09-08 更新）
 
-- **102 套件 0 失败**（订单状态流转后门禁）+ 四端同源 ✅ + GitHub 已推（`stvode-cyber/lvjiaoxi-office`，tag v1.0.17）
-- 业务板块已上线：顶部导航五板块（工作台/订单/库存/审批/我的），订单/库存/审批本地 CRUD + CSV 导出 + **批量操作**（biz-common 共享工具条；订单/库存批量删除；审批批量通过/驳回/删除）+ **库存出入库**（planAdjust/adjustQty 数量调整 + history 流水）+ **订单单条状态流转**（planStatus/setStatus 下拉改状态 + statusHistory 留痕）
+- **103 套件 0 失败**（详情展开后门禁）+ 四端同源 ✅ + GitHub 已推（`stvode-cyber/lvjiaoxi-office`，tag v1.0.17）
+- 业务板块已上线：顶部导航五板块（工作台/订单/库存/审批/我的），订单/库存/审批本地 CRUD + CSV 导出 + **批量操作**（biz-common 共享工具条；订单/库存批量删除；审批批量通过/驳回/删除）+ **库存出入库**（planAdjust/adjustQty 数量调整 + history 流水）+ **订单单条状态流转**（planStatus/setStatus 下拉改状态 + statusHistory 留痕）+ **详情展开**（订单/审批「详情」按钮 + 状态流转时间线，审批补 statusHistory 留痕）
 - 测试环境已修复：jsdom/jszip 改为项目 devDependency（原外部路径随环境迁移丢失）
 - 🟡 待办：发布 v1.0.17 到 VPS（用户侧 `publish-latest.bat`）、iOS/HarmonyOS 编译（需本地工具链）
 
