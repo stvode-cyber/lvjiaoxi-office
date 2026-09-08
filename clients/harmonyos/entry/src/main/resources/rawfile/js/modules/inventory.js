@@ -67,6 +67,37 @@
       missing: targets.filter(id => !valid.has(id)) };
   }
 
+  // 调整量：允许负整数（出库），拒绝 0 / 非整数
+  function normDelta(v) {
+    const n = typeof v === "string" ? parseInt(v, 10) : Number(v);
+    return (Number.isInteger(n) && n !== 0) ? n : null;
+  }
+  // 出入库计划：纯逻辑（可单测）。delta 正=入库，负=出库；拒绝出库后库存为负
+  function planAdjust(cur, delta) {
+    const c = normInt(cur);
+    if (c === null) return { ok: false, error: "当前数量无效" };
+    const n = normDelta(delta);
+    if (n === null) return { ok: false, error: "调整量需为非 0 整数" };
+    const next = c + n;
+    if (next < 0) return { ok: false, error: "出库超出当前库存（当前 " + c + "）" };
+    return { ok: true, cur: c, delta: n, next };
+  }
+  // 出入库：校验后更新数量并追加流水记录（history）
+  async function adjustQty(id, delta, note) {
+    const all = await OS.store.list();
+    const doc = (all || []).find(d => d.id === id && d.type === "inventory");
+    if (!doc) return { ok: false, error: "品项不存在" };
+    const p = planAdjust(doc.data.qty, delta);
+    if (!p.ok) return { ok: false, error: p.error };
+    const hist = ((doc.data && doc.data.history) || []).concat([
+      { ts: Date.now(), delta: p.delta, cur: p.next, note: String(note == null ? "" : note).trim() }
+    ]);
+    doc.data = Object.assign({}, doc.data, { qty: p.next, history: hist });
+    doc.updatedAt = Date.now();
+    await OS.store.put(doc);
+    return { ok: true, doc, plan: p };
+  }
+
   // ---------- DOM 渲染 ----------
   async function render(el) {
     if (!el) return;
@@ -114,7 +145,12 @@
                     <td class="muted">${normInt(r.data.safety) ?? 0}</td>
                     <td class="muted">${esc(r.data.unit)}</td>
                     <td><span class="tag tag-${cls}">${label}</span></td>
-                    <td><button class="btn tiny danger" data-del="${r.id}">删除</button></td>
+                    <td class="inv-ops">
+                      <input class="inv-adj" type="number" min="0" step="1" placeholder="数量" title="出入库数量" />
+                      <button class="btn tiny" data-adjust="in" data-id="${r.id}">入库</button>
+                      <button class="btn tiny danger" data-adjust="out" data-id="${r.id}">出库</button>
+                      <button class="btn tiny danger" data-del="${r.id}">删除</button>
+                    </td>
                   </tr>`;
                 }).join("")}
               </tbody>
@@ -143,6 +179,16 @@
       if (confirm("确定删除该品项？")) { await remove(b.dataset.del); await render(el); }
     }));
 
+    // 出/入库：读行内数量输入，in=+值 / out=-值
+    el.querySelectorAll("[data-adjust]").forEach(b => b.addEventListener("click", async () => {
+      const tr = b.closest("tr");
+      const v = tr ? (tr.querySelector(".inv-adj") || {}).value : "";
+      const delta = b.dataset.adjust === "in" ? v : ("-" + v);
+      const r = await adjustQty(b.dataset.id, delta);
+      if (OS.toast) OS.toast(r.error || (b.dataset.adjust === "in" ? "已入库，当前 " + r.plan.next : "已出库，当前 " + r.plan.next), "");
+      await render(el);
+    }));
+
     // 批量勾选 + 批量删除
     if (OS.biz.common) OS.biz.common.bindBatchTools(el, { batchFn: batchRemove, reload: () => render(el) });
   }
@@ -154,5 +200,5 @@
   }
 
   OS.biz = OS.biz || {};
-  OS.biz.inventory = { validateItem, summarize, list, create, remove, batchRemove, render };
+  OS.biz.inventory = { validateItem, summarize, list, create, remove, batchRemove, planAdjust, adjustQty, render };
 })(window);
