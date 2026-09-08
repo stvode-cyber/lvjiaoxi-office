@@ -33,6 +33,12 @@
 
 ## 未发版（已提交，随下次打包）
 
+### 2026-09-08 · 订单单条状态流转
+
+- **订单** 状态列由只读 tag 改为**行内下拉**（待处理/进行中/已完成/已取消），change 即流转。
+- 新增 `planStatus`（非法 / 同状态拒绝）+ `setStatus`（追加 `statusHistory` 留痕：状态 + 时间 + 备注）。
+- 测试 `_order_status_test.js` **21 断言**（含 DOM change 交互）→ 全量 **102 套件 0 失败** + 四端同源 ✅；移除未使用的 `tagCls`。
+
 ### 2026-09-08 · 库存出入库（数量调整 + 流水）
 
 - **库存** 新增 `planAdjust` / `adjustQty`（`app/js/modules/inventory.js`）：入库（+）/ 出库（−）非负整数校验、**出库超库存拒绝**（不改写数据）、`history` 流水记录（delta / cur / note）。
