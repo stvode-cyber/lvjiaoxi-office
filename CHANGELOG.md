@@ -33,6 +33,12 @@
 
 ## 未发版（已提交，随下次打包）
 
+### 2026-09-08 · 库存出入库（数量调整 + 流水）
+
+- **库存** 新增 `planAdjust` / `adjustQty`（`app/js/modules/inventory.js`）：入库（+）/ 出库（−）非负整数校验、**出库超库存拒绝**（不改写数据）、`history` 流水记录（delta / cur / note）。
+- 台账每行新增**数量输入 + 入库 / 出库**按钮，点击即调整并 toast 结果。
+- 测试 `_inventory_adjust_test.js` **24 断言**（含 DOM 交互）→ 全量 **101 套件 0 失败** + 四端同源 ✅。
+
 ### 2026-09-08 · 业务板块批量操作
 
 - 新增 `app/js/modules/biz-common.js`（`OS.biz.common`）：批量勾选工具条（全选 / 计数 / 批量按钮），订单·库存·审批三板块复用。
