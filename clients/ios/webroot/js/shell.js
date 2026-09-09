@@ -128,6 +128,7 @@
     $("#btn-account").addEventListener("click", openAccount);
     $("#btn-cmd").addEventListener("click", openCmd);
     $("#btn-open").addEventListener("click", () => $("#file-input").click());
+    const dashGo = $("#dash-lowstock-go"); if (dashGo) dashGo.addEventListener("click", () => switchTopNav("inventory"));
     $("#file-input").addEventListener("change", onFile);
 
     // 原生桌面壳：接收主进程从文件关联（双击/默认打开方式）推来的文件，直接打开
@@ -266,6 +267,76 @@
     $("#recent-count").textContent = docs.length ? `（${docs.length}）` : "";
     $("#recent-empty").hidden = docs.length > 0;
     docs.forEach(d => grid.appendChild(docCard(d)));
+    // 工作台聚合:成交额趋势 + 业务概览（订单/审批）+ 库存预警
+    renderBizTrend();
+    renderBizOverview();
+    renderLowStockAlert();
+  }
+
+  // 工作台聚合「成交额趋势」：近 7 日订单成交额 → 内联 SVG 折线
+  async function renderBizTrend() {
+    const plot = $("#dash-trend-plot");
+    if (!plot || !OS.biz || !OS.biz.orders || !OS.biz.orders.trend) return;
+    const { days, data } = await OS.biz.orders.trend(7);
+    const w = 720, h = 150, pl = 40, pr = 12, pt = 16, pb = 22;
+    const iw = w - pl - pr, ih = h - pt - pb;
+    const max = Math.max(1, ...data.map(d => d.amount));
+    const X = i => pl + i * (iw / Math.max(1, days - 1));
+    const Y = v => pt + ih - (v / max) * ih;
+    const pts = data.map((d, i) => `${X(i)},${Y(d.amount)}`);
+    const gridYs = [0, .25, .5, .75, 1].map(f => pt + ih * f);
+    const area = `M${X(0)},${Y(0)} ${pts.join(" ")} ${X(days - 1)},${Y(0).toFixed(2)} Z`;
+    let ticks = "";
+    gridYs.forEach(g => { ticks += `<line class="grid" x1="${pl}" y1="${g}" x2="${pl + iw}" y2="${g}"/>`; });
+    const short = d => { const p = d.split("-"); return p[1] + "/" + p[2]; };
+    const xlabs = data.map((d, i) => `<text class="tick" x="${X(i)}" y="${h - 7}" text-anchor="middle">${short(d.date)}</text>`).join("");
+    const vals = data.map((d, i) => d.amount > 0 ? `<text class="val" x="${X(i)}" y="${Y(d.amount) - 6}" text-anchor="middle">${Math.round(d.amount)}</text>` : "").join("");
+    plot.innerHTML = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      ${ticks}${area ? `<path class="area" d="${area}"/>` : ""}
+      <polyline class="line" points="${pts.join(" ")}"/>
+      ${data.map((d, i) => d.amount > 0 ? `<circle class="dot" r="2.6" cx="${X(i)}" cy="${Y(d.amount)}"/>` : "").join("")}
+      ${xlabs}${vals}
+    </svg>`;
+  }
+
+  // 工作台聚合「业务概览」：填充订单/审批统计卡（点击卡片跳转对应视图）
+  async function renderBizOverview() {
+    const wrap = $("#dash-biz");
+    if (!wrap || !OS.biz) return;
+    if (OS.biz.orders && OS.biz.orders.dashStats) {
+      const so = await OS.biz.orders.dashStats();
+      $("#dash-orders-nums").textContent = `${so.count} 笔 · 进行中 ${so.inprogress} · 待处理 ${so.pending}`;
+      $("#dash-orders-amount").textContent = `成交总额 ¥${(so.amount || 0).toLocaleString("zh-CN")}`;
+    }
+    if (OS.biz.approvals && OS.biz.approvals.dashStats) {
+      const sa = await OS.biz.approvals.dashStats();
+      $("#dash-approvals-nums").textContent = `${sa.pending} 项待审批 · 通过 ${sa.passed} · 驳回 ${sa.rejected}`;
+      $("#dash-approvals-count").textContent = `共 ${sa.count} 条审批`;
+    }
+    wrap.querySelectorAll(".dash-biz-card").forEach(card =>
+      card.addEventListener("click", () => switchTopNav(card.dataset.go || "orders")));
+  }
+
+  // 工作台聚合「库存预警」：填充低库存/缺货品项卡片，无命中则隐藏；点击跳转库存视图
+  async function renderLowStockAlert() {
+    const wrap = $("#dash-lowstock");
+    if (!wrap || !OS.biz || !OS.biz.inventory || !OS.biz.inventory.lowStock) return;
+    const items = await OS.biz.inventory.lowStock();
+    const grid = $("#dash-lowstock-grid");
+    grid.innerHTML = "";
+    if (!items.length) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    $("#dash-lowstock-count").textContent = `（${items.length} 项需处理）`;
+    items.forEach(it => {
+      const card = document.createElement("div");
+      card.className = "dash-lowstock-card" + (it.severity === "缺货" ? " alert" : "");
+      card.innerHTML = `<div class="dl-name">${OS.util.escapeHtml(it.name)}</div>
+        <div class="dl-tag ${it.severity}">${it.severity}</div>
+        <div class="dl-row"><span class="dl-label">现有量</span><strong>${it.qty}</strong></div>
+        <div class="dl-row"><span class="dl-label">安全库存</span><span>${it.safety}</span></div>`;
+      card.addEventListener("click", () => switchTopNav("inventory"));
+      grid.appendChild(card);
+    });
   }
 
   function docCard(d) {

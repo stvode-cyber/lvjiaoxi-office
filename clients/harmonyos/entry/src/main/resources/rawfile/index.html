@@ -78,6 +78,41 @@
           <p class="empty-hint" id="recent-empty">暂无本地文档。从左上方模板新建，或打开一个文件。</p>
         </section>
       </div>
+
+      <!-- 工作台聚合：成交额趋势（近 7 日，内联 SVG 折线） -->
+      <section class="dash-trend" id="dash-trend">
+        <div class="section-head"><h2>成交额趋势</h2><span class="muted">近 7 日订单成交额（¥）</span></div>
+        <div class="dash-trend-plot" id="dash-trend-plot"></div>
+      </section>
+
+      <!-- 工作台聚合：业务概览（订单/审批统计卡片，点击跳转对应视图） -->
+      <section class="dash-biz" id="dash-biz">
+        <div class="section-head"><h2>业务概览</h2><span class="muted">订单 · 审批 · 库存实时动态</span></div>
+        <div class="dash-biz-grid">
+          <div class="dash-biz-card" data-go="orders">
+            <div class="dash-biz-label">订单</div>
+            <div class="dash-biz-row"><span class="muted">总数 / 进行中 / 待处理</span></div>
+            <div class="dash-biz-nums" id="dash-orders-nums">—</div>
+            <div class="dash-biz-sub" id="dash-orders-amount">—</div>
+          </div>
+          <div class="dash-biz-card" data-go="approvals">
+            <div class="dash-biz-label">审批</div>
+            <div class="dash-biz-row"><span class="muted">待我审批 · 已通过 · 已驳回</span></div>
+            <div class="dash-biz-nums" id="dash-approvals-nums">—</div>
+            <div class="dash-biz-sub" id="dash-approvals-count">—</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 工作台聚合：库存预警（低库存/缺货品项，点击跳转库存视图） -->
+      <section class="dash-lowstock" id="dash-lowstock" hidden>
+        <div class="section-head">
+          <h2>库存预警</h2>
+          <span class="muted" id="dash-lowstock-count"></span>
+          <button class="btn tiny" id="dash-lowstock-go">去库存处理</button>
+        </div>
+        <div class="dash-lowstock-grid" id="dash-lowstock-grid"></div>
+      </section>
     </main>
 
     <!-- 编辑器区 -->

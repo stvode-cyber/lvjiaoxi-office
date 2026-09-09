@@ -90,6 +90,13 @@
       missing: targets.filter(id => !valid.has(id)) };
   }
 
+  // 工作台聚合：审批概览（纯逻辑可单测）
+  async function dashStats() {
+    const rows = await list();
+    const s = summarize(rows.map(d => d.data));
+    return { count: s.count, pending: s.pending, passed: s.byStatus["已通过"] || 0, rejected: s.byStatus["已驳回"] || 0 };
+  }
+
   // 批量流转：仅对待审批项生效（终态不再流转），返回跳过项
   async function batchSetStatus(ids, status) {
     const valid = APPROVAL_STATUSES.includes(status) && status !== "待审批";
@@ -257,5 +264,5 @@
   }
 
   OS.biz = OS.biz || {};
-  OS.biz.approvals = { APPROVAL_STATUSES, APPROVAL_KINDS, validateRequest, summarize, list, create, update, remove, batchRemove, batchSetStatus, detailData, detail, render };
+  OS.biz.approvals = { APPROVAL_STATUSES, APPROVAL_KINDS, validateRequest, summarize, list, create, update, remove, batchRemove, batchSetStatus, detailData, detail, dashStats, render };
 })(window);

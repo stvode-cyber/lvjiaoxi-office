@@ -96,6 +96,38 @@
     return { ok: true, doc, plan: p };
   }
 
+  // 工作台聚合：订单概览（纯逻辑可单测）
+  async function dashStats() {
+    const rows = await list();
+    const s = summarize(rows.map(d => d.data));
+    return { count: s.count, active: s.active, inprogress: s.byStatus["进行中"] || 0,
+      done: s.byStatus["已完成"] || 0, pending: s.byStatus["待处理"] || 0,
+      amount: Math.round(s.sum * 100) / 100 };
+  }
+  // 工作台聚合：趋势（订单成交额近 N 日，纯逻辑可单测）
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  function dayKey(ts) { const d = new Date(ts); return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+  // rows: [{ ts, amount }] → 近 days 天连续日聚合 [{ date YYYY-MM-DD, amount, count }]（升序，无数据日用 0 填充）
+  function aggregateDaily(rows, days, now) {
+    const map = {};
+    (rows || []).forEach(r => {
+      const k = dayKey(r.ts == null ? Date.now() : r.ts);
+      const b = map[k] || (map[k] = { amount: 0, count: 0 });
+      const n = normAmount(r.amount); if (n !== null) b.amount += n;
+      b.count++;
+    });
+    const out = []; const base = now == null ? Date.now() : now;
+    for (let i = (days || 7) - 1; i >= 0; i--) {
+      const k = dayKey(base - i * 86400000);
+      const b = map[k];
+      out.push({ date: k, amount: b ? Math.round(b.amount * 100) / 100 : 0, count: b ? b.count : 0 });
+    }
+    return out;
+  }
+  async function trend(days) {
+    const rows = await list();
+    return { days: days || 7, data: aggregateDaily(rows.map(d => ({ ts: d.createdAt, amount: d.data && d.data.amount })), days || 7) };
+  }
   // 详情数据（结构化，供详情面板/DOM 使用）。纯逻辑：不转义、金额数字
   function detailData(doc) {
     const d = (doc && doc.data) || {};
@@ -258,6 +290,6 @@
   OS.biz = OS.biz || {};
   OS.biz.orders = {
     ORDER_STATUSES, DEFAULT_AMOUNT,
-    validateOrder, summarize, list, create, remove, batchRemove, planStatus, setStatus, detailData, detail, render, fmtMoney, fmtDate
+    validateOrder, summarize, list, create, remove, batchRemove, planStatus, setStatus, detailData, detail, dashStats, aggregateDaily, trend, render, fmtMoney, fmtDate
   };
 })(window);

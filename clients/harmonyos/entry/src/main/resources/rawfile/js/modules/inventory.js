@@ -109,6 +109,33 @@
     });
     return { inSum, outSum, valid: (hist || []).length - revoked };
   }
+  // 流水筛选：kind='in'|'out'|''全部；from/to 时间戳毫秒范围；q 备注关键词（纯逻辑，可单测）
+  function filterLog(hist, o) {
+    o = o || {};
+    const kind = (o.kind === "in" || o.kind === "out") ? o.kind : "";
+    const from = Number(o.from); const f = isFinite(from) ? from : 0;
+    const to = Number(o.to); const t = isFinite(to) ? to : Infinity;
+    const q = String(o.q == null ? "" : o.q).trim();
+    return (hist || []).filter(h => {
+      const n = normDelta(h.delta);
+      if (kind && (kind === "in" ? !(n > 0) : !(n < 0))) return false;
+      const ts = (h.ts || 0);
+      if (ts < f || ts > t) return false;
+      if (q && String(h.note || "").indexOf(q) < 0) return false;
+      return true;
+    });
+  }
+  // 分页：items 为筛选后数组（纯逻辑，可单测）。pageSize 缺省 10，分页越界自动夹取
+  function pageLog(items, o) {
+    o = o || {};
+    const size = Number(o.pageSize) >= 1 ? Math.floor(Number(o.pageSize)) : 10;
+    const total = (items || []).length;
+    const pages = Math.max(1, Math.ceil(total / size));
+    let p = Number(o.page) >= 1 ? Math.floor(Number(o.page)) : 1;
+    if (p > pages) p = pages;
+    const slice = (items || []).slice((p - 1) * size, p * size);
+    return { items: slice, page: p, pageSize: size, total, pages, offset: (p - 1) * size };
+  }
   // 库存详情：结构化返回（含出入库流水 + 汇总）。纯逻辑：不转义、数量整数
   function detailData(doc) {
     const d = (doc && doc.data) || {};
@@ -249,27 +276,65 @@
     if (OS.biz.common) OS.biz.common.bindBatchTools(el, { batchFn: batchRemove, reload: () => render(el) });
   }
 
-  // 打开流水面板并渲染（支持撤销后重填保持展开）
+  // 流水面板状态（筛选 + 分页），供重填时保持不变
+  const LOG_STATE = { id: null, kind: "", from: "", to: "", q: "", page: 1 };
+  // 打开流水面板：重置筛选分页并按 id 渲染
   async function openLog(host, id) {
-    const r = await detail(id);
-    if (!r.ok) { if (OS.toast) OS.toast(r.error, ""); return; }
-    host.innerHTML = logHTML(r.data);
+    LOG_STATE.id = id; LOG_STATE.kind = ""; LOG_STATE.from = ""; LOG_STATE.to = ""; LOG_STATE.q = ""; LOG_STATE.page = 1;
+    host.innerHTML = "";
     host.hidden = false;
+    await renderLogPanel(host);
+  }
+  // 渲染流水面板（含筛选 + 分页 + 撤销），事件统一在此绑定
+  async function renderLogPanel(host) {
+    const r = await detail(LOG_STATE.id);
+    if (!r.ok) { if (OS.toast) OS.toast(r.error, ""); return; }
+    const d = r.data;
+    const filtered = filterLog(d.history, {
+      kind: LOG_STATE.kind,
+      from: LOG_STATE.from ? new Date(LOG_STATE.from).getTime() : 0,
+      to: LOG_STATE.to ? new Date(LOG_STATE.to).getTime() : Infinity,
+      q: LOG_STATE.q
+    });
+    const pg = pageLog(filtered, { page: LOG_STATE.page, pageSize: 10 });
+    host.innerHTML = logHTML(d, LOG_STATE, filtered.length, pg);
     const c = host.querySelector("[data-detail-close]");
     if (c) c.addEventListener("click", () => { host.hidden = true; host.innerHTML = ""; });
+    const ex = host.querySelector("[data-export-log]");
+    if (ex) ex.addEventListener("click", () => exportLogCsv(LOG_STATE.id, {
+      kind: LOG_STATE.kind,
+      from: LOG_STATE.from ? new Date(LOG_STATE.from).getTime() : 0,
+      to: LOG_STATE.to ? new Date(LOG_STATE.to).getTime() : Infinity,
+      q: LOG_STATE.q
+    }));
+    host.querySelector("[data-filter]").addEventListener("click", () => {
+      LOG_STATE.kind = host.querySelector("[data-f-kind]").value;
+      LOG_STATE.from = host.querySelector("[data-f-from]").value;
+      LOG_STATE.to = host.querySelector("[data-f-to]").value;
+      LOG_STATE.q = host.querySelector("[data-f-q]").value;
+      LOG_STATE.page = 1;
+      renderLogPanel(host);
+    });
+    host.querySelector("[data-reset]").addEventListener("click", () => {
+      LOG_STATE.kind = ""; LOG_STATE.from = ""; LOG_STATE.to = ""; LOG_STATE.q = ""; LOG_STATE.page = 1;
+      renderLogPanel(host); // 清空输入由重填完成
+    });
+    const prev = host.querySelector("[data-page-prev]"), next = host.querySelector("[data-page-next]");
+    if (prev) prev.addEventListener("click", () => { if (LOG_STATE.page > 1) { LOG_STATE.page--; renderLogPanel(host); } });
+    if (next) next.addEventListener("click", () => { if (LOG_STATE.page < pg.pages) { LOG_STATE.page++; renderLogPanel(host); } });
     const u = host.querySelector("[data-undo]");
     if (u) u.addEventListener("click", async () => {
-      const rr = await undoAdjust(id);
+      const rr = await undoAdjust(LOG_STATE.id);
       if (OS.toast) OS.toast(rr.ok ? ("已撤销，当前 " + rr.prev) : rr.error, "");
-      await openLog(host, id); // 重填面板，保留展开状态
+      await renderLogPanel(host); // 重填面板，保留筛选与页码
     });
   }
-  // 流水面板 HTML
-  function logHTML(d) {
-    const rows = [...(d.history || [])].reverse().map((h, i) => {
+  // 流水面板 HTML（st=筛选状态，todo=筛选后总条数，pg=分页结果）
+  function logHTML(d, st, todo, pg) {
+    const rows = [...(pg.items || [])].reverse().map((h, i) => {
       const t = h.delta > 0 ? "入库" : "出库";
       return `<tr class="${h.revoked ? "muted" : ""}">
-        <td>${i + 1}</td>
+        <td>${pg.offset + pg.items.length - i}</td>
         <td>${t}</td>
         <td>${h.delta > 0 ? "+" : ""}${h.delta}</td>
         <td>${h.cur}</td>
@@ -279,7 +344,7 @@
       </tr>`;
     }).join("");
     return `<div class="panel-card" style="margin-top:14px">
-      <div class="pt-name">出入库流水 · ${esc(d.name)} <button class="btn tiny" data-detail-close>收起</button></div>
+      <div class="pt-name">出入库流水 · ${esc(d.name)} <button class="btn tiny" data-export-log>导出 CSV</button> <button class="btn tiny" data-detail-close>收起</button></div>
       <table class="kv">
         <tr><th>当前库存</th><td>${d.qty} ${esc(d.unit || "")}</td></tr>
         <tr><th>累计入库</th><td class="ok">+${d.inSum}</td></tr>
@@ -287,10 +352,68 @@
         <tr><th>有效流水</th><td class="muted">${d.valid} 笔${(d.history || []).length - d.valid ? " · 含已撤销 " + ((d.history || []).length - d.valid) + " 笔" : ""}</td></tr>
         <tr><th>备注</th><td>${esc(d.note || "—")}</td></tr>
       </table>
-      <div class="pt-name" style="margin-top:8px">明细 <button class="btn tiny" data-undo${d.valid ? "" : " disabled"}>撤销最近一笔</button></div>
-      ${rows ? `<table class="biz-table"><thead><tr><th></th><th>类型</th><th>数量</th><th>结存</th><th>备注</th><th>时间</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table>`
-        : `<p class="muted">暂无出入库流水。</p>`}
+      <div class="log-filter" style="margin-top:8px">
+        <select data-f-kind>
+          <option value="">全部类型</option>
+          <option value="in" ${st.kind === "in" ? "selected" : ""}>入库</option>
+          <option value="out" ${st.kind === "out" ? "selected" : ""}>出库</option>
+        </select>
+        <input data-f-from type="date" value="${st.from}" title="开始日期" />
+        <input data-f-to type="date" value="${st.to}" title="结束日期" />
+        <input data-f-q placeholder="备注关键词" value="${esc(st.q)}" />
+        <button class="btn tiny primary" data-filter>筛选</button>
+        <button class="btn tiny" data-reset>重置</button>
+      </div>
+      <div class="pt-name" style="margin-top:8px">明细（共 ${todo} 条，第 ${pg.page}/${pg.pages} 页）
+        <button class="btn tiny" data-page-prev${pg.page > 1 ? "" : " disabled"}>上一页</button>
+        <button class="btn tiny" data-page-next${pg.page < pg.pages ? "" : " disabled"}>下一页</button>
+        <button class="btn tiny" data-undo${d.valid ? "" : " disabled"}>撤销最近一笔</button>
+      </div>
+      ${rows ? `<table class="biz-table"><thead><tr><th>#</th><th>类型</th><th>数量</th><th>结存</th><th>备注</th><th>时间</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="muted">${pg.total === 0 && d.history && d.history.length ? "无匹配筛选的流水。" : "暂无出入库流水。"}</p>`}
     </div>`;
+  }
+  // ---------- 流水导出 CSV ----------
+  const LOG_CSV_HEADER = ["#", "类型", "数量", "结存", "备注", "时间", "状态"];
+  // 流水 → CSV 行（纯逻辑，可单测）：按时间正序输出（最早在顶、行号递增）
+  function logCsvRows(hist) {
+    const sorted = [...(hist || [])].sort((a, b) => ((a && a.ts) || 0) - ((b && b.ts) || 0));
+    return sorted.map((h, i) => [
+      String(i + 1), h.delta > 0 ? "入库" : "出库",
+      (h.delta > 0 ? "+" : "") + h.delta,
+      h.cur == null ? "" : String(h.cur),
+      String(h.note == null ? "" : h.note),
+      fmtTime(h.ts),
+      h.revoked ? "已撤销" : ""
+    ]);
+  }
+  // 导出流水 CSV：读取明细 → 按 opts 筛选（复用 filterLog，kind/from/to/q 毫秒）→ 写 CSV
+  async function exportLogCsv(id, opts) {
+    if (!OS.export || !OS.export.csv) { if (OS.toast) OS.toast("当前环境不支持 CSV 导出", ""); return { ok: false }; }
+    const r = await detail(id);
+    if (!r.ok) { if (OS.toast) OS.toast(r.error, ""); return { ok: false }; }
+    const d = r.data;
+    const filtered = filterLog(d.history, opts || {});
+    OS.export.csv("库存流水·" + (d.name || "品项") + ".csv", LOG_CSV_HEADER, logCsvRows(filtered));
+    return { ok: true, total: filtered.length, name: d.name };
+  }
+  // 低库存/缺货品项聚合（纯逻辑可单测）：低于安全线或缺货 → [{id,name,qty,safety,unit,severity}]
+  async function lowStock() {
+    const rows = await list();
+    const out = [];
+    (rows || []).forEach(d => {
+      const dd = d.data || {};
+      const name = String(dd.name || "");
+      const qty = normInt(dd.qty);
+      const safety = normInt(dd.safety) || 0;
+      const q = qty == null ? 0 : qty;
+      if (safety > 0 && q < safety) {
+        out.push({ id: d.id, name, qty: q, safety, unit: String(dd.unit || ""), severity: q === 0 ? "缺货" : "偏低" });
+      }
+    });
+    // 缺货优先，其次按品名
+    out.sort((a, b) => (a.severity === "缺货" ? 0 : 1) - (b.severity === "缺货" ? 0 : 1) || a.name.localeCompare(b.name, "zh"));
+    return out;
   }
   function fmtTime(t) {
     if (!t) return "—";
@@ -306,5 +429,5 @@
   }
 
   OS.biz = OS.biz || {};
-  OS.biz.inventory = { validateItem, summarize, list, create, remove, batchRemove, planAdjust, adjustQty, summarizeLog, detailData, detail, undoAdjust, render };
+  OS.biz.inventory = { validateItem, summarize, list, create, remove, batchRemove, planAdjust, adjustQty, summarizeLog, filterLog, pageLog, detailData, detail, undoAdjust, logCsvRows, exportLogCsv, lowStock, render };
 })(window);
