@@ -3,7 +3,7 @@ const { JSDOM } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "D:/源码存档/绿角犀办公软件/app";
+const APP = __dirname + "/app";
 const code = fs.readFileSync(path.join(APP, "js/modules/spreadsheet.js"), "utf8");
 
 const dom = new JSDOM(`<!DOCTYPE html><html><body></body></html>`, { runScripts: "dangerously" });

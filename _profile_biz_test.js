@@ -5,7 +5,7 @@
 const { JSDOM } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
-const APP = "D:/源码存档/绿角犀办公软件/app";
+const APP = __dirname + "/app";
 // 版本单一真源：从 package.json 读取
 const VER = JSON.parse(fs.readFileSync(path.join(APP, "..", "package.json"), "utf8")).version;
 let pass = 0, fail = 0; const fails = [];

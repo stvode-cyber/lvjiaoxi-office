@@ -7,7 +7,7 @@ const JSZip = require("jszip");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "D:/源码存档/绿角犀办公软件/app";
+const APP = __dirname + "/app";
 const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost/" });
 const { window } = dom;
 window.JSZip = JSZip;            // 用真实 npm JSZip：async() 在纯 Node 下可同步解析

@@ -6,7 +6,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "D:/源码存档/绿角犀办公软件/app";
+const APP = __dirname + "/app";
 const UPDATER = fs.readFileSync(path.join(APP, "js/updater.js"), "utf8");
 
 let pass = 0, fail = 0; const fails = [];

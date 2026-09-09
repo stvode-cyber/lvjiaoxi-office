@@ -1,6 +1,6 @@
 /* 绿角犀 Office · 发布资产完整性校验测试
    验证 scripts/verify-release-assets.js 的纯函数（detectPlatforms / verifyAll）。 */
-const v = require("D:/源码存档/绿角犀办公软件/scripts/verify-release-assets.js");
+const v = require(__dirname + "/scripts/verify-release-assets.js");
 
 let pass = 0, fail = 0; const fails = [];
 function ok(name, cond) { if (cond) { pass++; } else { fail++; fails.push(name); console.log("  ✗ " + name); } }

@@ -10,7 +10,7 @@ const JSZip = require("jszip");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "D:/源码存档/绿角犀办公软件/app";
+const APP = __dirname + "/app";
 const RESULT_FILE = path.join(APP, "..", "_e2e_roundtrip_result.txt");
 // 版本单一真源：从 package.json 读取，避免随升版漂移
 const PKG = JSON.parse(fs.readFileSync(path.join(APP, "..", "package.json"), "utf8"));

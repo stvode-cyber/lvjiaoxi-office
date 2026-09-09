@@ -7,7 +7,7 @@
 const { JSDOM } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
-const APP = "D:/源码存档/绿角犀办公软件/app";
+const APP = __dirname + "/app";
 let pass = 0, fail = 0; const fails = [];
 function ok(name, cond) { if (cond) { pass++; } else { fail++; fails.push(name); console.log("  FAIL: " + name); } }
 const wait = ms => new Promise(r => setTimeout(r, ms));

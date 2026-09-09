@@ -11,7 +11,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const fs = require("fs");
 const path = require("path");
 
-const APP = "D:/源码存档/绿角犀办公软件/app";
+const APP = __dirname + "/app";
 
 // 按 index.html 顺序（去掉 vendor，boot 阶段不需要）
 const SCRIPTS = [
