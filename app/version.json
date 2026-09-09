@@ -1,12 +1,13 @@
 {
-  "version": "1.0.17",
-  "publishedAt": "2026-09-04",
+  "version": "1.0.18",
+  "publishedAt": "2026-09-09",
   "channel": "stable",
   "minVersion": "1.0.0",
   "notes": [
-    "顶部导航五板块做实",
-    "业务台账倒入Excel",
-    "我的板块"
+    "工作台新增成交额趋势图表化",
+    "库存流水按时间筛选/分页/导出CSV",
+    "库存预警与业务概览聚合",
+    "订单状态流转与详情展开"
   ],
   "url": "https://lujax.fun/releases"
 }
