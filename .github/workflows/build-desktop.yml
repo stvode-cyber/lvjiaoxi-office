@@ -63,17 +63,25 @@ jobs:
       # 可选签名：空字符串时 electron-builder 自动回退未签名
       - name: Build (Windows)
         if: matrix.platform == 'win'
-        env:
-          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-        run: npm run dist:win
+        # 仅在提供证书签名 secret 时注入，避免空值被 electron-builder 当文件路径解析崩溃
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.WINDOWS_CSC_LINK }}" ]; then
+            export CSC_LINK="${{ secrets.WINDOWS_CSC_LINK }}"
+            export CSC_KEY_PASSWORD="${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}"
+          fi
+          npm run dist:win
 
       - name: Build (macOS)
         if: matrix.platform == 'mac'
-        env:
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-        run: npm run dist:mac
+        # 仅在提供证书签名 secret 时注入，避免空值被 electron-builder 当文件路径解析崩溃
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.MAC_CSC_LINK }}" ]; then
+            export CSC_LINK="${{ secrets.MAC_CSC_LINK }}"
+            export CSC_KEY_PASSWORD="${{ secrets.MAC_CSC_KEY_PASSWORD }}"
+          fi
+          npm run dist:mac
 
       - name: Build (Linux)
         if: matrix.platform == 'linux'

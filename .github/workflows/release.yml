@@ -76,19 +76,29 @@ jobs:
 
       - name: Build (Windows)
         if: matrix.platform == 'win'
+        shell: bash
         env:
           LVJX_UPDATE_FEED: ${{ vars.LVJX_UPDATE_FEED }}
-          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-        run: npm run dist:win
+        run: |
+          # 仅在提供证书签名 secret 时注入，避免空值被 electron-builder 当文件路径解析崩溃
+          if [ -n "${{ secrets.WINDOWS_CSC_LINK }}" ]; then
+            export CSC_LINK="${{ secrets.WINDOWS_CSC_LINK }}"
+            export CSC_KEY_PASSWORD="${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}"
+          fi
+          npm run dist:win
 
       - name: Build (macOS)
         if: matrix.platform == 'mac'
+        shell: bash
         env:
           LVJX_UPDATE_FEED: ${{ vars.LVJX_UPDATE_FEED }}
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-        run: npm run dist:mac
+        run: |
+          # 仅在提供证书签名 secret 时注入，避免空值被 electron-builder 当文件路径解析崩溃
+          if [ -n "${{ secrets.MAC_CSC_LINK }}" ]; then
+            export CSC_LINK="${{ secrets.MAC_CSC_LINK }}"
+            export CSC_KEY_PASSWORD="${{ secrets.MAC_CSC_KEY_PASSWORD }}"
+          fi
+          npm run dist:mac
 
       - name: Build (Linux)
         if: matrix.platform == 'linux'
