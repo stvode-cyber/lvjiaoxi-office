@@ -251,6 +251,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // 单实例：已在运行的实例不再重复起服务；双击/默认打开方式的文件转交首实例的 second-instance 处理
+  if (!app.requestSingleInstanceLock()) { app.quit(); return; }
   server.listen(PORT, "127.0.0.1", () => {
     if (PORT === 0) PORT = server.address().port; // 固定为实际随机端口，供后续窗口复用
     createWindow();

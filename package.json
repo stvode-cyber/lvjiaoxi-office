@@ -73,6 +73,16 @@
         "ext": "pptx",
         "name": "绿角犀演示文档",
         "role": "Editor"
+      },
+      {
+        "ext": "txt",
+        "name": "绿角犀文本文档",
+        "role": "Editor"
+      },
+      {
+        "ext": "xmind",
+        "name": "绿角犀思维导图",
+        "role": "Editor"
       }
     ],
     "win": {

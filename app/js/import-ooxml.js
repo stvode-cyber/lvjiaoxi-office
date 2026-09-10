@@ -669,6 +669,67 @@
   }
 
   /* ============================================================
+     XMind（.xmind）→ 编辑器：把思维导图大纲还原为文档
+     现代格式(zip 内 content.json)，旧版 XMind 8(zip 内 content.xml)
+     ============================================================ */
+  function xmEsc(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function xmNodeHtml(node, depth) {
+    const title = xmEsc(node && (node.title != null ? node.title : node.text) || "未命名主题");
+    const kids = ((node && node.children && node.children.attached) || (node && node.children) || []).filter(Boolean);
+    const inner = kids.map(k => xmNodeHtml(k, depth + 1)).join("");
+    const cls = "xm-node" + (depth === 0 ? " xm-root" : "");
+    return `<div class="${cls}"><h${Math.min(3, depth + 1)}>${title}</h${Math.min(3, depth + 1)}>` +
+      (inner ? `<div class="xm-children">${inner}</div>` : "") + `</div>`;
+  }
+  function xmXmlTopic(el, depth) {
+    const t = el.getElementsByTagName("title");
+    const title = (t && t[0] && t[0].textContent) || el.getAttribute("title") || "未命名主题";
+    const kids = [];
+    const children = el.getElementsByTagName("children");
+    if (children && children[0]) {
+      const attached = children[0].getElementsByTagName("topics");
+      for (let i = 0; i < attached.length; i++) {
+        for (const tpc of attached[i].getElementsByTagName("topic")) kids.push(tpc);
+      }
+    }
+    const inner = kids.map(k => xmXmlTopic(k, depth + 1)).join("");
+    const cls = "xm-node" + (depth === 0 ? " xm-root" : "");
+    return `<div class="${cls}"><h${Math.min(3, depth + 1)}>${xmEsc(title)}</h${Math.min(3, depth + 1)}>` +
+      (inner ? `<div class="xm-children">${inner}</div>` : "") + `</div>`;
+  }
+  async function parseXmind(zip) {
+    const jf = zip.file("content.json");
+    const xf = zip.file("content.xml");
+    let html;
+    if (jf) {
+      const root = JSON.parse(await jf.async("string"));
+      const sheets = Array.isArray(root) ? root
+        : (root && root.sheet ? root.sheet : null);
+      const list = sheets || [{ title: (root && root.title) || "思维导图", rootTopic: root && root.rootTopic }];
+      html = list.map(s => {
+        const st = s && s.title ? ` · <span class="muted">${xmEsc(s.title)}</span>` : "";
+        return `<section class="xm-sheet"><h2>思维导图${st}</h2>` +
+          (s && s.rootTopic ? xmNodeHtml(s.rootTopic, 0) : `<p class="muted">（空主题）</p>`) + `</section>`;
+      }).join("");
+    } else if (xf) {
+      const doc = parseXML(await xf.async("string"));
+      const sheets = doc.getElementsByTagName("sheet");
+      html = Array.from(sheets).map(s => {
+        const t = s.getElementsByTagName("title");
+        const st = t && t[0] ? " · <span class=\"muted\">" + xmEsc(t[0].textContent) + "</span>" : "";
+        const topics = s.getElementsByTagName("topic");
+        const rootTopic = topics && topics[0];
+        return `<section class="xm-sheet"><h2>思维导图${st}</h2>` +
+          (rootTopic ? xmXmlTopic(rootTopic, 0) : `<p class="muted">（空主题）</p>`) + `</section>`;
+      }).join("");
+    }
+    if (!html) throw new Error("无法解析的 XMind 文件（缺少 content.json / content.xml）");
+    return { type: "writer", data: { html } };
+  }
+
+  /* ============================================================
      入口
      ============================================================ */
   async function importFile(file, onProgress) {
@@ -687,12 +748,13 @@
       case "ods":
       case "odp": if (onProgress) onProgress("解析 ODF 文档", 0.7); r = parseOdf(ext, zip); break;
       case "ofd": if (onProgress) onProgress("解析 OFD 版式文件", 0.7); r = parseOfd(zip); break;
+      case "xmind": if (onProgress) onProgress("解析思维导图 XMind", 0.7); r = parseXmind(zip); break;
       default: r = null; // 交给外壳处理其它格式（pdf/html/txt/csv）
     }
     if (onProgress) onProgress("构建文档模型", 0.95);
     return r;
   }
 
-  OS.Importer = { importFile, parseDocx };
+  OS.Importer = { importFile, parseDocx, parseXmind };
   if (OS.util && OS.util.log) OS.util.log("Importer(OOML/ODF) ready");
 })(window);

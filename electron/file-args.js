@@ -1,6 +1,6 @@
 // 绿角犀 Office · Electron 文件关联参数解析（纯函数，零依赖，可单测）
 // 负责从 process.argv / second-instance argv 中筛选出被"双击打开"的文档路径。
-const KNOWN_EXT = [".pdf", ".ofd", ".lvjx", ".docx", ".xlsx", ".pptx", ".csv", ".txt", ".md", ".html", ".htm"];
+const KNOWN_EXT = [".pdf", ".ofd", ".lvjx", ".docx", ".xlsx", ".pptx", ".csv", ".txt", ".md", ".html", ".htm", ".xmind"];
 
 function isKnownExt(s) {
   const l = (s || "").toLowerCase();
