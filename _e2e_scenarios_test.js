@@ -348,18 +348,18 @@ function setupDom() {
       const labels = [...navMatch[0].matchAll(/data-view="([^"]+)"[^>]*>([^<]+)</g)]
         .map(m => m[2].trim());
       const views = [...navMatch[0].matchAll(/data-view="([^"]+)"/g)].map(m => m[1]);
-      ok("TOPNAV: 顺序为 工作台/订单/库存/审批/我的",
-        JSON.stringify(labels) === JSON.stringify(["工作台", "订单", "库存", "审批", "我的"]));
+      ok("TOPNAV: 顺序为 工作台/我的",
+        JSON.stringify(labels) === JSON.stringify(["工作台", "我的"]));
       ok("TOPNAV: view 集合正确",
-        JSON.stringify(views) === JSON.stringify(["workbench", "orders", "inventory", "approvals", "profile"]));
+        JSON.stringify(views) === JSON.stringify(["workbench", "profile"]));
       ok("TOPNAV: 默认激活工作台", /class="app-nav-item active" data-view="workbench"/.test(navMatch[0]));
     }
-    const panelIds = ["panel-orders", "panel-inventory", "panel-approvals", "panel-profile"];
+    const panelIds = ["panel-profile"];
     const panelsOk = panelIds.every(id => {
       const re = new RegExp(`<section class="app-panel" id="${id}" data-view="[^"]+" hidden>`);
       return re.test(htmlIndex);
     });
-    ok("TOPNAV: 四个业务面板存在且默认 hidden", panelsOk);
+    ok("TOPNAV: 业务面板存在且默认 hidden", panelsOk);
   }
 
   // =============================================

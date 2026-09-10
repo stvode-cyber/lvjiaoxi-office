@@ -178,40 +178,66 @@
     }
     function renderEl(elm, scale, withAnim) {
       const d = document.createElement("div");
-      d.className = "el " + (elm.type === "text" ? "text" : "shape");
+      d.className = "el " + (elm.type === "text" ? "text" : elm.type === "image" ? "img" : "shape");
       d.dataset.id = elm.id;
       d.style.left = (elm.x * (scale || 1)) + "px"; d.style.top = (elm.y * (scale || 1)) + "px";
       d.style.width = (elm.w * (scale || 1)) + "px"; d.style.height = (elm.h * (scale || 1)) + "px";
       d.style.color = elm.color || "#111827"; d.style.fontSize = ((elm.fontSize || 24) * (scale || 1)) + "px";
       d.style.fontWeight = elm.bold ? "700" : "400";
-      if (elm.type === "shape") {
-        if (elm.shape === "arrow") {
-          d.style.background = "transparent";
-          const stroke = elm.stroke || "#111827";
-          const NS = "http://www.w3.org/2000/svg";
-          const svg = document.createElementNS(NS, "svg");
-          svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
-          svg.setAttribute("viewBox", "0 0 " + elm.w + " " + elm.h);
-          svg.setAttribute("preserveAspectRatio", "none"); svg.style.overflow = "visible";
-          const mid = Math.max(1, Math.round(elm.h / 2));
-          const defs = document.createElementNS(NS, "defs");
-          const marker = document.createElementNS(NS, "marker");
-          marker.setAttribute("id", "ah-" + elm.id); marker.setAttribute("markerWidth", "10"); marker.setAttribute("markerHeight", "10");
-          marker.setAttribute("refX", "7"); marker.setAttribute("refY", "3"); marker.setAttribute("orient", "auto"); marker.setAttribute("markerUnits", "strokeWidth");
-          const mpath = document.createElementNS(NS, "path"); mpath.setAttribute("d", "M0,0 L8,3 L0,6 Z"); mpath.setAttribute("fill", stroke);
-          marker.appendChild(mpath); defs.appendChild(marker); svg.appendChild(defs);
-          const line = document.createElementNS(NS, "line");
-          line.setAttribute("x1", "1"); line.setAttribute("y1", String(mid));
-          line.setAttribute("x2", String(elm.w - 2)); line.setAttribute("y2", String(mid));
-          line.setAttribute("stroke", stroke); line.setAttribute("stroke-width", "2");
-          line.setAttribute("marker-end", "url(#ah-" + elm.id + ")");
-          svg.appendChild(line);
-          d.appendChild(svg);
-        } else {
-          d.style.background = elm.fill || "#93c5fd";
-          if (elm.shape === "ellipse") d.style.borderRadius = "50%";
+
+      if (elm.type === "image") {
+        // 图片：<img> 标签 + object-fit: cover
+        d.style.background = "transparent";
+        const img = document.createElement("img");
+        img.src = elm.src || "";
+        img.alt = "";
+        img.style.width = "100%"; img.style.height = "100%";
+        img.style.objectFit = "cover";
+        img.style.display = "block";
+        img.style.pointerEvents = "none";
+        d.appendChild(img);
+      } else if (elm.shape === "arrow") {
+        // 箭头 / 连接线
+        d.style.background = "transparent";
+        const stroke = elm.stroke || "#111827";
+        const NS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(NS, "svg");
+        svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
+        svg.setAttribute("viewBox", "0 0 " + elm.w + " " + elm.h);
+        svg.setAttribute("preserveAspectRatio", "none"); svg.style.overflow = "visible";
+        const mid = Math.max(1, Math.round(elm.h / 2));
+        const defs = document.createElementNS(NS, "defs");
+        const marker = document.createElementNS(NS, "marker");
+        marker.setAttribute("id", "ah-" + elm.id); marker.setAttribute("markerWidth", "10"); marker.setAttribute("markerHeight", "10");
+        marker.setAttribute("refX", "7"); marker.setAttribute("refY", "3"); marker.setAttribute("orient", "auto"); marker.setAttribute("markerUnits", "strokeWidth");
+        const mpath = document.createElementNS(NS, "path"); mpath.setAttribute("d", "M0,0 L8,3 L0,6 Z"); mpath.setAttribute("fill", stroke);
+        marker.appendChild(mpath); defs.appendChild(marker); svg.appendChild(defs);
+        const line = document.createElementNS(NS, "line");
+        line.setAttribute("x1", "1"); line.setAttribute("y1", String(mid));
+        line.setAttribute("x2", String(elm.w - 2)); line.setAttribute("y2", String(mid));
+        line.setAttribute("stroke", stroke); line.setAttribute("stroke-width", String(Math.max(1, (elm.strokeWidth || 2))));
+        line.setAttribute("marker-end", "url(#ah-" + elm.id + ")");
+        svg.appendChild(line);
+        d.appendChild(svg);
+      } else {
+        // 普通 shape 或 text：渲染 fill / stroke / 圆角
+        if (elm.fill) d.style.background = elm.fill;
+        if (elm.shape === "ellipse") d.style.borderRadius = "50%";
+        if (elm.stroke) {
+          const sw = Math.max(1, (elm.strokeWidth || 1)) * (scale || 1);
+          d.style.border = sw + "px solid " + elm.stroke;
+          d.style.boxSizing = "border-box";
         }
-      } else { d.textContent = elm.text || ""; if (elm.align) d.style.textAlign = elm.align; }
+        // text 元素：放文字内容
+        if (elm.type === "text") {
+          d.textContent = elm.text || "";
+          if (elm.align) d.style.textAlign = elm.align;
+          // 文本框加 padding 让文字不贴边
+          d.style.padding = "2px 4px";
+          d.style.boxSizing = "border-box";
+          d.style.overflow = "hidden";
+        }
+      }
       // 进入动画仅在放映/预览时附加（不污染编辑态与缩略图）
       if (withAnim) {
         const a = animOf(elm);

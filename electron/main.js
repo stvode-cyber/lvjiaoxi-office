@@ -267,6 +267,13 @@ app.whenReady().then(() => {
   });
   // macOS 拖入文件到 Dock 图标
   app.on("open-file", (e, p) => { e.preventDefault(); openFileAt(p); });
+  // 渲染层就绪握手：前端初始化完成后通知主进程，把文件队列刷给前端（不依赖易失效的 did-finish-load）
+  ipcMain.handle("app:renderer-ready", () => { webReady = true; flushPendingFiles(); });
+  // 前端兜底拉取：返回且清空排队中的文件（启动瞬间双击的文档）
+  ipcMain.handle("app:pending-files", () => {
+    const q = pendingFiles.splice(0, pendingFiles.length);
+    return q;
+  });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

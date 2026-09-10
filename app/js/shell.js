@@ -17,21 +17,9 @@
   function activeTab() { return tabs.find(t => t.id === activeId); }
   function activeInst() { const t = activeTab(); return t && t.instance; }
 
-  /* ---------------- 主导航：工作台 / 订单 / 库存 / 审批 / 我的 ---------------- */
-  const TOPNAV_PANELS = ["orders", "inventory", "approvals", "profile"];
+  /* ---------------- 主导航：工作台 / 我的 ---------------- */
+  const TOPNAV_PANELS = ["profile"];
   const TOPNAV_VIEWS = {
-    orders: { title: "订单", desc: "销售与采购订单的统一视图", tiles: [
-      { k: "new", n: "新建订单", d: "创建一笔销售 / 采购订单" },
-      { k: "list", n: "订单列表", d: "按状态筛选与企业盘点全部订单" },
-      { k: "stats", n: "订单统计", d: "成交额、数量与趋势概览" }] },
-    inventory: { title: "库存", desc: "商品与库存台账", tiles: [
-      { k: "list", n: "库存台账", d: "现有量 / 预警 / 仓位" },
-      { k: "inout", n: "出入库记录", d: "最近入库、出库与调拨明细" },
-      { k: "alerts", n: "库存预警", d: "低于安全库存的品项提醒" }] },
-    approvals: { title: "审批", desc: "待办与已办的审批流程", tiles: [
-      { k: "todo", n: "待我审批", d: "他人提交、待你处理的事项" },
-      { k: "submit", n: "我发起的", d: "已提交单据的流转状态" },
-      { k: "done", n: "已办结", d: "历史归档的审批记录" }] },
     profile: { title: "我的", desc: "账户、设置与使用偏好", tiles: [
       { k: "account", n: "账户与存储", d: "登录状态、50MB 个人云空间" },
       { k: "prefs", n: "偏好设置", d: "主题、自动保存等本地选项" },
@@ -48,8 +36,6 @@
   }
   function renderTopPanel(view) {
     const el = $("#panel-" + view); if (!el) return;
-    // 已做实为业务模块的板块：委托给对应 OS.biz 渲染（如订单）
-    if (OS.biz && OS.biz[view] && OS.biz[view].render) { OS.biz[view].render(el); return; }
     const v = TOPNAV_VIEWS[view];
     const tiles = (v.tiles || []).map(t =>
       `<div class="panel-tile" data-panel-action="${view}:${t.k}"><div class="pt-name">${t.n}</div><div class="pt-desc">${t.d}</div></div>`).join("");
@@ -128,19 +114,26 @@
     $("#btn-account").addEventListener("click", openAccount);
     $("#btn-cmd").addEventListener("click", openCmd);
     $("#btn-open").addEventListener("click", () => $("#file-input").click());
-    const dashGo = $("#dash-lowstock-go"); if (dashGo) dashGo.addEventListener("click", () => switchTopNav("inventory"));
     $("#file-input").addEventListener("change", onFile);
 
     // 原生桌面壳：接收主进程从文件关联（双击/默认打开方式）推来的文件，直接打开
     if (global.electronAPI) {
-      global.electronAPI.on("app:open-file", (payload) => {
+      // 主进程推来的文件（second-instance / open-file）：转为 File 走统一导入
+      const openPayload = (payload) => {
         try {
           if (!payload || !payload.base64) return;
           const ext = payload.ext || (payload.name || "").split(".").pop() || "";
           const blob = b64ToBlob(payload.base64, mimeFor(ext));
           importFileObj(new File([blob], payload.name || ("document" + ext), { type: blob.type }));
         } catch (e) { console.error("app:open-file 处理失败:", e); OS.toast("打开文件失败：" + (e && e.message || e), "err"); }
-      });
+      };
+      global.electronAPI.on("app:open-file", openPayload);
+      // 就绪握手 + 队列兜底：通知主进程前端已可接收文件，并拉取握手前排队的文档（不依赖易失效的 did-finish-load）
+      if (global.electronAPI.invoke) {
+        global.electronAPI.invoke("app:renderer-ready").then(() => global.electronAPI.invoke("app:pending-files")).then((q) => {
+          if (q && q.length) q.forEach(openPayload);
+        }).catch(() => {});
+      }
     }
 
     // 登录页交互（绑定一次）：统一账号（本地离线 + 云端同步）
@@ -267,30 +260,6 @@
     $("#recent-count").textContent = docs.length ? `（${docs.length}）` : "";
     $("#recent-empty").hidden = docs.length > 0;
     docs.forEach(d => grid.appendChild(docCard(d)));
-    // 工作台聚合：库存预警
-    renderLowStockAlert();
-  }
-
-  // 工作台聚合「库存预警」：填充低库存/缺货品项卡片，无命中则隐藏；点击跳转库存视图
-  async function renderLowStockAlert() {
-    const wrap = $("#dash-lowstock");
-    if (!wrap || !OS.biz || !OS.biz.inventory || !OS.biz.inventory.lowStock) return;
-    const items = await OS.biz.inventory.lowStock();
-    const grid = $("#dash-lowstock-grid");
-    grid.innerHTML = "";
-    if (!items.length) { wrap.hidden = true; return; }
-    wrap.hidden = false;
-    $("#dash-lowstock-count").textContent = `（${items.length} 项需处理）`;
-    items.forEach(it => {
-      const card = document.createElement("div");
-      card.className = "dash-lowstock-card" + (it.severity === "缺货" ? " alert" : "");
-      card.innerHTML = `<div class="dl-name">${OS.util.escapeHtml(it.name)}</div>
-        <div class="dl-tag ${it.severity}">${it.severity}</div>
-        <div class="dl-row"><span class="dl-label">现有量</span><strong>${it.qty}</strong></div>
-        <div class="dl-row"><span class="dl-label">安全库存</span><span>${it.safety}</span></div>`;
-      card.addEventListener("click", () => switchTopNav("inventory"));
-      grid.appendChild(card);
-    });
   }
 
   function docCard(d) {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="x-app-version" content="1.0.19">
+  <meta name="x-app-version" content="1.0.20">
   <title>绿角犀 Office · 跨平台办公套件</title>
   <meta name="description" content="兼容 OOXML 的跨平台国产办公套件 · 模块化轻量部署，全能力可选">
   <link rel="manifest" href="manifest.webmanifest">
@@ -40,12 +40,9 @@
       </div>
     </header>
 
-    <!-- 主导航：工作台 / 订单 / 库存 / 审批 / 我的 -->
+    <!-- 主导航：工作台 / 我的 -->
     <nav class="app-nav" id="app-nav" aria-label="主导航">
       <button class="app-nav-item active" data-view="workbench">工作台</button>
-      <button class="app-nav-item" data-view="orders">订单</button>
-      <button class="app-nav-item" data-view="inventory">库存</button>
-      <button class="app-nav-item" data-view="approvals">审批</button>
       <button class="app-nav-item" data-view="profile">我的</button>
     </nav>
 
@@ -79,15 +76,6 @@
         </section>
       </div>
 
-      <!-- 工作台聚合：库存预警（低库存/缺货品项，点击跳转库存视图） -->
-      <section class="dash-lowstock" id="dash-lowstock" hidden>
-        <div class="section-head">
-          <h2>库存预警</h2>
-          <span class="muted" id="dash-lowstock-count"></span>
-          <button class="btn tiny" id="dash-lowstock-go">去库存处理</button>
-        </div>
-        <div class="dash-lowstock-grid" id="dash-lowstock-grid"></div>
-      </section>
     </main>
 
     <!-- 编辑器区 -->
@@ -96,10 +84,7 @@
       <div class="module-host" id="module-host"><!-- 模块挂载点 --></div>
     </main>
 
-    <!-- 业务板块面板（默认激活"工作台"= #dashboard） -->
-    <section class="app-panel" id="panel-orders" data-view="orders" hidden></section>
-    <section class="app-panel" id="panel-inventory" data-view="inventory" hidden></section>
-    <section class="app-panel" id="panel-approvals" data-view="approvals" hidden></section>
+    <!-- 业务板块面板 -->
     <section class="app-panel" id="panel-profile" data-view="profile" hidden></section>
 
     <!-- 状态栏（仅编辑态显示） -->
@@ -234,14 +219,6 @@
   <script src="js/ai-selbar.js"></script>
   <!-- 云端同步（云端账户登录后激活；本地账户不触碰网络） -->
   <script src="js/cloudsync.js"></script>
-  <!-- 业务板块：共享工具 -->
-  <script src="js/modules/biz-common.js"></script>
-  <!-- 业务板块：订单 -->
-  <script src="js/modules/orders.js"></script>
-  <!-- 业务板块：库存 -->
-  <script src="js/modules/inventory.js"></script>
-  <!-- 业务板块：审批 -->
-  <script src="js/modules/approvals.js"></script>
   <!-- 业务板块：我的 -->
   <script src="js/modules/profile.js"></script>
   <!-- 通用导出工具 -->

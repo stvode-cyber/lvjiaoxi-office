@@ -331,49 +331,262 @@
      PPTX -> Presentation slides
      ============================================================ */
   async function parsePptx(zip) {
-    // 幻灯片尺寸
+    // 幻灯片尺寸（EMU → 像素）
     let sldW = 12192000, sldH = 6858000;
+    let sldSzOrient = "land";
     const pres = zip.file("ppt/presentation.xml");
     if (pres) {
       const pd = parseXML(await pres.async("string"));
       const sz = first(pd.documentElement, "sldSz");
       if (sz) { sldW = +attr(sz, "cx") || sldW; sldH = +attr(sz, "cy") || sldH; }
+      sldSzOrient = (attr(sz, "orient") || "land");
     }
-    const W = 760, H = 427;
+    const isPort = sldSzOrient === "port";
+    // 渲染画布尺寸（保持 16:9 比例不变形）
+    const refW = isPort ? 427 : 760;
+    const refH = isPort ? 760 : 427;
+    const W = refW, H = refH;
     const fx = W / sldW, fy = H / sldH;
 
+    // ========== 1. 预读所有 slide rels + 预取 ppt/media 图片转 data URI ==========
+    const mediaMap = {};   // rId -> { path, dataUrl }
+    const allRels = {};    // slidePath -> { rId -> target }
+    const mediaFiles = Object.keys(zip.files).filter(n => /^ppt\/media\//.test(n));
+    // 预读 media 文件
+    await Promise.all(mediaFiles.map(async mp => {
+      const u8 = await zip.file(mp).async("uint8array");
+      let mime = "image/png";
+      if (/\.(jpe?g|jpe)$/.test(mp)) mime = "image/jpeg";
+      else if (/\.gif$/.test(mp)) mime = "image/gif";
+      else if (/\.bmp$/.test(mp)) mime = "image/bmp";
+      else if (/\.svg$/.test(mp)) mime = "image/svg+xml";
+      else if (/\.webp$/.test(mp)) mime = "image/webp";
+      else if (/\.mp3$/.test(mp)) mime = "audio/mpeg";
+      else if (/\.mp4$/.test(mp)) mime = "video/mp4";
+      // base64 编码
+      let bin = "";
+      for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+      try { mediaMap[mp] = "data:" + mime + ";base64," + btoa(bin); } catch (e) { mediaMap[mp] = ""; }
+    }));
+
+    // 预读所有 slide _rels 关系
+    const slideRels = Object.keys(zip.files).filter(n => /^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(n)).sort();
+    for (const rp of slideRels) {
+      const relXml = await zip.file(rp).async("string");
+      const slideName = rp.replace("ppt/slides/_rels/", "").replace(".rels", ""); // slide1.xml
+      allRels[slideName] = parseRels(relXml);
+    }
+
+    // ========== 2. 读 slideMaster / slideLayout 的背景（用于继承回退） ==========
+    let masterBg = "#ffffff";
+    const sm = zip.file("ppt/slideMasters/slideMaster1.xml");
+    if (sm) {
+      const smd = parseXML(await sm.async("string"));
+      const mbg = first(first(smd.documentElement, "bg"), "srgbClr");
+      if (mbg) masterBg = "#" + attr(mbg, "val");
+    }
+
+    // ========== 3. 遍历每张 slide ==========
     const slideEntries = Object.keys(zip.files)
       .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
       .sort((a, b) => (+/slide(\d+)/.exec(a)[1]) - (+/slide(\d+)/.exec(b)[1]));
 
+    // 工具：从 rId 找 media base64
+    function resolveMediaByRels(rels, rId) {
+      if (!rels || !rId) return null;
+      const target = rels[rId];
+      if (!target) return null;
+      // target 相对 slide：../media/image1.png -> ppt/media/image1.png
+      const path = ("ppt/slides/" + target).replace(/ppt\/slides\/\.\.\//, "ppt/");
+      const dataUrl = mediaMap[path];
+      return dataUrl || null;
+    }
+
+    // 工具：从 <a:srgbClr> / <a:schemeClr> / <a:scrgbClr> 提取颜色
+    function extractFillColor(fillNode) {
+      if (!fillNode) return null;
+      const srgb = first(fillNode, "srgbClr");
+      if (srgb) return "#" + attr(srgb, "val");
+      const scheme = first(fillNode, "schemeClr");
+      if (scheme) {
+        // 主题色：返回默认映射（简化处理）
+        const map = {
+          "bg1": "#ffffff", "tx1": "#000000",
+          "bg2": "#f0f0f0", "tx2": "#333333",
+          "accent1": "#4472c4", "accent2": "#ed7d31",
+          "accent3": "#a5a5a5", "accent4": "#ffc000",
+          "accent5": "#5b9bd5", "accent6": "#70ad47"
+        };
+        return map[attr(scheme, "val")] || "#888888";
+      }
+      return null;
+    }
+
+    // 工具：从 spPr 读取 shape 属性（shape type / fill / stroke / radius）
+    function parseSpPr(spPr, parentXfrm) {
+      const result = { shape: "rect", fill: null, stroke: null, strokeWidth: 0, radius: 0 };
+      if (!spPr) return result;
+      // 形状类型
+      const geom = first(spPr, "prstGeom");
+      if (geom) {
+        const prst = attr(geom, "prst") || "rect";
+        const shapeMap = {
+          "rect": "rect", "roundRect": "rect", "ellipse": "ellipse",
+          "line": "arrow", "chevron": "rect", "downArrow": "arrow", "upArrow": "arrow",
+          "leftArrow": "arrow", "rightArrow": "arrow", "pentagon": "rect",
+          "hexagon": "rect", "parallelogram": "rect", "trapezoid": "rect"
+        };
+        result.shape = shapeMap[prst] || "rect";
+        // 圆角矩形的 adjust 值影响圆角半径（简化处理）
+      }
+      // 填充
+      const solidFill = first(spPr, "solidFill");
+      if (solidFill) result.fill = extractFillColor(solidFill);
+      // 描边
+      const ln = first(spPr, "ln");
+      if (ln) {
+        const lnFill = first(ln, "solidFill");
+        result.stroke = extractFillColor(lnFill);
+        const w = attr(ln, "w");
+        if (w) result.strokeWidth = Math.round((+w) / 12700); // EMU -> pt -> px
+      }
+      return result;
+    }
+
+    // 工具：递归遍历 spTree 子元素，生成 elements 数组
+    function walkSpTree(parent, rels, offX, offY, slideWEMU, slideHEMU) {
+      const result = [];
+      const kids = parent ? parent.children : [];
+      for (let i = 0; i < kids.length; i++) {
+        const k = kids[i];
+        const ln = k.localName;
+        if (ln === "sp") {
+          const text = shapeText(k);
+          const xfrm = first(k, "xfrm");
+          const off = xfrm ? first(xfrm, "off") : null;
+          const ext = xfrm ? first(xfrm, "ext") : null;
+          // 跳过 background shape：覆盖整个 slide + 空文本
+          if (off && ext && slideWEMU && slideHEMU) {
+            const ox = +attr(off, "x"), oy = +attr(off, "y");
+            const cx = +attr(ext, "cx"), cy = +attr(ext, "cy");
+            if (ox === 0 && oy === 0 && cx === slideWEMU && cy === slideHEMU && !text) continue;
+          }
+          const x = off ? Math.round((+attr(off, "x") + offX) * fx) : 40;
+          const y = off ? Math.round((+attr(off, "y") + offY) * fy) : 40;
+          const w = ext ? Math.max(4, Math.round((+attr(ext, "cx")) * fx)) : 200;
+          const h = ext ? Math.max(4, Math.round((+attr(ext, "cy")) * fy)) : 40;
+          const { fontSize, color, bold } = runStyle(k);
+          const spPr = first(k, "spPr");
+          const geom = parseSpPr(spPr);
+          if (text) {
+            result.push({
+              id: OS.util.uid("el"), type: "text", x, y, w, h,
+              text, fontSize: fontSize || 14, color: color || "#111827", bold: !!bold,
+              shape: geom.shape, fill: geom.fill, stroke: geom.stroke, strokeWidth: geom.strokeWidth
+            });
+          } else if (geom.fill || geom.stroke) {
+            // 空文本但有填充色 → 是形状（如矩形、圆），也当 shape 输出
+            result.push({
+              id: OS.util.uid("el"), type: "shape", x, y, w, h,
+              shape: geom.shape, fill: geom.fill || "#e0e7ff",
+              stroke: geom.stroke, strokeWidth: geom.strokeWidth,
+              text: "", fontSize: fontSize || 14, color: color || "#111827", bold: !!bold
+            });
+          }
+        } else if (ln === "pic") {
+          // 图片
+          const nvPicPr = first(k, "nvPicPr");
+          const xfrm = nvPicPr ? first(nvPicPr, "xfrm") : null;
+          // 也可能在 blipFill 里
+          let offExt = first(k, "xfrm");
+          if (!offExt) offExt = nvPicPr ? first(nvPicPr, "xfrm") : null;
+          const off = offExt ? first(offExt, "off") : null;
+          const ext = offExt ? first(offExt, "ext") : null;
+          const x = off ? Math.round((+attr(off, "x") + offX) * fx) : 40;
+          const y = off ? Math.round((+attr(off, "y") + offY) * fy) : 40;
+          const w = ext ? Math.max(4, Math.round((+attr(ext, "cx")) * fx)) : 200;
+          const h = ext ? Math.max(4, Math.round((+attr(ext, "cy")) * fy)) : 100;
+          const blip = first(k, "blip");
+          const rId = blip ? attr(blip, "embed") : null;
+          const dataUrl = resolveMediaByRels(rels, rId);
+          if (dataUrl) {
+            result.push({ id: OS.util.uid("el"), type: "image", x, y, w, h, src: dataUrl });
+          }
+        } else if (ln === "grpSp") {
+          // 组合形状：递归遍历内部
+          const grpSpPr = first(k, "grpSpPr");
+          const xfrm = grpSpPr ? first(grpSpPr, "xfrm") : null;
+          const off = xfrm ? first(xfrm, "off") : null;
+          const gx = off ? (+attr(off, "x")) : 0;
+          const gy = off ? (+attr(off, "y")) : 0;
+          result.push(...walkSpTree(k, rels, offX + gx, offY + gy, slideWEMU, slideHEMU));
+        } else if (ln === "cxnSp") {
+          // 连接线 → arrow
+          const xfrm = first(k, "xfrm");
+          const off = xfrm ? first(xfrm, "off") : null;
+          const ext = xfrm ? first(xfrm, "ext") : null;
+          const x = off ? Math.round((+attr(off, "x") + offX) * fx) : 40;
+          const y = off ? Math.round((+attr(off, "y") + offY) * fy) : 40;
+          const w = ext ? Math.max(4, Math.round((+attr(ext, "cx")) * fx)) : 100;
+          const h = ext ? Math.max(4, Math.round((+attr(ext, "cy")) * fy)) : 4;
+          const spPr = first(k, "spPr");
+          const geom = parseSpPr(spPr);
+          result.push({
+            id: OS.util.uid("el"), type: "shape", shape: "arrow",
+            x, y, w, h, fill: "transparent",
+            stroke: geom.stroke || "#111827", strokeWidth: geom.strokeWidth || 1,
+            text: "", fontSize: 14, color: "#111827", bold: false
+          });
+        }
+        // nvGrpSpPr / grpSpPr 等 prst 属性直接忽略
+      }
+      return result;
+    }
+
+    // ========== 4. 遍历每张 slide ==========
     const slides = [];
     for (const name of slideEntries) {
       const sd = parseXML(await zip.file(name).async("string"));
       const sld = first(sd.documentElement, "sld") || sd.documentElement;
-      const bg = first(first(sld, "bg"), "srgbClr");
-      const bgColor = bg ? "#" + attr(bg, "val") : "#ffffff";
-      const elements = [];
-      all(sld, "sp").forEach(sp => {
-        const text = shapeText(sp);
-        if (!text) return;
-        const xfrm = first(sp, "xfrm");
-        const off = xfrm ? first(xfrm, "off") : null;
-        const ext = xfrm ? first(xfrm, "ext") : null;
-        const x = off ? Math.round((+attr(off, "x")) * fx) : 40;
-        const y = off ? Math.round((+attr(off, "y")) * fy) : 40;
-        const w = ext ? Math.max(40, Math.round((+attr(ext, "cx")) * fx)) : 240;
-        const h = ext ? Math.max(30, Math.round((+attr(ext, "cy")) * fy)) : 60;
-        const { fontSize, color, bold } = runStyle(sp);
-        elements.push({ id: OS.util.uid("el"), type: "text", x, y, w, h, text, fontSize: fontSize || 24, color: color || "#111827", bold: !!bold });
-      });
-      // 读取演讲者备注（notesSlide）
+      // 背景：slide 自己的 <p:bg> → masterBg → 默认白
+      let bgColor = masterBg;
+      const bgNode = first(sld, "bg");
+      if (bgNode) {
+        const solidBg = first(bgNode, "solidFill");
+        const srgbBg = first(bgNode, "srgbClr");
+        if (solidBg) {
+          const c = extractFillColor(solidBg);
+          if (c) bgColor = c;
+        } else if (srgbBg) {
+          bgColor = "#" + attr(srgbBg, "val");
+        }
+        // blipFill 图片背景跳过（简化）
+      }
+
+      // 取 slide 自己的 rels
+      const relsKey = name.replace("ppt/slides/", ""); // slide1.xml
+      const rels = allRels[relsKey] || {};
+
+      // spTree（注意：PPTX 里 spTree 可能多层嵌套 <p:spTree><a:spTree>，需要取最深一层）
+      let cSld = first(sld, "cSld");
+      let spTree = cSld ? first(cSld, "spTree") : null;
+      // 继续往里钻直到不再有 spTree
+      while (spTree && first(spTree, "spTree")) {
+        spTree = first(spTree, "spTree");
+      }
+      let elements = [];
+      if (spTree) {
+        elements = walkSpTree(spTree, rels, 0, 0, sldW, sldH);
+      }
+
+      // 演讲者备注（保留原逻辑）
       let notes = "";
       const relName = name.replace(/ppt\/slides\/(slide\d+\.xml)$/, "ppt/slides/_rels/$1.rels");
       const relFile = zip.file(relName);
       if (relFile) {
         const rd = parseXML(await relFile.async("string"));
-        const rels = all(rd.documentElement, "Relationship");
-        const nr = rels.find(r => (attr(r, "Type") || "").endsWith("/notesSlide"));
+        const rels2 = all(rd.documentElement, "Relationship");
+        const nr = rels2.find(r => (attr(r, "Type") || "").endsWith("/notesSlide"));
         if (nr) {
           const tgt = attr(nr, "Target");
           const np = ("ppt/slides/" + tgt).replace(/ppt\/slides\/\.\.\//, "ppt/");
@@ -386,10 +599,11 @@
           }
         }
       }
+
       slides.push({ bg: bgColor, elements, notes });
     }
     if (!slides.length) slides.push({ bg: "#ffffff", elements: [] });
-    return { type: "presentation", data: { slides }, compat: "B", note: `PPTX 已导入 ${slides.length} 页（基本兼容：文本/位置/样式保留）` };
+    return { type: "presentation", data: { slides }, compat: "B", note: `PPTX 已导入 ${slides.length} 页（基础兼容：文本/图片/形状/位置/样式保留）` };
   }
 
   function shapeText(sp) {
