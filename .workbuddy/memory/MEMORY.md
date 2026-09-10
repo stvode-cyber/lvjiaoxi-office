@@ -1,7 +1,12 @@
 # 绿角犀 Office · 项目长期笔记
 
 > 持续更新。每轮新增显著事实时追加；超长时按主题蒸馏。
-> 最后更新：2026-09-01
+> 最后更新：2026-09-10
+
+## 2026-09-10 · CI 收口 + 内测决策
+- **内测仅面向 Windows**；`release.yml`(0-job)/iOS/Android 失败均**不在内测范畴，挂起**。
+- CI 桌面构建已复绿：空证书注入修复 `9569e74`（Build Desktop success）。详见 `.workbuddy/memory/2026-09-10.md`。
+- remote 已切 HTTPS；含 `workflow` 的 PAT 存 `C:\Users\Administrator\.lvjiaoxi-git-credentials`（push 含 workflow 变更必需；`Authorization: token` 不被 git 接收，须 Basic）。
 
 ## 当前基线
 - **87 套件 0 失败** + 四端同源 ✅（S→AN 全特性 + 登录 + Windows 安装包文件关联/默认打开 + 桌面端全自动更新已落地并验证 + **PDF 1.5+ 对象流(ObjStm)合并/拆分已实现**；Android APK 需 SDK/gradle 本环境无；git repo 已打 tag v1.0.0~v1.0.16，仅无 remote 未 push）

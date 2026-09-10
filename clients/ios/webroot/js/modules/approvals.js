@@ -50,14 +50,29 @@
     const doc = await OS.store.get(id); if (!doc) return { error: "记录不存在" };
     const cur = doc.data.status;
     const next = patch.status;
-    // 状态变更 → 追加 statusHistory 留痕
+    // 状态变更 → 追加 statusHistory 留痕（含审批意见 comment）
     if (next && next !== cur && APPROVAL_STATUSES.includes(next)) {
+      const cmt = (patch.comment || "").toString().trim();
       doc.data = Object.assign({}, doc.data, patch, {
-        statusHistory: ((doc.data && doc.data.statusHistory) || []).concat([{ status: next, ts: Date.now() }])
+        statusHistory: ((doc.data && doc.data.statusHistory) || []).concat([{ status: next, ts: Date.now(), comment: cmt }])
       });
     } else {
       doc.data = Object.assign({}, doc.data, patch);
     }
+    await OS.store.put(doc);
+    return { ok: true, doc };
+  }
+  // 单条审批流转：通过可填意见（可留空）、驳回必填理由；历史记录带 comment 留痕
+  async function setStatus(id, status, comment) {
+    const doc = await OS.store.get(id); if (!doc) return { error: "记录不存在" };
+    if (!APPROVAL_STATUSES.includes(status) || status === "待审批") return { error: "无效状态" };
+    if (doc.data.status !== "待审批") return { error: "仅待审批记录可流转" };
+    const cmt = (comment || "").toString().trim();
+    if (status === "已驳回" && !cmt) return { error: "驳回须填写理由" };
+    doc.data = Object.assign({}, doc.data, {
+      status,
+      statusHistory: ((doc.data && doc.data.statusHistory) || []).concat([{ status, ts: Date.now(), comment: cmt }])
+    });
     await OS.store.put(doc);
     return { ok: true, doc };
   }
@@ -69,7 +84,7 @@
     return {
       id: doc ? doc.id : "", subject: d.subject, kind: d.kind, applicant: d.applicant,
       status: d.status, note: d.note, createdAt: doc ? doc.createdAt : 0, updatedAt: doc ? doc.updatedAt : 0,
-      history: (d.statusHistory || []).map(h => ({ status: h.status, ts: h.ts }))
+      history: (d.statusHistory || []).map(h => ({ status: h.status, ts: h.ts, comment: h.comment }))
     };
   }
   async function detail(id) {
@@ -192,7 +207,11 @@
         rows.map(r => [r.data.subject, r.data.kind, r.data.applicant, r.data.status, r.data.note])));
 
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", async () => {
-      await update(b.dataset.id, { status: b.dataset.act === "pass" ? "已通过" : "已驳回" });
+      const id = b.dataset.id, isPass = b.dataset.act === "pass";
+      const c = (window.prompt || OS.prompt)(isPass ? "审批意见（可留空，留空则仅留结论）" : "驳回理由（必填）", "");
+      if (c === null) return; // 取消
+      const r = await setStatus(id, isPass ? "已通过" : "已驳回", c);
+      if (!r.ok) { if (OS.toast) OS.toast(r.error, ""); return; }
       await render(el);
     }));
     el.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
@@ -234,8 +253,10 @@
   }
   // 详情面板 HTML
   function approvalDetailHTML(d) {
-    const hist = (d.history || []).map((h, i) =>
-      `<li>${i + 1}. <b>${esc(h.status)}</b> · ${fmtTime(h.ts)}</li>`).join("");
+    const hist = (d.history || []).map(h =>
+      h.comment
+        ? `<li><b>${esc(h.status)}</b> · ${fmtTime(h.ts)} · <span class="muted">“${esc(h.comment)}”</span></li>`
+        : `<li><b>${esc(h.status)}</b> · ${fmtTime(h.ts)}</li>`).join("");
     return `<div class="panel-card" style="margin-top:14px">
       <div class="pt-name">审批详情 <button class="btn tiny" data-detail-close>收起</button></div>
       <table class="kv">
@@ -264,5 +285,5 @@
   }
 
   OS.biz = OS.biz || {};
-  OS.biz.approvals = { APPROVAL_STATUSES, APPROVAL_KINDS, validateRequest, summarize, list, create, update, remove, batchRemove, batchSetStatus, detailData, detail, dashStats, render };
+  OS.biz.approvals = { APPROVAL_STATUSES, APPROVAL_KINDS, validateRequest, summarize, list, create, update, setStatus, remove, batchRemove, batchSetStatus, detailData, detail, dashStats, render };
 })(window);
