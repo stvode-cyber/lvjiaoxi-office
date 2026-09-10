@@ -1,13 +1,10 @@
 {
-  "version": "1.0.18",
-  "publishedAt": "2026-09-09",
+  "version": "1.0.19",
+  "publishedAt": "2026-09-10",
   "channel": "stable",
   "minVersion": "1.0.0",
   "notes": [
-    "工作台新增成交额趋势图表化",
-    "库存流水按时间筛选/分页/导出CSV",
-    "库存预警与业务概览聚合",
-    "订单状态流转与详情展开"
+    "审批意见留痕"
   ],
-  "url": "https://lujax.fun/releases"
+  "url": "https://github.com/stvode-cyber/lvjiaoxi-office/releases/tag/v1.0.19"
 }
