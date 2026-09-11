@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
@@ -9,6 +9,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/pdf-app.css">
   <!-- 本地内联依赖（离线可用，不再依赖 CDN） -->
   <script src="vendor/FileSaver.min.js"></script>
   <script src="vendor/jszip.min.js"></script>
@@ -68,6 +69,26 @@
         </div>
       </section>
 
+
+      <!-- PDF 工具箱入口（原始 PDF 项目 UI） -->
+      <section class="start-tools-entry">
+        <div class="section-head"><h2>PDF 工具箱</h2><span class="muted">60+ 离线工具 · 合并/拆分/水印/OCR · 完全本地</span></div>
+        <button class="pdf-entry-card" id="btn-pdf-toolbox">
+          <div class="pec-icon" aria-hidden="true">📄</div>
+          <div class="pec-body">
+            <h3>绿角犀 PDF 工具箱</h3>
+            <p>合并、拆分、旋转、水印、压缩、OCR、加密、转换 — 60+ 工具，全部在你的设备上运行，文件不上传。</p>
+            <div class="pec-cats">
+              <span>页面操作</span>
+              <span>加密解密</span>
+              <span>水印标注</span>
+              <span>编辑</span>
+              <span>压缩转换</span>
+            </div>
+          </div>
+          <div class="pec-arrow">→</div>
+        </button>
+      </section>
       <div class="start-layout">
         <section class="start-templates">
           <div class="section-head"><h2>新建</h2><span class="muted">从模板开始，比空白更快</span></div>
@@ -187,7 +208,6 @@
   <script src="js/modules/pdf-text.js"></script>
   <script src="js/modules/pdf.js"></script>
 <script src="js/modules/pdf-engine.js"></script>
-<script src="js/modules/pdf-toolbox.js"></script>
   <script src="js/modules/rgba-composite.js"></script>
   <script src="js/modules/range-preset.js"></script>
   <script src="js/modules/pdf-anno-filter.js"></script>
@@ -231,5 +251,110 @@
   <!-- 通用导出工具 -->
   <script src="js/modules/export.js"></script>
   <script src="js/shell.js"></script>
+
+  <!-- ============================================================ -->
+  <!-- PDF 工具箱（原始 PDF 项目完整 UI：sidebar + homePanel + opPanel + rail） -->
+  <section id="pdfToolboxRoot" class="pdf-toolbox-root" hidden>
+
+  <header class="appbar">
+    <div class="brand">
+      <svg class="brand-logo" viewBox="0 0 32 32" aria-label="绿角犀 PDF">
+        <rect width="32" height="32" rx="8" fill="#e5006d"/>
+        <path d="M9 7h9l5 5v12a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="#fff"/>
+        <path d="M17.5 7.5V13h5.5" fill="none" stroke="#e5006d" stroke-width="1.4" stroke-linejoin="round"/>
+      </svg>
+      <div class="brand-text">
+        <h1>绿角犀 PDF</h1>
+        <p>跨平台 · 纯本地 · 隐私安全</p>
+      </div>
+    </div>
+    <nav class="breadcrumb" id="breadcrumb">
+      <span class="crumb-home" id="crumbHome">首页</span>
+    </nav>
+    <div class="top-actions">
+      <span id="platformTag" class="pill">网页</span>
+      <button id="taskNavBtn" class="btn ghost small">任务</button>
+      <button id="installBtn" class="btn ghost small" hidden>安装</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar" id="sidebar"><!-- 由 app.js 动态生成 --></nav>
+
+    <main class="stage">
+      <section class="home" id="homePanel"><!-- 工具卡片首页，由 app.js 生成 --></section>
+
+      <section class="panel" id="opPanel" hidden>
+        <div class="op-head">
+          <button class="op-back" id="opBack" title="返回首页">‹</button>
+          <div class="op-glyph" id="opGlyph"></div>
+          <div>
+            <h2 id="opTitle">选择一个功能开始</h2>
+            <p id="opDesc" class="muted">所有处理都在你的设备本地完成，文件不会上传到任何服务器。</p>
+          </div>
+        </div>
+        <form id="opForm" class="op-form"></form>
+        <div id="runProgress" class="progress" hidden>
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+          <span class="progress-text"></span>
+        </div>
+      </section>
+    </main>
+
+    <aside class="rail">
+      <section class="panel" id="previewPanel" hidden>
+        <h3>预览</h3>
+        <div class="preview-box">
+          <canvas id="previewCanvas"></canvas>
+          <div class="preview-nav">
+            <button id="prevPage" class="btn ghost small" title="上一页">‹</button>
+            <span id="pageCounter" class="page-counter">1 / 1</span>
+            <button id="nextPage" class="btn ghost small" title="下一页">›</button>
+          </div>
+          <p id="previewMeta" class="muted"></p>
+        </div>
+      </section>
+
+      <section class="panel" id="resultPanel" hidden>
+        <h3>结果</h3>
+        <div id="resultList" class="result-list"></div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="task-drawer" id="taskPanel" hidden>
+    <div class="td-head">
+      <h3>任务进程 <span id="taskCount" class="task-count">0</span></h3>
+      <button id="taskClear" class="btn ghost small">清空</button>
+    </div>
+    <div class="task-body">
+      <div id="taskEmpty" class="task-empty">还没有任务，开始处理后这里会显示实时进度与历史记录。</div>
+      <div id="taskList" class="task-list"></div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" hidden></div>
+
+  
+
+  
+  
+  
+  
+  
+  
+    
+
+
+  
+  
+
+
+  </section>
+
+  <!-- PDF 工具箱（绿角犀 PDF 项目）— 必须在 pdfToolboxRoot DOM 之后加载 -->
+  <script src="js/modules/pdf-store.js"></script>
+  <script src="js/modules/pdf-engine-app.js"></script>
+  <script src="js/modules/pdf-app.js"></script>
 </body>
 </html>

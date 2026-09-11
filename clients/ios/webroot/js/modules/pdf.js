@@ -730,11 +730,7 @@
             ] }
           ]
         },
-        OS.PdfToolbox && OS.PdfToolbox.buildTab({
-          data, doc, dataUrlToBytes, openPdfBytes,
-          dataUrlToBlob, markDirty, saveNow
-        })
-      ]
+              ]
     });
 
     if (data.dataUrl) loadPdf(data.dataUrl); else emptyState();

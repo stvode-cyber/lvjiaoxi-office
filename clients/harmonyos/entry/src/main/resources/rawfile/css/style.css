@@ -968,3 +968,54 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
 .pf-row:last-of-type{border-bottom:0}
 .pf-row input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 
+
+/* ===== PDF 工具箱入口卡片 ===== */
+.start-tools-entry { margin-bottom: 1.4rem; }
+.pdf-entry-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.1rem 1.3rem;
+  background: linear-gradient(135deg, rgba(229,0,109,0.06) 0%, rgba(229,0,109,0.02) 100%);
+  border: 1px solid rgba(229,0,109,0.25);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+.pdf-entry-card:hover {
+  border-color: var(--accent, #e5006d);
+  box-shadow: 0 4px 16px rgba(229,0,109,0.15);
+  transform: translateY(-1px);
+}
+.pec-icon {
+  font-size: 2rem;
+  width: 56px; height: 56px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent, #e5006d);
+  border-radius: 14px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.pec-body { flex: 1; min-width: 0; }
+.pec-body h3 { font-size: 1.05rem; margin: 0 0 0.3rem; color: var(--ink, inherit); }
+.pec-body p { font-size: 0.85rem; color: var(--muted, #666); margin: 0; }
+.pec-cats { margin-top: 0.5rem; display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.pec-cats span {
+  font-size: 0.72rem; padding: 0.15rem 0.5rem;
+  background: rgba(229,0,109,0.1); color: var(--accent, #e5006d);
+  border-radius: 10px;
+}
+.pec-arrow { font-size: 1.5rem; color: var(--muted, #888); flex-shrink: 0; }
+
+/* PDF 工具箱根容器 — 占满整个主区域 */
+#pdfToolboxRoot.pdf-toolbox-root {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 1000;
+  background: var(--bg, #fff);
+  display: flex; flex-direction: column;
+  font-family: inherit;
+}

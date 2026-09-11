@@ -1380,5 +1380,10 @@
   }
   function closeReplace() { const ov = document.getElementById("replace-overlay"); if (ov) ov.hidden = true; }
 
-  OS.shell = { boot, newDoc, openDoc, saveNow, openBackstage, closeBackstage, globalSearch, openSearch, closeSearch, openReplace, closeReplace, globalReplace, snippet };
+    OS.shell = { boot, newDoc, openDoc, saveNow, openBackstage, closeBackstage, globalSearch, openSearch, closeSearch, openReplace, closeReplace, globalReplace, snippet, openPdfToolbox: () => window.PDFToolbox && window.PDFToolbox.open() };
+
+  // ===== PDF 工具箱入口按钮 =====
+  document.getElementById('btn-pdf-toolbox')?.addEventListener('click', () => {
+    window.PDFToolbox && window.PDFToolbox.open();
+  });
 })(window);
