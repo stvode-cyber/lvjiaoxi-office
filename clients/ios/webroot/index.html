@@ -10,15 +10,15 @@
   <link rel="icon" href="icon.svg">
   <link rel="stylesheet" href="css/style.css">
   <!-- 本地内联依赖（离线可用，不再依赖 CDN） -->
-  <script defer src="vendor/FileSaver.min.js"></script>
-  <script defer src="vendor/jszip.min.js"></script>
-  <script defer src="vendor/xlsx.full.min.js"></script>
-  <script defer src="vendor/pdf.min.js"></script>
-<script defer src="vendor/pdf-lib.min.js"></script>
-<script defer src="vendor/fontkit.min.js"></script>
-<script defer src="vendor/docx.umd.min.js"></script>
-<script defer src="vendor/tesseract/tesseract.min.js"></script>
-<script defer src="vendor/tesseract/worker.min.js"></script>
+  <script src="vendor/FileSaver.min.js"></script>
+  <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/pdf.min.js"></script>
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/fontkit.min.js"></script>
+<script src="vendor/docx.umd.min.js"></script>
+<script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="vendor/tesseract/worker.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -217,8 +217,7 @@
   <script src="js/templates.js"></script>
   <!-- 自定义模板（用户保存的个性化模板，持久化于 localStorage） -->
   <script src="js/custom-templates.js"></script>
-  <!-- OOXML/ODF 解析依赖（离线打开 file:// 时需联网加载一次） -->
-  <script src="vendor/jszip.min.js"></script>
+  <!-- OOXML/ODF 解析依赖（jszip 已在顶部加载） -->
   <script src="js/import-ooxml.js"></script>
   <script src="js/export-ooxml.js"></script>
   <script src="js/modules/pdf-convert.js"></script>
