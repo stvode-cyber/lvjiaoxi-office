@@ -149,5 +149,8 @@
     "electron-updater": "^6.8.9",
     "jsdom": "^30.0.1",
     "jszip": "^3.10.1"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
   }
 }

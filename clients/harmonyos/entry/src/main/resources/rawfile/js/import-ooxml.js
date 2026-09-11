@@ -20,7 +20,16 @@
   }
   const all = (el, name) => el ? Array.from(el.getElementsByTagNameNS("*", name)) : [];
   const first = (el, name) => el ? el.getElementsByTagNameNS("*", name)[0] || null : null;
-  const attr = (el, name) => el ? el.getAttribute(name) : null;
+  // 聪明的 attr：先 getAttribute(name)，找不到再按 localName 遍历（处理 r:embed 等带 ns 前缀的属性）
+  const attr = (el, name) => {
+    if (!el) return null;
+    let v = el.getAttribute(name);
+    if (v != null) return v;
+    for (const a of (el.attributes || [])) {
+      if (a.localName === name) return a.value;
+    }
+    return null;
+  };
   function esc(s) {
     if (s == null) return "";
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -578,6 +587,15 @@
       if (spTree) {
         elements = walkSpTree(spTree, rels, 0, 0, sldW, sldH);
       }
+      // 过滤：跳过完全超出 slide 边界的元素（动画初始 off-screen 位置 / 布局溢出）
+      // 有 50px 容差（允许部分超出但保留可见部分）
+      const offScreenTol = 50;
+      elements = elements.filter(el =>
+        el.x + el.w > -offScreenTol &&
+        el.y + el.h > -offScreenTol &&
+        el.x < (W + offScreenTol) &&
+        el.y < (H + offScreenTol)
+      );
 
       // 演讲者备注（保留原逻辑）
       let notes = "";
@@ -883,75 +901,153 @@
   }
 
   /* ============================================================
-     XMind（.xmind）→ 编辑器：把思维导图大纲还原为文档
+     XMind（.xmind）→ mindmap 数据结构
      现代格式(zip 内 content.json)，旧版 XMind 8(zip 内 content.xml)
      ============================================================ */
-  function xmEsc(s) {
-    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  let _xmNodeId = 0;
+  function xmUid() { return "xm_" + (++_xmNodeId) + "_" + Math.random().toString(36).slice(2, 8); }
+  // JSON 格式（XMind 2020+）
+  function xmJsonToNodes(rootTopic, nodes, parentId, depth) {
+    if (!rootTopic) return;
+    const id = xmUid();
+    const text = (rootTopic.title || rootTopic.text || "").trim() || "未命名主题";
+    const node = {
+      id, x: 0, y: 0, text,
+      color: depth === 0 ? "#1e3a5f" : "#2563eb",
+      shape: "rounded", fontSize: depth === 0 ? 16 : 14,
+      parent: parentId, isRoot: depth === 0
+    };
+    nodes.push(node);
+    const children = (rootTopic.children && rootTopic.children.attached) || rootTopic.children || [];
+    if (Array.isArray(children)) {
+      children.forEach(ch => xmJsonToNodes(ch, nodes, id, depth + 1));
+    }
   }
-  function xmNodeHtml(node, depth) {
-    const title = xmEsc(node && (node.title != null ? node.title : node.text) || "未命名主题");
-    const kids = ((node && node.children && node.children.attached) || (node && node.children) || []).filter(Boolean);
-    const inner = kids.map(k => xmNodeHtml(k, depth + 1)).join("");
-    const cls = "xm-node" + (depth === 0 ? " xm-root" : "");
-    return `<div class="${cls}"><h${Math.min(3, depth + 1)}>${title}</h${Math.min(3, depth + 1)}>` +
-      (inner ? `<div class="xm-children">${inner}</div>` : "") + `</div>`;
-  }
-  function xmXmlTopic(el, depth) {
+  // XML 格式（XMind 8）
+  function xmXmlTopicToNode(el, nodes, parentId, depth) {
     const t = el.getElementsByTagName("title");
-    const title = (t && t[0] && t[0].textContent) || el.getAttribute("title") || "未命名主题";
-    const kids = [];
-    const children = el.getElementsByTagName("children");
-    if (children && children[0]) {
-      const attached = children[0].getElementsByTagName("topics");
-      for (let i = 0; i < attached.length; i++) {
-        for (const tpc of attached[i].getElementsByTagName("topic")) kids.push(tpc);
+    const text = ((t && t[0] && t[0].textContent) || el.getAttribute("title") || "未命名主题").trim();
+    const id = el.getAttribute("id") || xmUid();
+    // 确保唯一（XMind 8 里 topic id 已唯一，但多 sheet 间不保证）
+    const node = {
+      id, x: 0, y: 0, text,
+      color: depth === 0 ? "#1e3a5f" : "#2563eb",
+      shape: "rounded", fontSize: depth === 0 ? 16 : 14,
+      parent: parentId, isRoot: depth === 0
+    };
+    nodes.push(node);
+    // 递归找子 topic
+    const allChildren = el.getElementsByTagName("children");
+    for (let i = 0; i < allChildren.length; i++) {
+      const topicsList = allChildren[i].getElementsByTagName("topics");
+      for (let j = 0; j < topicsList.length; j++) {
+        const childTopics = topicsList[j].getElementsByTagName("topic");
+        for (let k = 0; k < childTopics.length; k++) {
+          // 只处理直接子节点（避免重复拿后代）
+          const parentCheck = childTopics[k].parentElement;
+          if (parentCheck && parentCheck.tagName.toLowerCase() === "topics") {
+            xmXmlTopicToNode(childTopics[k], nodes, id, depth + 1);
+          }
+        }
       }
     }
-    const inner = kids.map(k => xmXmlTopic(k, depth + 1)).join("");
-    const cls = "xm-node" + (depth === 0 ? " xm-root" : "");
-    return `<div class="${cls}"><h${Math.min(3, depth + 1)}>${xmEsc(title)}</h${Math.min(3, depth + 1)}>` +
-      (inner ? `<div class="xm-children">${inner}</div>` : "") + `</div>`;
   }
   async function parseXmind(zip) {
     const jf = zip.file("content.json");
     const xf = zip.file("content.xml");
-    let html;
+    const nodes = [];
+    let rootId = null;
     if (jf) {
       const root = JSON.parse(await jf.async("string"));
       const sheets = Array.isArray(root) ? root
         : (root && root.sheet ? root.sheet : null);
       const list = sheets || [{ title: (root && root.title) || "思维导图", rootTopic: root && root.rootTopic }];
-      html = list.map(s => {
-        const st = s && s.title ? ` · <span class="muted">${xmEsc(s.title)}</span>` : "";
-        return `<section class="xm-sheet"><h2>思维导图${st}</h2>` +
-          (s && s.rootTopic ? xmNodeHtml(s.rootTopic, 0) : `<p class="muted">（空主题）</p>`) + `</section>`;
-      }).join("");
+      // 只取第一个 sheet 的第一个 rootTopic 作为根
+      const firstSheet = Array.isArray(list) ? list[0] : list;
+      const rt = firstSheet && firstSheet.rootTopic;
+      if (rt) {
+        const rootJsonId = xmUid();
+        nodes.push({ id: rootJsonId, x: 0, y: 0, text: (rt.title || "中心主题").trim(), color: "#1e3a5f", shape: "rounded", fontSize: 16, parent: null, isRoot: true });
+        rootId = rootJsonId;
+        const children = (rt.children && rt.children.attached) || rt.children || [];
+        if (Array.isArray(children)) children.forEach(ch => xmJsonToNodes(ch, nodes, rootJsonId, 1));
+      }
     } else if (xf) {
       const doc = parseXML(await xf.async("string"));
       const sheets = doc.getElementsByTagName("sheet");
-      html = Array.from(sheets).map(s => {
-        const t = s.getElementsByTagName("title");
-        const st = t && t[0] ? " · <span class=\"muted\">" + xmEsc(t[0].textContent) + "</span>" : "";
-        const topics = s.getElementsByTagName("topic");
-        const rootTopic = topics && topics[0];
-        return `<section class="xm-sheet"><h2>思维导图${st}</h2>` +
-          (rootTopic ? xmXmlTopic(rootTopic, 0) : `<p class="muted">（空主题）</p>`) + `</section>`;
-      }).join("");
+      if (sheets && sheets.length) {
+        const firstSheet = sheets[0];
+        // 直接子 topic（根节点）
+        const childTopics = firstSheet.getElementsByTagName("topic");
+        if (childTopics && childTopics.length) {
+          // 拿第一个（XML 里 topic 可能嵌套，先找直接挂在 sheet 下的）
+          let rootTopic = null;
+          for (let i = 0; i < childTopics.length; i++) {
+            const parent = childTopics[i].parentElement;
+            if (parent && parent.tagName.toLowerCase() === "sheet") { rootTopic = childTopics[i]; break; }
+          }
+          if (!rootTopic) rootTopic = childTopics[0];
+          if (rootTopic) {
+            xmXmlTopicToNode(rootTopic, nodes, null, 0);
+            rootId = nodes[0].id;
+          }
+        }
+      }
     }
-    if (!html) throw new Error("无法解析的 XMind 文件（缺少 content.json / content.xml）");
-    return { type: "writer", data: { html } };
+    if (!nodes.length) throw new Error("无法解析的 XMind 文件（缺少 content.json / content.xml）");
+    return { type: "mindmap", data: { mode: "map", nodes, edges: [], rootId }, compat: "B", note: `XMind 已导入（${nodes.length} 个节点，仅首个 sheet）` };
+  }
+
+  /* ============================================================
+     入口
+     ============================================================ */
+  /* ============================================================
+     BIFF8 .xls (旧版 Excel 二进制) — 用 SheetJS 解析
+     ============================================================ */
+  function parseXls(buf) {
+    if (!global.XLSX) throw new Error("未加载 SheetJS（xlsx）库");
+    const wb = global.XLSX.read(buf, { type: "array", cellFormula: true, cellText: false, cellDates: false });
+    const sheetName = wb.SheetNames[0] || "Sheet1";
+    const ws = wb.Sheets[sheetName];
+    if (!ws) throw new Error("XLS 工作簿为空");
+    // 用 sheet_to_json 拉二维数组（含公式）
+    const rows = global.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+    const cells = {};
+    let maxR = rows.length, maxC = 0;
+    rows.forEach((row, ri) => {
+      row.forEach((val, ci) => {
+        const ref = global.XLSX.utils.encode_cell({ r: ri, c: ci });
+        maxC = Math.max(maxC, ci + 1);
+        if (val === null || val === undefined || val === "") return;
+        if (typeof val === "string" && val.startsWith("=")) {
+          cells[ref] = { f: val };
+        } else {
+          cells[ref] = { v: typeof val === "number" ? val : String(val) };
+        }
+      });
+    });
+    const note = "XLS 已导入（基本兼容：值与公式保留；仅导入首个工作表）";
+    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles: {} }, compat: "B", note };
   }
 
   /* ============================================================
      入口
      ============================================================ */
   async function importFile(file, onProgress) {
-    if (!global.JSZip) throw new Error("需联网加载解析库 JSZip，请稍后重试或在本地服务器下打开");
     const ext = (file.name.split(".").pop() || "").toLowerCase();
-    const buf = await file.arrayBuffer();
+    const buf = new Uint8Array(await file.arrayBuffer());
     if (onProgress) onProgress("读取文件字节", 0.2);
-    const zip = await global.JSZip.loadAsync(buf);
+    // .xls 是 BIFF8 二进制，不走 JSZip，直接 SheetJS 解析
+    if (ext === "xls") {
+      if (!global.XLSX) throw new Error("需加载 SheetJS 解析库");
+      if (onProgress) onProgress("解析旧版 Excel (.xls)", 0.7);
+      const r = parseXls(buf);
+      if (onProgress) onProgress("构建文档模型", 0.95);
+      return r;
+    }
+    // 其他格式（docx/xlsx/pptx/odt/ods/odp/ofd/xmind）都是 ZIP 容器
+    if (!global.JSZip) throw new Error("需加载 JSZip 解析库");
+    const zip = await global.JSZip.loadAsync(buf.buffer);
     if (onProgress) onProgress("解压包结构", 0.5);
     let r;
     switch (ext) {
@@ -963,7 +1059,7 @@
       case "odp": if (onProgress) onProgress("解析 ODF 文档", 0.7); r = parseOdf(ext, zip); break;
       case "ofd": if (onProgress) onProgress("解析 OFD 版式文件", 0.7); r = parseOfd(zip); break;
       case "xmind": if (onProgress) onProgress("解析思维导图 XMind", 0.7); r = parseXmind(zip); break;
-      default: r = null; // 交给外壳处理其它格式（pdf/html/txt/csv）
+      default: r = null;
     }
     if (onProgress) onProgress("构建文档模型", 0.95);
     return r;

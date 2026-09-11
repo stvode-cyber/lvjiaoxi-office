@@ -484,7 +484,7 @@
         const doc = await OS.store.create({ type: "spreadsheet", name: f.name });
         doc.data = csvToSheet(txt); await OS.store.put(doc); openDoc(doc); return;
       }
-      if (["docx", "xlsx", "pptx", "odt", "ods", "odp", "ofd", "xmind"].includes(ext)) {
+      if (["docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "ofd", "xmind"].includes(ext)) {
         const r2 = await OS.Importer.importFile(f, (s, p) => r.step(s, p));
         if (r2) {
           r.step("保存到本地");
@@ -515,6 +515,7 @@
       pdf: "application/pdf", ofd: "application/ofd",
       docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      xls:  "application/vnd.ms-excel",
       pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
       csv: "text/csv", txt: "text/plain", md: "text/markdown", html: "text/html", htm: "text/html",
       xmind: "application/vnd.xmind.workbook", lvjx: "application/octet-stream"
