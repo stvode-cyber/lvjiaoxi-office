@@ -484,13 +484,14 @@
           const y = off ? Math.round((+attr(off, "y") + offY) * fy) : 40;
           const w = ext ? Math.max(4, Math.round((+attr(ext, "cx")) * fx)) : 200;
           const h = ext ? Math.max(4, Math.round((+attr(ext, "cy")) * fy)) : 40;
-          const { fontSize, color, bold } = runStyle(k);
+          const { fontSize, color, bold, italic, fontFamily, align } = runStyle(k, fx);
           const spPr = first(k, "spPr");
           const geom = parseSpPr(spPr);
           if (text) {
             result.push({
               id: OS.util.uid("el"), type: "text", x, y, w, h,
               text, fontSize: fontSize || 14, color: color || "#111827", bold: !!bold,
+              italic: !!italic, fontFamily, align,
               shape: geom.shape, fill: geom.fill, stroke: geom.stroke, strokeWidth: geom.strokeWidth
             });
           } else if (geom.fill || geom.stroke) {
@@ -499,7 +500,8 @@
               id: OS.util.uid("el"), type: "shape", x, y, w, h,
               shape: geom.shape, fill: geom.fill || "#e0e7ff",
               stroke: geom.stroke, strokeWidth: geom.strokeWidth,
-              text: "", fontSize: fontSize || 14, color: color || "#111827", bold: !!bold
+              text: "", fontSize: fontSize || 14, color: color || "#111827", bold: !!bold,
+              italic: !!italic, fontFamily, align
             });
           }
         } else if (ln === "pic") {
@@ -633,15 +635,24 @@
     const text = parts.join("\n").replace(/\s+$/g, "");
     return text || null;
   }
-  function runStyle(sp) {
-    const rPr = first(first(sp, "txBody"), "rPr");
-    if (!rPr) return {};
-    const sz = attr(rPr, "sz");
-    const fontSize = sz ? Math.round((+sz) / 100 * 1.333) : null; // hundredths of pt -> px
-    const b = attr(rPr, "b") === "1" || first(rPr, "b");
-    const clr = first(rPr, "srgbClr");
+  function runStyle(sp, scale) {
+    const txBody = first(sp, "txBody");
+    if (!txBody) return {};
+    const rPr = first(txBody, "rPr");
+    const sz = rPr ? attr(rPr, "sz") : null;
+    const fontSize = sz ? Math.round((+sz) / 100 * 12700 * (scale || 1)) : null;
+    const b = rPr && (attr(rPr, "b") === "1" || first(rPr, "b"));
+    const clr = rPr ? first(rPr, "srgbClr") : null;
     const color = clr ? "#" + attr(clr, "val") : null;
-    return { fontSize, color, bold: b };
+    const font = rPr ? (first(rPr, "latin") || first(rPr, "ea") || first(rPr, "cs")) : null;
+    const fontFamily = font ? attr(font, "typeface") : null;
+    const it = rPr && (attr(rPr, "i") === "1" || first(rPr, "i"));
+    const firstP = first(txBody, "p");
+    const pPr = firstP ? first(firstP, "pPr") : null;
+    const algn = pPr ? attr(pPr, "algn") : null;
+    const alignMap = { l: "left", ctr: "center", r: "right", just: "justify", dist: "justify" };
+    const align = algn ? (alignMap[algn] || "left") : null;
+    return { fontSize, color, bold: !!b, italic: !!it, fontFamily, align };
   }
 
   /* ============================================================

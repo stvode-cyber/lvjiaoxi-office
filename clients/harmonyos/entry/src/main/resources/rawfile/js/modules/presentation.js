@@ -184,6 +184,8 @@
       d.style.width = (elm.w * (scale || 1)) + "px"; d.style.height = (elm.h * (scale || 1)) + "px";
       d.style.color = elm.color || "#111827"; d.style.fontSize = ((elm.fontSize || 24) * (scale || 1)) + "px";
       d.style.fontWeight = elm.bold ? "700" : "400";
+      if (elm.italic) d.style.fontStyle = "italic";
+      if (elm.fontFamily) d.style.fontFamily = elm.fontFamily + ", system-ui, sans-serif";
 
       if (elm.type === "image") {
         // 图片：<img> 标签 + object-fit: cover
@@ -228,14 +230,15 @@
           d.style.border = sw + "px solid " + elm.stroke;
           d.style.boxSizing = "border-box";
         }
-        // text 元素：放文字内容
+        // text 元素：放文字内容（white-space: pre-line 支持 \n 换行）
         if (elm.type === "text") {
           d.textContent = elm.text || "";
           if (elm.align) d.style.textAlign = elm.align;
-          // 文本框加 padding 让文字不贴边
           d.style.padding = "2px 4px";
           d.style.boxSizing = "border-box";
           d.style.overflow = "hidden";
+          d.style.whiteSpace = "pre-line";
+          d.style.lineHeight = "1.3";
         }
       }
       // 进入动画仅在放映/预览时附加（不污染编辑态与缩略图）
