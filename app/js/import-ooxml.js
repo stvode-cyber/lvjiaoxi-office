@@ -162,6 +162,7 @@
   function blockFromP(pEl, rels, numFmt, state) {
     const pPr = first(pEl, "pPr");
     let tag = "p", isList = false, listType = "ul";
+    const pStyles = [];  // 段落级 CSS
     if (pPr) {
       const ps = first(pPr, "pStyle");
       if (ps) {
@@ -170,6 +171,41 @@
         if (m) tag = "h" + m[1];
         else if (/^Title$/i.test(v)) tag = "h1";
         else if (/^Subtitle$/i.test(v)) tag = "h2";
+      }
+      // 对齐
+      const jc = first(pPr, "jc");
+      if (jc) {
+        const jv = attr(jc, "w:val") || "left";
+        const jMap = { left: "left", center: "center", right: "right", both: "justify", distribute: "justify", start: "left", end: "right" };
+        const align = jMap[jv] || "left";
+        if (align !== "left") pStyles.push("text-align:" + align);
+      }
+      // 缩进（twips → px: val/1440 * 96）
+      const ind = first(pPr, "ind");
+      if (ind) {
+        const firstLine = attr(ind, "w:firstLine");
+        if (firstLine) pStyles.push("text-indent:" + Math.round((+firstLine) / 1440 * 96) + "px");
+        const left = attr(ind, "w:left") || attr(ind, "w:leftChars");
+        if (left) pStyles.push("padding-left:" + Math.round((+left) / 1440 * 96) + "px");
+        const right = attr(ind, "w:right") || attr(ind, "w:rightChars");
+        if (right) pStyles.push("padding-right:" + Math.round((+right) / 1440 * 96) + "px");
+      }
+      // 段间距 + 行间距
+      const spacing = first(pPr, "spacing");
+      if (spacing) {
+        const before = attr(spacing, "w:before");
+        if (before) pStyles.push("margin-top:" + Math.round((+before) / 1440 * 96) + "px");
+        const after = attr(spacing, "w:after");
+        if (after) pStyles.push("margin-bottom:" + Math.round((+after) / 1440 * 96) + "px");
+        const line = attr(spacing, "w:line");
+        const lineRule = attr(spacing, "w:lineRule");
+        if (line) {
+          // lineRule=auto → line/240 是倍数；否则 line 是 twips → px
+          let lh;
+          if (lineRule === "auto") lh = ((+line) / 240).toFixed(2);
+          else lh = Math.round((+line) / 1440 * 96) + "px";
+          pStyles.push("line-height:" + lh);
+        }
       }
       const numPr = first(pPr, "numPr");
       if (numPr) {
@@ -184,7 +220,8 @@
     while (state.stack.length) { state.stack.pop(); closeHtml += "</span>"; }
     const fullInner = inner + closeHtml;
     if (isList) return { isList: true, listType, inner: fullInner };
-    return { isList: false, outer: `<${tag}>${fullInner || "<br>"}</${tag}>` };
+    const styleAttr = pStyles.length ? ` style="${pStyles.join(";")}"` : "";
+    return { isList: false, outer: `<${tag}${styleAttr}>${fullInner || "<br>"}</${tag}>` };
   }
 
   function runsToHtml(el, rels, state) {
@@ -239,12 +276,47 @@
     let s = txt;
     if (imgHtml) s += imgHtml;   // 内嵌图片不参与 esc，直接拼为 <img>
     if (rPr) {
-      if (first(rPr, "b")) s = `<strong>${s}</strong>`;
-      if (first(rPr, "i")) s = `<em>${s}</em>`;
-      if (first(rPr, "u")) s = `<u>${s}</u>`;
-      if (first(rPr, "strike")) s = `<s>${s}</s>`;
-      const color = attr(first(rPr, "color"), "w:val");
-      if (color && /^[0-9a-fA-F]{6}$/.test(color)) s = `<span style="color:#${color}">${s}</span>`;
+      // 先处理 sup/sub（外层包裹，因为是定位属性）
+      const va = first(rPr, "vertAlign");
+      const vaVal = va ? attr(va, "w:val") : null;
+      if (vaVal === "superscript") s = `<sup>${s}</sup>`;
+      else if (vaVal === "subscript") s = `<sub>${s}</sub>`;
+      // 收集所有内联样式到一个 <span style="...">，避免多层嵌套
+      const styles = [];
+      const b = first(rPr, "b"); if (b) styles.push("font-weight:700");
+      const it = first(rPr, "i"); if (it) styles.push("font-style:italic");
+      const u = first(rPr, "u"); if (u) styles.push("text-decoration:underline");
+      const st = first(rPr, "strike"); if (st) styles.push("text-decoration:line-through");
+      // fontSize: w:sz 是子元素 <w:sz w:val="48"/>，val 是 half-points → px = val/2 * 1.333
+      const szEl = first(rPr, "sz");
+      const sz = szEl ? attr(szEl, "val") : null;
+      if (sz) {
+        const px = Math.round((+sz) / 2 * 1.333);
+        styles.push("font-size:" + px + "px");
+      }
+      // fontFamily: 优先 eastAsia（中文），fallback ascii
+      const rFonts = first(rPr, "rFonts");
+      if (rFonts) {
+        const ea = attr(rFonts, "w:eastAsia") || attr(rFonts, "w:cs");
+        const ascii = attr(rFonts, "w:ascii");
+        const fontFamily = (ea || ascii || "").replace(/"/g, "");
+        if (fontFamily) styles.push("font-family:\"" + fontFamily + "\",system-ui,sans-serif");
+      }
+      // color
+      const colorEl = first(rPr, "color");
+      const color = colorEl ? attr(colorEl, "w:val") : null;
+      if (color && /^[0-9a-fA-F]{6}$/.test(color)) styles.push("color:#" + color);
+      // highlight → background-color
+      const hl = first(rPr, "highlight");
+      if (hl) {
+        const hlVal = attr(hl, "w:val");
+        if (hlVal && hlVal !== "none") {
+          const hlMap = { yellow: "#ffff00", green: "#00ff00", cyan: "#00ffff", magenta: "#ff00ff", blue: "#0000ff", red: "#ff0000", darkBlue: "#00008b", darkCyan: "#008b8b", darkGreen: "#006400", darkMagenta: "#8b008b", darkRed: "#8b0000", darkYellow: "#8b8b00", darkGray: "#a9a9a9", lightGray: "#d3d3d3", black: "#000000", white: "#ffffff" };
+          const cssColor = hlMap[hlVal] || hlVal;
+          styles.push("background-color:" + cssColor);
+        }
+      }
+      if (styles.length) s = `<span style="${styles.join(";")}">${s}</span>`;
     }
     return s;
   }
