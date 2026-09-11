@@ -729,7 +729,11 @@
               { kind: "btn", icon: "arrow-redo", title: "PDF 文档历史/增量更新审计：沿 trailer /Prev 链还原每次保存留下的版本（版本数、逐版 /Size、/Root、/Info、xref 表/流格式），统计 %%EOF/startxref/xref 段计数，检测线性化(Web 优化)、/Prev 链断裂、计数不一致(截断/损坏)，判断文档被修改保存过几次、是否多工具编辑；可导出历史报告(MD)", label: "文档历史", onClick: () => showHistory() }
             ] }
           ]
-        }
+        },
+        OS.PdfToolbox && OS.PdfToolbox.buildTab({
+          data, doc, dataUrlToBytes, openPdfBytes,
+          dataUrlToBlob, markDirty, saveNow
+        })
       ]
     });
 
