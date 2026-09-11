@@ -1,156 +1,156 @@
-{
-  "name": "lvjiaoxi-office",
-  "version": "1.0.21",
-  "description": "绿角犀 Office · 跨平台办公套件（Writer / Spreadsheet / Presentation / PDF / MindMap）桌面客户端",
-  "author": "绿角犀",
-  "license": "MIT",
-  "main": "electron/main.js",
-  "scripts": {
-    "start": "electron .",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux",
-    "dist": "electron-builder --win --mac --linux",
-    "dist:local": "electron-builder --win --publish never",
-    "sync": "node scripts/sync-clients.js",
-    "sync:check": "node scripts/sync-clients.js --check",
-    "version:bump": "node scripts/bump-version.js patch",
-    "version:minor": "node scripts/bump-version.js minor",
-    "version:major": "node scripts/bump-version.js major",
-    "release:check": "node scripts/release-check.js",
-    "release:prep": "node scripts/make-release.js",
-    "release:ready": "node scripts/release-check.js && node scripts/make-release.js",
-    "test:boot": "node _app_boot_test.js",
-    "test:runner": "node _run_tests_test.js",
-    "release:assets": "node scripts/verify-release-assets.js --dist dist --mobile-dir mobile",
-    "release": "node scripts/bump-version.js patch && npm run dist:win",
-    "cloud": "node server/index.js",
-    "cloud:test": "node _cloud_server_test.js && node _cloudsync_test.js && node _cloudsync_integration_test.js",
-    "test": "node scripts/run-tests.js && npm run sync:check"
-  },
-  "build": {
-    "appId": "com.lvjiaoxi.office",
-    "productName": "绿角犀 Office",
-    "icon": "app/icons/icon",
-    "asar": true,
-    "directories": {
-      "output": "dist",
-      "buildResources": "app/icons"
-    },
-    "files": [
-      "app/**/*",
-      "electron/**/*",
-      "!app/_*",
-      "!app/**/_*"
-    ],
-    "fileAssociations": [
-      {
-        "ext": "pdf",
-        "name": "绿角犀 PDF 文档",
-        "role": "Editor"
-      },
-      {
-        "ext": "ofd",
-        "name": "绿角犀 OFD 文档",
-        "role": "Editor"
-      },
-      {
-        "ext": "lvjx",
-        "name": "绿角犀存档文件",
-        "role": "Editor"
-      },
-      {
-        "ext": "docx",
-        "name": "绿角犀 Word 文档",
-        "role": "Editor"
-      },
-      {
-        "ext": "xlsx",
-        "name": "绿角犀表格文档",
-        "role": "Editor"
-      },
-      {
-        "ext": "pptx",
-        "name": "绿角犀演示文档",
-        "role": "Editor"
-      },
-      {
-        "ext": "txt",
-        "name": "绿角犀文本文档",
-        "role": "Editor"
-      },
-      {
-        "ext": "xmind",
-        "name": "绿角犀思维导图",
-        "role": "Editor"
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": "x64"
-        },
-        {
-          "target": "portable",
-          "arch": "x64"
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "include": "build/installer.nsh",
-      "artifactName": "${productName} Setup ${version}.${ext}"
-    },
-    "portable": {
-      "artifactName": "${productName} ${version}.${ext}"
-    },
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "category": "public.app-category.productivity",
-      "hardenedRuntime": false,
-      "gatekeeperAssess": false
-    },
-    "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": "x64"
-        },
-        {
-          "target": "deb",
-          "arch": "x64"
-        }
-      ],
-      "category": "Office",
-      "maintainer": "lvjiaoxi",
-      "artifactName": "${productName}-${version}.${ext}"
-    },
-    "publish": [
-      {
-        "provider": "generic",
-        "url": "${env.LVJX_UPDATE_FEED:-https://update.lvjiaoxi.cn}"
-      }
-    ]
-  },
-  "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3",
-    "electron-updater": "^6.8.9",
-    "jsdom": "^30.0.1",
-    "jszip": "^3.10.1"
-  },
-  "dependencies": {
-    "xlsx": "^0.18.5"
-  }
+﻿{
+    "name":  "lvjiaoxi-office",
+    "version":  "1.1.0",
+    "description":  "绿角犀 Office · 跨平台办公套件（Writer / Spreadsheet / Presentation / PDF / MindMap）桌面客户端",
+    "author":  "绿角犀",
+    "license":  "MIT",
+    "main":  "electron/main.js",
+    "scripts":  {
+                    "start":  "electron .",
+                    "dist:win":  "electron-builder --win",
+                    "dist:mac":  "electron-builder --mac",
+                    "dist:linux":  "electron-builder --linux",
+                    "dist":  "electron-builder --win --mac --linux",
+                    "dist:local":  "electron-builder --win --publish never",
+                    "sync":  "node scripts/sync-clients.js",
+                    "sync:check":  "node scripts/sync-clients.js --check",
+                    "version:bump":  "node scripts/bump-version.js patch",
+                    "version:minor":  "node scripts/bump-version.js minor",
+                    "version:major":  "node scripts/bump-version.js major",
+                    "release:check":  "node scripts/release-check.js",
+                    "release:prep":  "node scripts/make-release.js",
+                    "release:ready":  "node scripts/release-check.js \u0026\u0026 node scripts/make-release.js",
+                    "test:boot":  "node _app_boot_test.js",
+                    "test:runner":  "node _run_tests_test.js",
+                    "release:assets":  "node scripts/verify-release-assets.js --dist dist --mobile-dir mobile",
+                    "release":  "node scripts/bump-version.js patch \u0026\u0026 npm run dist:win",
+                    "cloud":  "node server/index.js",
+                    "cloud:test":  "node _cloud_server_test.js \u0026\u0026 node _cloudsync_test.js \u0026\u0026 node _cloudsync_integration_test.js",
+                    "test":  "node scripts/run-tests.js \u0026\u0026 npm run sync:check"
+                },
+    "build":  {
+                  "appId":  "com.lvjiaoxi.office",
+                  "productName":  "绿角犀 Office",
+                  "icon":  "app/icons/icon",
+                  "asar":  true,
+                  "directories":  {
+                                      "output":  "dist",
+                                      "buildResources":  "app/icons"
+                                  },
+                  "files":  [
+                                "app/**/*",
+                                "electron/**/*",
+                                "!app/_*",
+                                "!app/**/_*"
+                            ],
+                  "fileAssociations":  [
+                                           {
+                                               "ext":  "pdf",
+                                               "name":  "绿角犀 PDF 文档",
+                                               "role":  "Editor"
+                                           },
+                                           {
+                                               "ext":  "ofd",
+                                               "name":  "绿角犀 OFD 文档",
+                                               "role":  "Editor"
+                                           },
+                                           {
+                                               "ext":  "lvjx",
+                                               "name":  "绿角犀存档文件",
+                                               "role":  "Editor"
+                                           },
+                                           {
+                                               "ext":  "docx",
+                                               "name":  "绿角犀 Word 文档",
+                                               "role":  "Editor"
+                                           },
+                                           {
+                                               "ext":  "xlsx",
+                                               "name":  "绿角犀表格文档",
+                                               "role":  "Editor"
+                                           },
+                                           {
+                                               "ext":  "pptx",
+                                               "name":  "绿角犀演示文档",
+                                               "role":  "Editor"
+                                           },
+                                           {
+                                               "ext":  "txt",
+                                               "name":  "绿角犀文本文档",
+                                               "role":  "Editor"
+                                           },
+                                           {
+                                               "ext":  "xmind",
+                                               "name":  "绿角犀思维导图",
+                                               "role":  "Editor"
+                                           }
+                                       ],
+                  "win":  {
+                              "target":  [
+                                             {
+                                                 "target":  "nsis",
+                                                 "arch":  "x64"
+                                             },
+                                             {
+                                                 "target":  "portable",
+                                                 "arch":  "x64"
+                                             }
+                                         ]
+                          },
+                  "nsis":  {
+                               "oneClick":  false,
+                               "perMachine":  false,
+                               "allowToChangeInstallationDirectory":  true,
+                               "include":  "build/installer.nsh",
+                               "artifactName":  "${productName} Setup ${version}.${ext}"
+                           },
+                  "portable":  {
+                                   "artifactName":  "${productName} ${version}.${ext}"
+                               },
+                  "mac":  {
+                              "target":  [
+                                             {
+                                                 "target":  "dmg",
+                                                 "arch":  [
+                                                              "x64",
+                                                              "arm64"
+                                                          ]
+                                             }
+                                         ],
+                              "category":  "public.app-category.productivity",
+                              "hardenedRuntime":  false,
+                              "gatekeeperAssess":  false
+                          },
+                  "linux":  {
+                                "target":  [
+                                               {
+                                                   "target":  "AppImage",
+                                                   "arch":  "x64"
+                                               },
+                                               {
+                                                   "target":  "deb",
+                                                   "arch":  "x64"
+                                               }
+                                           ],
+                                "category":  "Office",
+                                "maintainer":  "lvjiaoxi",
+                                "artifactName":  "${productName}-${version}.${ext}"
+                            },
+                  "publish":  [
+                                  {
+                                      "provider":  "generic",
+                                      "url":  "${env.LVJX_UPDATE_FEED:-https://update.lvjiaoxi.cn}"
+                                  }
+                              ]
+              },
+    "devDependencies":  {
+                            "electron":  "^31.0.0",
+                            "electron-builder":  "^24.13.3",
+                            "electron-updater":  "^6.8.9",
+                            "jsdom":  "^30.0.1",
+                            "jszip":  "^3.10.1"
+                        },
+    "dependencies":  {
+                         "xlsx":  "^0.18.5"
+                     }
 }
