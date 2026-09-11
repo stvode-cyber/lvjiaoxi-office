@@ -87,96 +87,6 @@
 
     return {
       id: "tools", label: "工具箱", groups: [
-
-        /* ----- 合并 ----- */
-        { label: "合并", items: [
-          { kind: "btn", icon: "merge", title: "将当前文档 + 多选的 PDF 文件合并为一个", label: "合并文档", onClick: async () => {
-              const eng = ensureEngine(); if (!eng) return;
-              const cur = ensureOpen(); if (!cur) return;
-              const input = document.createElement("input");
-              input.type = "file"; input.multiple = true; input.accept = "application/pdf";
-              input.onchange = async () => {
-                const files = Array.from(input.files || []);
-                if (!files.length) return;
-                OS.toast("合并 " + (files.length + 1) + " 个 PDF …");
-                const parts = [cur];
-                for (const f of files) parts.push(await readFileAsBytes(f));
-                try {
-                  const merged = await eng.mergePDFs(parts, (p) => OS.toast("合并中 " + Math.round(p * 100) + "%"));
-                  await openPdfBytes(merged, (doc.name || "合并") + "_合并.pdf");
-                  OS.toast("✅ 合并完成：" + (files.length + 1) + " 个 PDF", "ok");
-                } catch (e) { OS.toast("合并失败：" + e.message, "err"); }
-              };
-              input.click();
-            } }
-        ] },
-
-        /* ----- 拆分 ----- */
-        { label: "拆分", items: [
-          { kind: "btn", icon: "split", title: "按指定页码范围拆分（如 1-2, 3-5, 6-）", label: "按范围", onClick: async () => {
-              const eng = ensureEngine(); if (!eng) return;
-              const cur = ensureOpen(); if (!cur) return;
-              const count = await eng.pageCount(cur);
-              const ov = openPanel("按范围拆分 PDF", `
-                <p class="muted" style="font-size:12px;margin:0 0 8px">共 ${count} 页。格式：1-2,3-5,6-8,9-（最后一页可用 - 表示）</p>
-                <input type="text" id="ptb-ranges" placeholder="如 1-2,3-5,6-" style="width:100%;padding:6px">
-                <div style="display:flex;gap:8px;margin-top:10px">
-                  <button class="btn primary" id="ptb-split-do">拆分并下载</button>
-                  <button class="btn" id="ptb-split-cancel">取消</button>
-                </div>`);
-              ov.querySelector("#ptb-split-cancel").onclick = () => ov.remove();
-              ov.querySelector("#ptb-split-do").onclick = async () => {
-                const raw = ov.querySelector("#ptb-ranges").value.trim();
-                ov.remove();
-                if (!raw) { OS.toast("请输入页码范围", "warn"); return; }
-                try {
-                  OS.toast("拆分中 …");
-                  const outs = await eng.splitByCount(cur, { ranges: raw });
-                  outs.forEach((out, i) => {
-                    const name = (doc.name || "part") + "_" + (i + 1) + ".pdf";
-                    downloadBytes(out, name);
-                  });
-                  OS.toast("✅ 已拆分 " + outs.length + " 个文件（已下载）", "ok");
-                } catch (e) { OS.toast("拆分失败：" + e.message, "err"); }
-              };
-            } },
-          { kind: "btn", icon: "file", title: "按目录大纲书签自动拆分（每个顶层书签一个文件）", label: "按大纲", onClick: async () => {
-              const eng = ensureEngine(); if (!eng) return;
-              const cur = ensureOpen(); if (!cur) return;
-              try {
-                OS.toast("按大纲拆分中 …");
-                const outs = await eng.splitByOutline(cur);
-                if (!outs.length) { OS.toast("该 PDF 无可拆分的大纲书签", "info"); return; }
-                outs.forEach((out, i) => downloadBytes(out, (doc.name || "split") + "_" + (i + 1) + ".pdf"));
-                OS.toast("✅ 按大纲拆分出 " + outs.length + " 个文件", "ok");
-              } catch (e) { OS.toast("拆分失败：" + e.message, "err"); }
-            } },
-          { kind: "btn", icon: "trash", title: "检测并删除完全空白页（阈值可调）", label: "删空白页", onClick: async () => {
-              const eng = ensureEngine(); if (!eng) return;
-              const cur = ensureOpen(); if (!cur) return;
-              try {
-                OS.toast("检测空白页 …");
-                const blank = await eng.detectBlankPages(cur);
-                if (!blank.length) { OS.toast("未发现空白页", "info"); return; }
-                const ov = openPanel("删除空白页", `
-                  <p style="margin:0 0 10px">检测到 ${blank.length} 页空白页（页码：${blank.join(", ")}）</p>
-                  <div style="display:flex;gap:8px">
-                    <button class="btn primary" id="ptb-rm-blank">删除并打开结果</button>
-                    <button class="btn" id="ptb-rm-blank-c">取消</button>
-                  </div>`);
-                ov.querySelector("#ptb-rm-blank-c").onclick = () => ov.remove();
-                ov.querySelector("#ptb-rm-blank").onclick = async () => {
-                  ov.remove();
-                  OS.toast("删除空白页 …");
-                  const result = await eng.removeBlankPages(cur);
-                  await openPdfBytes(result, (doc.name || "doc") + "_删空白.pdf");
-                  OS.toast("✅ 已删除 " + blank.length + " 页", "ok");
-                };
-              } catch (e) { OS.toast("操作失败：" + e.message, "err"); }
-            } }
-        ] },
-
-        /* ----- 页面操作 ----- */
         { label: "页面操作", items: [
           { kind: "btn", icon: "rotate", title: "批量旋转指定页（90°/180°/270°）", label: "旋转页面", onClick: async () => {
               const eng = ensureEngine(); if (!eng) return;
@@ -253,9 +163,91 @@
               };
             } }
         ] },
-
-        /* ----- 水印 ----- */
-        { label: "水印", items: [
+        { label: "合并", items: [
+          { kind: "btn", icon: "merge", title: "将当前文档 + 多选的 PDF 文件合并为一个", label: "合并文档", onClick: async () => {
+              const eng = ensureEngine(); if (!eng) return;
+              const cur = ensureOpen(); if (!cur) return;
+              const input = document.createElement("input");
+              input.type = "file"; input.multiple = true; input.accept = "application/pdf";
+              input.onchange = async () => {
+                const files = Array.from(input.files || []);
+                if (!files.length) return;
+                OS.toast("合并 " + (files.length + 1) + " 个 PDF …");
+                const parts = [cur];
+                for (const f of files) parts.push(await readFileAsBytes(f));
+                try {
+                  const merged = await eng.mergePDFs(parts, (p) => OS.toast("合并中 " + Math.round(p * 100) + "%"));
+                  await openPdfBytes(merged, (doc.name || "合并") + "_合并.pdf");
+                  OS.toast("✅ 合并完成：" + (files.length + 1) + " 个 PDF", "ok");
+                } catch (e) { OS.toast("合并失败：" + e.message, "err"); }
+              };
+              input.click();
+            } }
+        ] },
+        { label: "拆分", items: [
+          { kind: "btn", icon: "split", title: "按指定页码范围拆分（如 1-2, 3-5, 6-）", label: "按范围", onClick: async () => {
+              const eng = ensureEngine(); if (!eng) return;
+              const cur = ensureOpen(); if (!cur) return;
+              const count = await eng.pageCount(cur);
+              const ov = openPanel("按范围拆分 PDF", `
+                <p class="muted" style="font-size:12px;margin:0 0 8px">共 ${count} 页。格式：1-2,3-5,6-8,9-（最后一页可用 - 表示）</p>
+                <input type="text" id="ptb-ranges" placeholder="如 1-2,3-5,6-" style="width:100%;padding:6px">
+                <div style="display:flex;gap:8px;margin-top:10px">
+                  <button class="btn primary" id="ptb-split-do">拆分并下载</button>
+                  <button class="btn" id="ptb-split-cancel">取消</button>
+                </div>`);
+              ov.querySelector("#ptb-split-cancel").onclick = () => ov.remove();
+              ov.querySelector("#ptb-split-do").onclick = async () => {
+                const raw = ov.querySelector("#ptb-ranges").value.trim();
+                ov.remove();
+                if (!raw) { OS.toast("请输入页码范围", "warn"); return; }
+                try {
+                  OS.toast("拆分中 …");
+                  const outs = await eng.splitByCount(cur, { ranges: raw });
+                  outs.forEach((out, i) => {
+                    const name = (doc.name || "part") + "_" + (i + 1) + ".pdf";
+                    downloadBytes(out, name);
+                  });
+                  OS.toast("✅ 已拆分 " + outs.length + " 个文件（已下载）", "ok");
+                } catch (e) { OS.toast("拆分失败：" + e.message, "err"); }
+              };
+            } },
+          { kind: "btn", icon: "file", title: "按目录大纲书签自动拆分（每个顶层书签一个文件）", label: "按大纲", onClick: async () => {
+              const eng = ensureEngine(); if (!eng) return;
+              const cur = ensureOpen(); if (!cur) return;
+              try {
+                OS.toast("按大纲拆分中 …");
+                const outs = await eng.splitByOutline(cur);
+                if (!outs.length) { OS.toast("该 PDF 无可拆分的大纲书签", "info"); return; }
+                outs.forEach((out, i) => downloadBytes(out, (doc.name || "split") + "_" + (i + 1) + ".pdf"));
+                OS.toast("✅ 按大纲拆分出 " + outs.length + " 个文件", "ok");
+              } catch (e) { OS.toast("拆分失败：" + e.message, "err"); }
+            } },
+          { kind: "btn", icon: "trash", title: "检测并删除完全空白页（阈值可调）", label: "删空白页", onClick: async () => {
+              const eng = ensureEngine(); if (!eng) return;
+              const cur = ensureOpen(); if (!cur) return;
+              try {
+                OS.toast("检测空白页 …");
+                const blank = await eng.detectBlankPages(cur);
+                if (!blank.length) { OS.toast("未发现空白页", "info"); return; }
+                const ov = openPanel("删除空白页", `
+                  <p style="margin:0 0 10px">检测到 ${blank.length} 页空白页（页码：${blank.join(", ")}）</p>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn primary" id="ptb-rm-blank">删除并打开结果</button>
+                    <button class="btn" id="ptb-rm-blank-c">取消</button>
+                  </div>`);
+                ov.querySelector("#ptb-rm-blank-c").onclick = () => ov.remove();
+                ov.querySelector("#ptb-rm-blank").onclick = async () => {
+                  ov.remove();
+                  OS.toast("删除空白页 …");
+                  const result = await eng.removeBlankPages(cur);
+                  await openPdfBytes(result, (doc.name || "doc") + "_删空白.pdf");
+                  OS.toast("✅ 已删除 " + blank.length + " 页", "ok");
+                };
+              } catch (e) { OS.toast("操作失败：" + e.message, "err"); }
+            } }
+        ] },
+        { label: "修饰增强", items: [
           { kind: "btn", icon: "font-size", title: "添加文字水印（可设颜色/角度/透明度/字号）", label: "文字水印", onClick: async () => {
               const eng = ensureEngine(); if (!eng) return;
               const cur = ensureOpen(); if (!cur) return;
@@ -331,10 +323,30 @@
                   OS.toast("✅ 页码已添加", "ok");
                 } catch (e) { OS.toast("页码失败：" + e.message, "err"); }
               };
-            } }
+            } },
+          { kind: "btn", icon: "page-setup", title: "给每页设置纯色/图片背景", label: "页面背景", onClick: async () => {
+              const eng = ensureEngine(); if (!eng) return;
+              const cur = ensureOpen(); if (!cur) return;
+              const ov = openPanel("设置页面背景", `
+                <label>背景颜色</label>
+                <input id="ptb-bg-color" type="color" value="#ffffff" style="width:100%;margin-bottom:8px">
+                <p class="muted" style="font-size:11px">设为纯白可减轻扫描件偏黄底</p>
+                <div style="display:flex;gap:8px">
+                  <button class="btn primary" id="ptb-bg-do">应用并打开</button>
+                  <button class="btn" id="ptb-bg-c">取消</button>
+                </div>`);
+              ov.querySelector("#ptb-bg-c").onclick = () => ov.remove();
+              ov.querySelector("#ptb-bg-do").onclick = async () => {
+                const color = ov.querySelector("#ptb-bg-color").value; ov.remove();
+                try {
+                  OS.toast("设置背景 …");
+                  const result = await eng.setPageBackground(cur, { type: "color", color });
+                  await openPdfBytes(result, (doc.name || "doc") + "_背景.pdf");
+                  OS.toast("✅ 已应用", "ok");
+                } catch (e) { OS.toast("失败：" + e.message, "err"); }
+              };
+            } },
         ] },
-
-        /* ----- 压缩 / 加密 ----- */
         { label: "压缩", items: [
           { kind: "btn", icon: "download", title: "重序列化压缩 PDF（清理冗余对象 / 压缩流）", label: "一键压缩", onClick: async () => {
               const eng = ensureEngine(); if (!eng) return;
@@ -359,7 +371,6 @@
               };
             } }
         ] },
-
         { label: "加密", items: [
           { kind: "btn", icon: "lock", title: "给 PDF 加密码（AES-256，可分别设打开密码 / 权限密码）", label: "加密 PDF", onClick: async () => {
               const eng = ensureEngine(); if (!eng) return;
@@ -410,8 +421,6 @@
               };
             } }
         ] },
-
-        /* ----- OCR / 转换 ----- */
         { label: "OCR 识别", items: [
           { kind: "btn", icon: "ai", title: "OCR 文字识别（Tesseract.js，首次需加载语言包）", label: "OCR 识别", onClick: async () => {
               const eng = ensureEngine(); if (!eng) return;
@@ -447,7 +456,6 @@
               };
             } }
         ] },
-
         { label: "转换导出", items: [
           { kind: "btn", icon: "docx", title: "PDF → Word（基于 pdf-lib 重排版，版面还原有限）", label: "导出 Word", onClick: async () => {
               const eng = ensureEngine(); if (!eng) return;
@@ -480,31 +488,7 @@
               } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
             } }
         ] },
-
-        /* ----- 实用工具 ----- */
-        { label: "实用", items: [
-          { kind: "btn", icon: "page-setup", title: "给每页设置纯色/图片背景", label: "页面背景", onClick: async () => {
-              const eng = ensureEngine(); if (!eng) return;
-              const cur = ensureOpen(); if (!cur) return;
-              const ov = openPanel("设置页面背景", `
-                <label>背景颜色</label>
-                <input id="ptb-bg-color" type="color" value="#ffffff" style="width:100%;margin-bottom:8px">
-                <p class="muted" style="font-size:11px">设为纯白可减轻扫描件偏黄底</p>
-                <div style="display:flex;gap:8px">
-                  <button class="btn primary" id="ptb-bg-do">应用并打开</button>
-                  <button class="btn" id="ptb-bg-c">取消</button>
-                </div>`);
-              ov.querySelector("#ptb-bg-c").onclick = () => ov.remove();
-              ov.querySelector("#ptb-bg-do").onclick = async () => {
-                const color = ov.querySelector("#ptb-bg-color").value; ov.remove();
-                try {
-                  OS.toast("设置背景 …");
-                  const result = await eng.setPageBackground(cur, { type: "color", color });
-                  await openPdfBytes(result, (doc.name || "doc") + "_背景.pdf");
-                  OS.toast("✅ 已应用", "ok");
-                } catch (e) { OS.toast("失败：" + e.message, "err"); }
-              };
-            } },
+        { label: "实用", items: [,
           { kind: "btn", icon: "check", title: "诊断 PDF 结构完整性（头/尾/xref/trailer/悬挂引用）", label: "结构诊断", onClick: async () => {
               const eng = ensureEngine(); if (!eng) return;
               const cur = ensureOpen(); if (!cur) return;
