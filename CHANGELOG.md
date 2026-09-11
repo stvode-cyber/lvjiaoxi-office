@@ -1,4 +1,4 @@
-# CHANGELOG · 变更日志
+﻿# CHANGELOG · 变更日志
 
 > **导航-only**。每个版本记「一句话变更 + 关键数字 + 明细链接」，不在此堆细节；明细见对应模块总纲 / FD 卡 / `.workbuddy/memory/` 日志。
 > 版本单一真源 = `package.json`（`node scripts/bump-version.js` 同步四端）。
@@ -31,7 +31,21 @@
 
 ***
 
-## 未发版（已提交，随下次打包）
+
+## v1.1.1 · 2026-09-11
+
+### 一句话
+DOCX 完整样式增强（fontSize/fontFamily/highlight/sup/sub/align/indent/spacing）+ PPT fontSize 缩放修复。
+
+### 变更明细
+- **DOCX unToHtml**：新增 fontSize（w:sz half-points→px）、fontFamily（w:rFonts 优先 eastAsia）、highlight（w:highlight named color→CSS bg）、sup/sub（w:vertAlign）、color 内联；合并所有内联样式到单一 <span style=...> 避免嵌套。
+- **DOCX lockFromP**：新增 w:jc→text-align、w:ind→text-indent/padding、w:spacing→margin-top/bottom/line-height（twips/half-points→px 单位转换）。
+- **PPT unStyle**：fontSize 走 EMU→px 正确缩放（12700 * scale），新增 fontFamily/italic/align 提取。
+- **Bug 修复**：w:sz 是子元素 <w:sz w:val="48"/> 不是属性 → 必须 irst(rPr,"sz") + ttr(szEl,"val") 两步取值（此前 fontSize 一直返回 null）。
+- **门禁**：96 套件 0 失败；CDP 端到端样式覆盖 **12/12 全绿**。
+
+### 未发版历史（移入 v1.0.17~v1.1.1 间隔归档）
+
 
 ### 2026-09-09 · 工作台趋势图表化
 
@@ -229,4 +243,5 @@
 | 发布 1.0.16 到 VPS            | ⛔ 待用户侧           | 沙箱→`8.149.245.252` 全端口被出口防火墙丢弃，SSH/HTTPS 均超时；双击 `scripts/publish-latest.bat` |
 | Android APK                | ⛔ 环境无 SDK/gradle | 未伪造；`clients/android/app/build` 已移出 git 索引                                   |
 | PDF→DOCX/TXT/MD/Excel 版面还原 | 🟢 已改进           | 段落合并 + 列表检测 + 多级标题已实现；仍非像素级                                                  |
+
 
