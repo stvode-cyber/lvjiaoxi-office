@@ -1,12 +1,12 @@
-{
-  "version": "1.0.20",
-  "publishedAt": "2026-09-10",
-  "channel": "stable",
-  "minVersion": "1.0.0",
-  "notes": [
-    "移除工作台业务概览/成交额趋势",
-    "修复双击文件打开应用但内容不同步",
-    "新增 TXT、XMind 文件双击打开"
-  ],
-  "url": "https://github.com/stvode-cyber/lvjiaoxi-office/releases/tag/v1.0.20"
+﻿{
+    "version":  "1.0.21",
+    "publishedAt":  "2026-09-10",
+    "channel":  "stable",
+    "minVersion":  "1.0.0",
+    "notes":  [
+                  "移除工作台业务概览/成交额趋势",
+                  "修复双击文件打开应用但内容不同步",
+                  "新增 TXT、XMind 文件双击打开"
+              ],
+    "url":  "https://github.com/stvode-cyber/lvjiaoxi-office/releases/tag/v1.0.20"
 }
