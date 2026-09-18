@@ -475,6 +475,12 @@
     const t = activeTab(); if (!t) return;
     t.dirty = true; renderTabbar(); updateTitle();
     if (OS.settings.get("autosave")) { clearTimeout(saveTimer); saveTimer = setTimeout(() => persist(t).catch(e => console.error("[Shell] 操作失败:", e)), 1200); }
+    // 历史版本自动快照（debounce 2s + 30s 间隔节流，见 versions.js）
+    if (OS.Versions && t.instance && typeof t.instance.serialize === "function") {
+      OS.Versions.autoSnap(t.doc.id, () => {
+        try { return t.instance.serialize(); } catch (e) { return null; }
+      });
+    }
   }
   async function saveNow() {
     const t = activeTab(); if (!t) return;
@@ -696,6 +702,7 @@
           <div class="bs-label">操作</div>
           <button data-bs="info" class="active">${ICON().svg("info", 18)}<span>信息</span></button>
           <button data-bs="save">${ICON().svg("save", 18)}<span>保存</span></button>
+          <button data-bs="history">${ICON().svg("undo", 18)}<span>历史版本</span></button>
           <button data-bs="template">${ICON().svg("star", 18)}<span>我的模板</span></button>
           <button data-bs="export">${ICON().svg("export", 18)}<span>导出</span></button>
           <button data-bs="print">${ICON().svg("print", 18)}<span>打印</span></button>
@@ -746,6 +753,107 @@
       const k = b.dataset.bs;
       if (k === "info") content.innerHTML = `<button class="bs-close" id="bs-close">✕</button>` + bsInfoHTML(doc, info, comp), content.querySelector("#bs-close").onclick = closeBackstage;
       else if (k === "save") { saveNow(); content.innerHTML = `<button class="bs-close" id="bs-close">✕</button><h2>保存</h2><p class="bs-sub">文档已保存到本机存储。</p><div class="bs-actions"><button class="btn primary" id="bs-done">完成</button></div>`; content.querySelector("#bs-close").onclick = closeBackstage; content.querySelector("#bs-done").onclick = closeBackstage; }
+      else if (k === "history") {
+        content.innerHTML = `<button class="bs-close" id="bs-close">✕</button>` +
+          `<h2>${ICON().svg("undo", 18)} 历史版本</h2>` +
+          `<p class="bs-sub">文档的快照历史（每 30 秒自动存一次，编辑触发）。最多保留 50 个版本，超出自动清理最旧的。</p>` +
+          `<div class="bs-hist-actions">` +
+            `<button class="btn primary" id="bs-hist-snap" title="立即存一个快照">${ICON().svg("save", 16)} 立即快照</button>` +
+            `<button class="btn" id="bs-hist-refresh" title="刷新列表">${ICON().svg("undo", 16)} 刷新</button>` +
+          `</div>` +
+          `<div class="bs-hist-toolbar"><span class="muted" id="bs-hist-count">加载中…</span></div>` +
+          `<div class="bs-hist-list" id="bs-hist-list"></div>` +
+          `<div class="bs-hist-diff" id="bs-hist-diff" hidden></div>`;
+        content.querySelector("#bs-close").onclick = closeBackstage;
+        const listEl = content.querySelector("#bs-hist-list");
+        const countEl = content.querySelector("#bs-hist-count");
+        const diffEl = content.querySelector("#bs-hist-diff");
+        let selectedForDiff = []; // [idA, idB]
+        async function refreshHistList() {
+          if (!OS.Versions) { listEl.innerHTML = '<p class="muted">历史版本模块未就绪，请重启应用。</p>'; return; }
+          const list = await OS.Versions.list(doc.id);
+          countEl.textContent = list.length ? (list.length + " 个版本") : "尚无快照";
+          if (!list.length) { listEl.innerHTML = '<p class="muted">还没有快照。点「立即快照」存一个，或编辑文档后等 30 秒自动存。</p>'; return; }
+          listEl.innerHTML = "";
+          list.forEach((v, idx) => {
+            const row = document.createElement("div");
+            row.className = "bs-hist-row";
+            row.dataset.id = v.id;
+            const reasonText = v.reason === "auto-save" ? "自动" : (v.reason === "pre-revert" ? "回退前" : (v.reason === "manual" ? "手动" : v.reason));
+            const isLatest = idx === 0;
+            row.innerHTML =
+              `<div class="bs-hist-main">` +
+                `<div class="bs-hist-time">${OS.util.escapeHtml(new Date(v.ts).toLocaleString())}${isLatest ? ' <span class="bs-hist-tag">最新</span>' : ""}</div>` +
+                `<div class="bs-hist-meta">${OS.util.escapeHtml(v.label || "")} · ${reasonText} · ${OS.util.fmtSize(v.size || 0)}</div>` +
+              `</div>` +
+              `<div class="bs-hist-acts">` +
+                `<button class="btn bs-hist-diff-pick" title="选中后点其他版本对比">${selectedForDiff.includes(v.id) ? "✓ 已选" : "对比"}</button>` +
+                `<button class="btn bs-hist-revert" title="回退到该版本（自动存回退前备份）">回退</button>` +
+                `<button class="btn bs-hist-del" title="删除该版本">删除</button>` +
+              `</div>`;
+            row.querySelector(".bs-hist-diff-pick").onclick = () => {
+              const i = selectedForDiff.indexOf(v.id);
+              if (i >= 0) selectedForDiff.splice(i, 1);
+              else { selectedForDiff.push(v.id); if (selectedForDiff.length > 2) selectedForDiff.shift(); }
+              if (selectedForDiff.length === 2) { renderDiff(selectedForDiff[0], selectedForDiff[1]); }
+              else { diffEl.hidden = true; diffEl.innerHTML = ""; }
+              refreshHistList();
+            };
+            row.querySelector(".bs-hist-revert").onclick = async () => {
+              if (!confirm(`回退到 ${new Date(v.ts).toLocaleString()} 的版本？\n\n系统会先存当前状态为「回退前备份」，让你随时还能撤销这次回退。`)) return;
+              try {
+                const state = await OS.Versions.revert(doc.id, v.id);
+                if (!state) { OS.toast("回退失败：版本数据为空", "err"); return; }
+                t.doc.data = state;
+                await OS.store.put(t.doc);
+                closeBackstage();
+                // 通过 closeTab + openDoc 重新挂载模块以应用新状态
+                const id = t.id;
+                const idx2 = tabs.findIndex(x => x.id === id);
+                if (idx2 >= 0) {
+                  if (tabs[idx2].instance.destroy) try { tabs[idx2].instance.destroy(); } catch (e) { console.warn("[Shell] destroy 失败:", e); }
+                  OS.Undo.unbindModule(id);
+                  tabs.splice(idx2, 1);
+                }
+                await openDoc(t.doc);
+                OS.toast("已回退，回退前状态已自动存档", "ok");
+              } catch (e) { OS.toast("回退失败：" + e.message, "err"); }
+            };
+            row.querySelector(".bs-hist-del").onclick = async () => {
+              if (!confirm("删除该版本？此操作不可撤销。")) return;
+              await OS.Versions.remove(v.id);
+              refreshHistList();
+              OS.toast("已删除版本", "ok");
+            };
+            listEl.appendChild(row);
+          });
+        }
+        async function renderDiff(idA, idB) {
+          const d = await OS.Versions.diff(idA, idB);
+          if (!d) { diffEl.innerHTML = '<p class="muted">对比失败：找不到版本</p>'; diffEl.hidden = false; return; }
+          const lines = [];
+          d.removed.forEach(l => lines.push(`<div class="bs-diff-line bs-diff-del">- ${OS.util.escapeHtml(l.text)}</div>`));
+          d.added.forEach(l => lines.push(`<div class="bs-diff-line bs-diff-add">+ ${OS.util.escapeHtml(l.text)}</div>`));
+          diffEl.innerHTML =
+            `<div class="bs-diff-head">` +
+              `<span>对比：${OS.util.escapeHtml(d.a.date)} ↔ ${OS.util.escapeHtml(d.b.date)}</span>` +
+              `<span class="muted">+${d.summary.addedCount} / -${d.summary.removedCount} / =${d.summary.unchangedCount}</span>` +
+            `</div>` +
+            `<div class="bs-diff-body">${lines.join("") || '<p class="muted">两版完全相同</p>'}</div>`;
+          diffEl.hidden = false;
+        }
+        content.querySelector("#bs-hist-snap").onclick = async () => {
+          if (!OS.Versions || !t.instance || !t.instance.serialize) { OS.toast("无序列化方法", "err"); return; }
+          try {
+            const state = t.instance.serialize();
+            await OS.Versions.save(doc.id, state, { reason: "manual", label: "手动快照" });
+            OS.toast("已存快照", "ok");
+            refreshHistList();
+          } catch (e) { OS.toast("快照失败：" + e.message, "err"); }
+        };
+        content.querySelector("#bs-hist-refresh").onclick = refreshHistList;
+        refreshHistList();
+      }
       else if (k === "template") {
         content.innerHTML = `<button class="bs-close" id="bs-close">✕</button>` +
           `<h2>我的模板</h2>` +

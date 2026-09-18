@@ -1,11 +1,11 @@
 /* 绿角犀 Office · Service Worker
    离线缓存应用外壳（对应 PRD：离线可用 / 本地优先）
    注意：Service Worker 仅在 https 或 localhost 下生效，file:// 不受影响。 */
-const CACHE = "lvjiaoxi-office-v20";
+const CACHE = "lvjiaoxi-office-v21";
 const ASSETS = [
   "./", "./index.html", "./manifest.webmanifest", "./icon.svg",
   "./css/style.css",
-  "./js/util.js", "./js/store.js",
+  "./js/util.js", "./js/store.js", "./js/versions.js",
   "./js/modules/writer.js", "./js/modules/spreadsheet.js",
   "./js/modules/presentation.js", "./js/modules/pdf.js",
   "./js/shell.js", "./js/updater.js"

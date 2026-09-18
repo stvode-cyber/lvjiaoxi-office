@@ -201,7 +201,12 @@
         const list = await Versions.list(docId);
         for (const v of list) await Versions.remove(v.id);
       } catch (e) { /* noop */ }
-    }
+    },
+
+    // 暴露内部纯函数供单元测试（生产代码不应直接调用）
+    _lineDiff,
+    _MAX_PER_DOC: MAX_PER_DOC,
+    _MAX_AUTO_INTERVAL: MAX_AUTO_INTERVAL
   };
 
   // 防抖自动快照（各模块共用一个 debounce timer）

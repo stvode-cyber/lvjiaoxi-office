@@ -1,11 +1,25 @@
-﻿# CHANGELOG · 变更日志
+# CHANGELOG · 变更日志
 
 > **导航-only**。每个版本记「一句话变更 + 关键数字 + 明细链接」，不在此堆细节；明细见对应模块总纲 / FD 卡 / `.workbuddy/memory/` 日志。
 > 版本单一真源 = `package.json`（`node scripts/bump-version.js` 同步四端）。
-> 当前版本 **1.1.1**（tag `v1.1.1`，已推 GitHub）。
+> 当前版本 **1.1.2**（本地构建已通过；待打 tag v1.1.2 后推 GitHub）。
 
 ***
 
+
+## v1.1.2 · 2026-09-18
+
+**OS.Versions 历史版本快照 UI 接入 + 单元测试加固**
+
+- 🕐 历史版本挂载：`versions.js` 已存在但未挂载 → `index.html` 加载 + `shell.js` markDirty 调 `OS.Versions.autoSnap(docId, stateGetter)`（debounce 2s + 30s 间隔节流，每文档最多 50 版本）
+- 🕐 Backstage 历史面板：版本列表（时间/标签/原因/大小，倒序，最新标 TAG）+ 立即快照 / 两版 LCS 行级 diff 对比 / 回退（自动存 pre-revert 备份）/ 删除单版
+- 🎨 CSS `.bs-hist-row/.bs-diff-add/.bs-diff-del` 入 style.css
+- 🧪 单测新增 44 断言：`_versions_test.js`（LCS 纯函数 + save/list/get/remove IDB shim + diff + revert pre-revert 备份 + autoSnap 节流 + clear + 常数校验）
+- 📦 sw.js 加 versions.js + CACHE v21→v22；同步 iOS/HarmonyOS（4 文件 × 2 端）
+- 🧹 顺手验证：handoff-2026-09-14 标为 P0 的「Presentation 加 pptx 导入」**实际已在 v1.0.20 实现**（import-ooxml.js parsePptx 完整），handoff 信息过时无需重做
+
+**门禁**: 95/95 套件 0 失败；四端同源 ✅
+***
 
 ## v1.1.1 · 2026-09-18
 
@@ -20,6 +34,7 @@
 **门禁**: 4/4 XMind + PDF + 36MB PPTX 全通过
 ***
 
+| v1.1.2 | 2026-09-18 | OS.Versions 历史版本快照 UI 接入 + 95 套件测试 | 95/95 通过 |
 | v1.1.1 | 2026-09-18 | XMind/PDF 全链路修复 + 大文件稳定性 + GPU 禁用 | 4/4 通过 |
 ## 版本总览
 
