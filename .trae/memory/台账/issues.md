@@ -316,3 +316,66 @@
 - **效果**：坏数据最多节点位置丑，**绝不卡死**
 - **坑位**：fitNode L94-117, renderNode L211-252, layoutMap L111-154, edgePath L181-190
 - **首次踩坑**：2026-09-16
+
+---
+
+## [P1] [tasks-settle-step] Tasks.run settle 后 step 文字不更新 → 视觉卡死 95%
+
+- **问题**：Tasks.run 的 Promise settle("done") 后，task.step 仍停留在最后一次 r.step() 设置的文字（比如 "渲染中..."），永远不会变成"完成"。用户看到进度条 100% 但文字卡在中间，以为卡死。
+- **解决**：在 tasks.js 的 settle() 方法里，status==="done" 时强制 step = "完成"；status==="error" 时 step = "失败"。
+- **根因**：r.step() 只被回调函数主动调用，settle() 本身不知道该更新文字。Promise resolve 不代表 UI 描述就该变。
+- **预防规则**：
+  1. **Tasks.run.settle 必须更新 step 文字**，不能假设回调自己会调最后一步 r.step
+  2. UI 状态必须在 Promise settle 那一刻最终确定，不能依赖回调的时序
+- **关联文件**：app/js/tasks.js（settle 方法）, app/js/shell.js（进度分配）
+- **首次踩坑**：2026-09-17
+- **复发次数**：2
+- **是否入 Skill**：待定
+
+---
+
+## [P1] [electron-csp-dataurl] Electron CSP 拦截 pdf.js 的 data:URL → PDF 全白屏
+
+- **问题**：pdf.js 用 getDocument(dataUrl) 传 data:URL，内部 XHR/Worker 读 data:URL 被 Electron CSP 拦截。PDF 页全白，toast 说"已打开共 N 页"但 canvas 是空的。
+- **解决**：改用 getDocument({ data: Uint8Array }) 直接传二进制，pdf.js 走内存不触发 CSP。同时修复 index.html script 顺序（pdf-anno 必须在 pdf.js 之前）和 pdf-app.js 缺 PDFStore alias。
+- **根因**：Electron 默认 CSP 禁止 data: 和 blob: 协议的 XHR/fetch。pdf.js 官方文档给的 data:URL 方案在 Electron 里默认不工作。
+- **预防规则**：
+  1. **Electron 里所有 pdf.js / Worker 加载**都用 Uint8Array / ArrayBuffer 直接传内存数据，别用 data:URL
+  2. **第三方库的"浏览器里能用"方案**在 Electron 里要先查 CSP 兼容
+  3. **script 加载顺序**：pdf-engine → pdf-anno → pdf.js（依赖顺序）
+- **关联文件**：app/js/modules/pdf.js, app/index.html, app/js/modules/pdf-app.js
+- **首次踩坑**：2026-09-17
+- **复发次数**：1
+- **是否入 Skill**：待定
+
+---
+
+## [P1] [pptx-zipfile-null] JSZip zip.file() 返回 null 后调 .async() → Cannot read properties of null
+
+- **问题**：36MB 大 PPTX 导入崩 Cannot read properties of null (reading 'async')。根因是 parsePptx 里 zip.file("ppt/media/image1.png").async("uint8array") — 文件路径不存在或 zip.loadAsync 超时后，zip.file() 返回 null。
+- **解决**：JSZip.loadAsync timeout 10s → 30s；parsePptx 所有 zip.file(xxx).async() 前加 if (!f) return/continue 防御。
+- **根因**：假设 zip.file() 一定返回有效条目 — 但大文件解压后 zip 结构可能不完整，或内部路径名跟预期不同。
+- **预防规则**：
+  1. **任何第三方库返回值**（zip.file / JSZip / XLSX / DOMParser）都要先 null/undefined 检查再调用方法
+  2. **大文件处理**（>10MB）要加 timeout 倍数和 fallback
+  3. **Promise.all 里的异步**每个独立 try/catch，一个失败不要拖垮全部
+- **关联文件**：app/js/import-ooxml.js（parsePptx 函数, withTimeout）
+- **首次踩坑**：2026-09-17
+- **复发次数**：1
+- **是否入 Skill**：待定
+
+---
+
+## [P1] [installer-asar-not-updated] 安装版 app.asar 不自动更新 → 用户用旧包测新代码
+
+- **问题**：本地开发改完代码、dist 打包完成，但用户机器上的安装版（C:\Program Files\lvjiaoxi-office\）仍用旧的 app.asar。用户重启应用还是旧代码，以为"修复没生效"。dist 目录里的 win-unpacked 有新 asar，但不会自动同步到安装版。
+- **解决**：打包后手动 Copy-Item dist\win-unpacked\resources\app.asar "C:\Program Files\lvjiaoxi-office\resources\app.asar" -Force（需要管理员权限），然后杀进程重启。
+- **根因**：electron-builder 的 NSIS 安装包需要用户手动跑安装向导才会覆盖 app.asar。自动化流程只 build 了便携版和安装包 exe，没自动执行安装。
+- **预防规则**：
+  1. **每次打包后如果要本机验证**，必须先覆盖安装版 app.asar，不能只跑 dev 模式
+  2. **杀进程 → 覆盖 asar → 重启** 三步必须完整，内存里的旧进程继续用旧代码
+  3. 快速验证 asar 内容：npx asar list "C:\Program Files\lvjiaoxi-office\resources\app.asar" | Select-String "tasks\|shell"
+- **关联文件**：C:\Program Files\lvjiaoxi-office\resources\app.asar（路径不在仓库里）
+- **首次踩坑**：2026-09-17
+- **复发次数**：1
+- **是否入 Skill**：否（项目外部路径，但每次换电脑/重装后要确认）

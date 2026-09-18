@@ -1,4 +1,4 @@
-# 台账索引
+﻿# 台账索引
 
 > 按模块组织，快速定位 decisions / issues / 关联文件。
 > 每条条目带 `[D]` 决策 或 `[I]` 坑，可点击跳转。
@@ -65,3 +65,20 @@
 ---
 
 > **怎么用**：每次新对话开头 Agent 自动读 context.md 简报；改文件前扫 issues.md 命中的坑；做完关键决策追 decisions.md。
+
+## Tasks / 进度
+
+- [I] tasks-settle-step：settle 后 step 文字不变 → 视觉卡死 95%（已修）
+- 关联文件：app/js/tasks.js
+
+## OOXML 导入链（补充 v1.1.1）
+
+- [I] electron-csp-dataurl：Electron CSP 拦 data:URL → PDF 白屏（已修，改用 Uint8Array）
+- [I] pptx-zipfile-null：zip.file() 返回 null 调 .async() → 大 PPTX 崩（已修，加 null 防御 + timeout 30s）
+- 关联文件：app/js/import-ooxml.js, app/js/modules/pdf.js
+
+## Electron 主进程
+
+- [D] disableHardwareAcceleration（360 安全软件兼容）
+- [I] installer-asar-not-updated：安装版 app.asar 不自动同步（流程问题，已建立覆盖步骤）
+- 关联文件：electron/main.js, C:\Program Files\lvjiaoxi-office\resources\app.asar

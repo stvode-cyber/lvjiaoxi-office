@@ -79,3 +79,25 @@
 - **为啥**：GitHub API 有速率限制 + 国内访问不稳定
 - **备选方案**：GitHub Releases + CDN 镜像（已排除，实测 30% 用户拉不到）
 - **关联**：electron/main.js / src/updater.js / release.yml
+
+---
+
+## [2026-09-18] Electron 禁用硬件加速（360 安全软件兼容）
+
+- **选了啥**：main.js 启动时 app.disableHardwareAcceleration() + 命令行 --disable-gpu --disable-gpu-sandbox --in-process-gpu
+- **为啥**：用户装了 360 安全软件，Electron 31 默认启用 GPU 加速时进程被安全软件误判为恶意进程直接终止。禁用后进程稳定运行。
+- **备选方案**：只加 --disable-gpu（不够，360 还杀）；让用户卸载 360（已排除，不现实）；加白名单提示（已排除，用户体验差）
+- **关联文件**：electron/main.js
+- **决策人**：AI + 用户反馈进程崩
+- **状态**：active
+
+---
+
+## [2026-09-18] OOXML 导入链 timeout + null 防御标准
+
+- **选了啥**：import-ooxml.js 里 JSZip.loadAsync timeout 30s（原 10s）；所有 zip.file() 调 async() 前必须 null 检查；Promise.all 每个元素独立 try/catch
+- **为啥**：36MB PPTX 实测 10s timeout 不够；zip.file() 在大文件/特殊格式下会返回 null；一个 media 文件解析失败不能拖垮整个 PPTX 导入
+- **备选方案**：只加大 timeout（不够，null 问题还在）；全部 try/catch 一个大包围（不够，错误粒度粗）
+- **关联文件**：app/js/import-ooxml.js
+- **决策人**：AI
+- **状态**：active
