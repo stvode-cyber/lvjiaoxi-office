@@ -188,25 +188,32 @@
       const sx = a.x, sy = a.y, ex = b.x, ey = b.y, mx = (sx + ex) / 2, my = (sy + ey) / 2;
       return `M${sx},${sy} C${mx},${sy} ${mx},${ey} ${ex},${ey}`;
     }
-    function render() {
+    function render() { console.time("[MINDMAP-RENDER]");
       view.setAttribute("transform", `translate(${tx},${ty}) scale(${k})`);
       view.innerHTML = "";
       const eg = document.createElementNS(SVGNS, "g");
-      edgesForRender().forEach(e => {
+      console.time("[MM-RENDER-EDGES]");
+      const edgeList = edgesForRender();
+      for (let i = 0; i < edgeList.length; i++) {
+        const e = edgeList[i];
         const a = getNode(e.from), b = getNode(e.to);
-        if (!a || !b) return;
+        if (!a || !b) continue;
         const d = edgePath(a, b);
-        if (!d) return;  // 🔥 NaN 防御
+        if (!d) continue;
         const p = document.createElementNS(SVGNS, "path");
         p.setAttribute("class", "mm-edge");
         p.setAttribute("d", d);
         eg.appendChild(p);
-      });
+      }
+      console.timeEnd("[MM-RENDER-EDGES]");
       view.appendChild(eg);
+      console.time("[MM-RENDER-NODES]");
       const ng = document.createElementNS(SVGNS, "g");
-      data.nodes.forEach(n => { fitNode(n); ng.appendChild(renderNode(n)); });
+      for (let i = 0; i < data.nodes.length; i++) { fitNode(data.nodes[i]); ng.appendChild(renderNode(data.nodes[i])); }
+      console.timeEnd("[MM-RENDER-NODES]");
       view.appendChild(ng);
       zoomLabel.textContent = Math.round(k * 100) + "%";
+      console.timeEnd("[MINDMAP-RENDER]");
     }
     function renderNode(n) {
       // 🔥 坐标兜底：任何非 finite 坐标都强制归零（布局 bug 时不会炸）

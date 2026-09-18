@@ -2,9 +2,11 @@
 // 用一个零依赖的本地静态服务器加载 app/ 目录，使桌面版行为与浏览器版完全一致。
 // TODO: [坑-koa-connect] 预防：Koa 路由禁止用 koa-connect wrapper；所有中间件一律原生 Koa 风格
 // TODO: [坑-csc-link] 预防：CI secrets 必须 if guard（脚本里不能裸引用 electron-builder CSC_* 变量）
+const __t0 = Date.now();
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 const fs = require("fs");
 const path = require("path");
+function __phase(tag) { console.log("[MAIN-T]", tag, "+" + (Date.now() - __t0) + "ms"); }
 
 // 🩺 Native crash 追踪 — 进程任何异常退出都写日志
 const __DIAG_DIR = path.join(app.getPath("userData"), "diag");
@@ -16,6 +18,7 @@ app.on("will-quit", (e) => { __logCrash("[EVENT] will-quit fired"); });
 app.on("quit", (e, code) => { __logCrash("[EVENT] quit fired code=" + code); });
 process.on("exit", (code) => { __logCrash("process.exit code=" + code); });
 console.log("[MAIN] native crash tracking enabled");
+__phase("after crash-track setup");
 
 // 🩺 诊断：自动开 Chrome DevTools Protocol 9222 — 必须在 app.whenReady 之前！
 app.commandLine.appendSwitch('remote-debugging-port', '9222');
@@ -27,11 +30,13 @@ app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('disable-software-rasterizer');
 app.commandLine.appendSwitch('no-sandbox');
+__phase("after commandLine switches");
 
 const http = require("http");
 const { resolveUpdateProvider } = require("./feed-config");
 const { extractFilePaths } = require("./file-args");
 const { cmpVer, mimeFor, safeStaticResolve, MAX_OPEN_BYTES } = require("./main-utils");
+__phase("after all require()s");
 
 // 桌面静默更新（可选依赖：未安装 electron-updater 时自动回退到现有横幅行为）
 let autoUpdater = null;
@@ -255,6 +260,7 @@ function createAppMenu(targetWin) {
 }
 
 function createWindow() {
+  __phase("createWindow() enter");
   win = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -269,9 +275,11 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js")
     }
   });
+  __phase("BrowserWindow.new resolved");
   win.loadURL("http://127.0.0.1:" + PORT + "/");
+  __phase("loadURL() resolved");
   win.setMenu(createAppMenu(win));
-  win.once("did-finish-load", () => { webReady = true; flushPendingFiles(); });
+  win.once("did-finish-load", () => { webReady = true; flushPendingFiles(); __phase("did-finish-load ← render ready"); });
   win.on("closed", () => { win = null; });
 
   // 🩺 诊断：render 的 console 重定向到文件，就算 render 冻住了也能看到最后一行
@@ -301,14 +309,20 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  __phase("app.whenReady resolved ← Chromium ready");
   // 单实例：已在运行的实例不再重复起服务；双击/默认打开方式的文件转交首实例的 second-instance 处理
   if (!app.requestSingleInstanceLock()) { __logCrash("[QUIT] singleInstanceLock failed → app.quit()"); app.quit(); return; } __logCrash("[OK] singleInstanceLock acquired");
+  __phase("after singleInstanceLock");
   server.listen(PORT, "127.0.0.1", () => { __logCrash("[OK] server.listen success");
     if (PORT === 0) PORT = server.address().port; // 固定为实际随机端口，供后续窗口复用
+    __phase("server.listen callback");
     __logCrash("[CALL] createWindow()"); createWindow();
+    __phase("createWindow returned");
     setupAutoUpdater(); // 配置电子静默更新（无 feed/无依赖时自动跳过）
+    __phase("setupAutoUpdater done");
     // 文件关联：双击文档 / 命令行携带路径启动时，把文件推给前端打开（窗口未就绪前先入队）
     extractFilePaths(process.argv).forEach(openFileAt);
+    __phase("after openFileAt");
   });
   // 已运行实例收到新文件关联请求（Windows 下双击第二个文档时）
   app.on("second-instance", (e, argv) => {

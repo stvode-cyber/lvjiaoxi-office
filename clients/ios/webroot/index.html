@@ -90,14 +90,14 @@
     } catch(e) { console.error('[DIAG] 诊断层加载失败', e); }
   })();
   </script>
-  <script src="vendor/FileSaver.min.js"></script>
-  <script src="vendor/jszip.min.js"></script>
-  <script src="vendor/xlsx.full.min.js"></script>
-  <script src="vendor/pdf.min.js"></script>
-<script src="vendor/pdf-lib.min.js"></script>
-<script src="vendor/fontkit.min.js"></script>
-<script src="vendor/docx.umd.min.js"></script>
-<script src="vendor/tesseract/tesseract.min.js"></script>
+  <script  src="vendor/FileSaver.min.js" defer></script>
+  <script  src="vendor/jszip.min.js" defer></script>
+  <script  src="vendor/xlsx.full.min.js" defer></script>
+  <script  src="vendor/pdf.min.js" defer></script>
+<script  src="vendor/pdf-lib.min.js" defer></script>
+<script  src="vendor/fontkit.min.js" defer></script>
+<script  src="vendor/docx.umd.min.js" defer></script>
+<script  src="vendor/tesseract/tesseract.min.js" defer></script>
 <!-- NOTE: worker.min.js is a Web Worker script — DO NOT load inline as a direct tag!
      It should be loaded only via new Worker() inside Tesseract.createWorker().
      Previous inline load caused 12+ dispatchHandlers exceptions per page load
@@ -273,71 +273,71 @@
   <!-- Toast 容器 -->
   <div class="toast-host" id="toast-host"></div>
 
-  <script src="js/util.js"></script>
-  <script src="js/icons.js"></script>
-  <script src="js/auth.js"></script>
-  <script src="js/modules/auth-policy.js"></script>
-  <script src="js/store.js"></script>
-  <script src="js/versions.js"></script>
+  <script  src="js/util.js" defer></script>
+  <script  src="js/icons.js" defer></script>
+  <script  src="js/auth.js" defer></script>
+  <script  src="js/modules/auth-policy.js" defer></script>
+  <script  src="js/store.js" defer></script>
+  <script  src="js/versions.js" defer></script>
   <script defer src="js/updater.js"></script>
-  <script src="js/ribbon.js"></script>
-  <script src="js/pdf-tool.js"></script>
-  <script src="js/modules/pdf-content.js"></script>
-  <script src="js/modules/svg-raster.js"></script>
-  <script src="js/modules/sheet-export.js"></script>
-  <script src="js/modules/writer.js"></script>
-  <script src="js/modules/spreadsheet.js"></script>
-  <script src="js/modules/presentation.js"></script>
-  <script src="js/modules/pdf-text.js"></script>
+  <script  src="js/ribbon.js" defer></script>
+  <script  src="js/pdf-tool.js" defer></script>
+  <script  src="js/modules/pdf-content.js" defer></script>
+  <script  src="js/modules/svg-raster.js" defer></script>
+  <script  src="js/modules/sheet-export.js" defer></script>
+  <script  src="js/modules/writer.js" defer></script>
+  <script  src="js/modules/spreadsheet.js" defer></script>
+  <script  src="js/modules/presentation.js" defer></script>
+  <script  src="js/modules/pdf-text.js" defer></script>
   
-  <script src="js/modules/pdf-text-edit.js"></script>
-<script src="js/modules/pdf-engine.js"></script>
-  <script src="js/modules/pdf-anno.js"></script>
-  <script src="js/modules/pdf.js"></script>
-  <script src="js/modules/rgba-composite.js"></script>
-  <script src="js/modules/range-preset.js"></script>
-  <script src="js/modules/pdf-anno-filter.js"></script>
-  <script src="js/modules/pdf-anno-summary.js"></script>
-  <script src="js/modules/pdf-props.js"></script>
-  <script src="js/modules/pdf-anno-batch.js"></script>
-  <script src="js/modules/pdf-diff.js"></script>
-  <script src="js/modules/pdf-outline.js"></script>
-  <script src="js/modules/pdf-attachments.js"></script>
-  <script src="js/modules/pdf-pagelabels.js"></script>
-  <script src="js/modules/pdf-anno-stats.js"></script>
-  <script src="js/modules/pdf-anno-timeline.js"></script>
-  <script src="js/modules/pdf-structtree.js"></script>
-  <script src="js/modules/pdf-encrypt.js"></script>
-  <script src="js/modules/pdf-signature.js"></script>
-  <script src="js/modules/pdf-links.js"></script>
-  <script src="js/modules/pdf-formfields.js"></script>
-  <script src="js/modules/pdf-docinfo.js"></script>
-  <script src="js/modules/pdf-pageinfo.js"></script>
-  <script src="js/modules/pdf-fonts.js"></script>
-  <script src="js/modules/pdf-actions.js"></script>
-  <script src="js/modules/pdf-preflight.js"></script>
-  <script src="js/modules/pdf-history.js"></script>
+  <script  src="js/modules/pdf-text-edit.js" defer></script>
+<script  src="js/modules/pdf-engine.js" defer></script>
+  <script  src="js/modules/pdf-anno.js" defer></script>
+  <script  src="js/modules/pdf.js" defer></script>
+  <script  src="js/modules/rgba-composite.js" defer></script>
+  <script  src="js/modules/range-preset.js" defer></script>
+  <script  src="js/modules/pdf-anno-filter.js" defer></script>
+  <script  src="js/modules/pdf-anno-summary.js" defer></script>
+  <script  src="js/modules/pdf-props.js" defer></script>
+  <script  src="js/modules/pdf-anno-batch.js" defer></script>
+  <script  src="js/modules/pdf-diff.js" defer></script>
+  <script  src="js/modules/pdf-outline.js" defer></script>
+  <script  src="js/modules/pdf-attachments.js" defer></script>
+  <script  src="js/modules/pdf-pagelabels.js" defer></script>
+  <script  src="js/modules/pdf-anno-stats.js" defer></script>
+  <script  src="js/modules/pdf-anno-timeline.js" defer></script>
+  <script  src="js/modules/pdf-structtree.js" defer></script>
+  <script  src="js/modules/pdf-encrypt.js" defer></script>
+  <script  src="js/modules/pdf-signature.js" defer></script>
+  <script  src="js/modules/pdf-links.js" defer></script>
+  <script  src="js/modules/pdf-formfields.js" defer></script>
+  <script  src="js/modules/pdf-docinfo.js" defer></script>
+  <script  src="js/modules/pdf-pageinfo.js" defer></script>
+  <script  src="js/modules/pdf-fonts.js" defer></script>
+  <script  src="js/modules/pdf-actions.js" defer></script>
+  <script  src="js/modules/pdf-preflight.js" defer></script>
+  <script  src="js/modules/pdf-history.js" defer></script>
   
-  <script src="js/modules/mindmap.js"></script>
-    <script src="js/modules/markdown.js"></script>
+  <script  src="js/modules/mindmap.js" defer></script>
+    <script  src="js/modules/markdown.js" defer></script>
   <!-- 模板库（开始页画廊） -->
-  <script src="js/templates.js"></script>
+  <script  src="js/templates.js" defer></script>
   <!-- 自定义模板（用户保存的个性化模板，持久化于 localStorage） -->
-  <script src="js/custom-templates.js"></script>
+  <script  src="js/custom-templates.js" defer></script>
   <!-- OOXML/ODF 解析依赖（jszip 已在顶部加载） -->
-  <script src="js/import-ooxml.js"></script>
-  <script src="js/export-ooxml.js"></script>
-  <script src="js/modules/pdf-convert.js"></script>
-  <script src="js/tasks.js"></script>
-  <script src="js/ai.js"></script>
-  <script src="js/ai-selbar.js"></script>
+  <script  src="js/import-ooxml.js" defer></script>
+  <script  src="js/export-ooxml.js" defer></script>
+  <script  src="js/modules/pdf-convert.js" defer></script>
+  <script  src="js/tasks.js" defer></script>
+  <script  src="js/ai.js" defer></script>
+  <script  src="js/ai-selbar.js" defer></script>
   <!-- 云端同步（云端账户登录后激活；本地账户不触碰网络） -->
-  <script src="js/cloudsync.js"></script>
+  <script  src="js/cloudsync.js" defer></script>
   <!-- 业务板块：我的 -->
-  <script src="js/modules/profile.js"></script>
+  <script  src="js/modules/profile.js" defer></script>
   <!-- 通用导出工具 -->
-  <script src="js/modules/export.js"></script>
-  <script src="js/shell.js"></script>
+  <script  src="js/modules/export.js" defer></script>
+  <script  src="js/shell.js" defer></script>
 
   <!-- ============================================================ -->
   <!-- PDF 工具箱（原始 PDF 项目完整 UI：sidebar + homePanel + opPanel + rail） -->
@@ -440,9 +440,9 @@
   </section>
 
   <!-- PDF 工具箱（绿角犀 PDF 项目）— 必须在 pdfToolboxRoot DOM 之后加载 -->
-  <script src="js/modules/pdf-store.js"></script>
+  <script  src="js/modules/pdf-store.js" defer></script>
   <!-- pdf-engine-app.js 与 pdf-engine.js 完全相同，已移除重复引用 -->
-  <script src="js/modules/pdf-app.js"></script>
+  <script  src="js/modules/pdf-app.js" defer></script>
 
   <!-- OS.prompt / OS.confirm / OS.alert 全局模态框 — 替代 Electron 不支持的 window.prompt -->
   <style>
@@ -460,6 +460,8 @@
     .os-modal-btn-cancel:hover{background:#e2e8f0}
   </style>
   <script>
+  // 需等全部 defer 脚本执行完（OS 在 util.js 里创建）再挂 OS.prompt/confirm/alert
+  document.addEventListener('DOMContentLoaded', function(){
   (function(){
     function buildMask(){
       const mask = document.createElement('div');
@@ -530,6 +532,7 @@
       console.log('[OS] window.prompt/confirm/alert → OS.* 模态框');
     }
   })();
+  }); // end DOMContentLoaded
   </script>
 </body>
 </html>

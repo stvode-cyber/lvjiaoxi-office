@@ -3,7 +3,7 @@ chcp 65001 >nul
 REM ============================================================
 REM  绿角犀 Office · Windows 一键发布当前版本安装包到 VPS
 REM  双击本文件即可（需已安装 Git for Windows，含 bash）
-REM  脚本会自动：设 host=8.149.245.252 / user=root / key=~/.ssh/id_ed25519_rcprod
+REM  脚本会自动：设 host=47.116.59.141 / user=root / key=~/.ssh/id_ed25519
 REM  SSH find 定位远端 releases 目录，上传 latest.yml 指向的最新版（Setup exe + blockmap + latest.yml）
 REM ============================================================
 cd /d "%~dp0.."
