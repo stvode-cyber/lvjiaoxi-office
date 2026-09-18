@@ -2,7 +2,7 @@
 
 > **导航-only**。每个版本记「一句话变更 + 关键数字 + 明细链接」，不在此堆细节；明细见对应模块总纲 / FD 卡 / `.workbuddy/memory/` 日志。
 > 版本单一真源 = `package.json`（`node scripts/bump-version.js` 同步四端）。
-> 当前版本 **1.0.17**（tag `v1.0.17`，已推 GitHub）。
+> 当前版本 **1.1.1**（tag `v1.0.17`，已推 GitHub）。
 
 ***
 
@@ -20,6 +20,7 @@
 **门禁**: 4/4 XMind + PDF + 36MB PPTX 全通过
 ***
 
+| v1.1.1 | 2026-09-18 | XMind/PDF 全链路修复 + 大文件稳定性 + GPU 禁用 | 4/4 通过 |
 ## 版本总览
 
 | 版本      | 日期         | 一句话                                  | 门禁         |
@@ -257,6 +258,7 @@ DOCX 完整样式增强（fontSize/fontFamily/highlight/sup/sub/align/indent/spa
 | 发布 1.0.16 到 VPS            | ⛔ 待用户侧           | 沙箱→`8.149.245.252` 全端口被出口防火墙丢弃，SSH/HTTPS 均超时；双击 `scripts/publish-latest.bat` |
 | Android APK                | ⛔ 环境无 SDK/gradle | 未伪造；`clients/android/app/build` 已移出 git 索引                                   |
 | PDF→DOCX/TXT/MD/Excel 版面还原 | 🟢 已改进           | 段落合并 + 列表检测 + 多级标题已实现；仍非像素级                                                  |
+
 
 
 
