@@ -105,14 +105,14 @@
     const plan = mergePlan(localDocs, d.data.docs || []);
     for (const id of plan.toPull) {
       const rd = (d.data.docs || []).find(x => x.id === id);
-      if (rd) { try { await OS.store.put(rd); } catch (e) {} }
+      if (rd) { try { await OS.store.put(rd); } catch (e) { console.warn("[Cloud] 操作失败:", e); } }
     }
     // 拉取云端存在、本地缺失的备档（不可变快照）
     const localBks = await OS.store.listAllBackups();
     const bp = backupMergePlan(localBks, b.data.backups || [], new Set());
     for (const id of bp.toPush) {
       const rb = (b.data.backups || []).find(x => x.id === id);
-      if (rb) { try { await OS.store.putBackup(rb); } catch (e) {} }
+      if (rb) { try { await OS.store.putBackup(rb); } catch (e) { console.warn("[Cloud] 操作失败:", e); } }
     }
     return { pulledDocs: plan.toPull.length, pulledBackups: bp.toPush.length };
   }

@@ -16,7 +16,10 @@
   }
 
   function mount(host, doc, ctx) {
+    let _Listeners = [];
     const data = (doc.data && doc.data.html) ? doc.data : blank();
+    const _on = (el, evt, fn, opts) => { el.addEventListener(evt, fn, opts); _Listeners.push({ el, evt, fn, opts }); };
+    const _offAll = () => { for (const { el, evt, fn, opts } of _Listeners) { try { el.removeEventListener(evt, fn, opts); } catch (e) {} } _Listeners = []; };
     data.comments = data.comments || [];
     const DEF_PAGE = { size: "A4", orientation: "portrait", margin: { top: 25, right: 25, bottom: 25, left: 25 } };
     data.page = Object.assign({}, DEF_PAGE, data.page || {});
@@ -87,16 +90,16 @@
 
     function exec(cmd, val) {
       page.focus();
-      try { document.execCommand(cmd, false, val || null); } catch (e) {}
+      try { document.execCommand(cmd, false, val || null); } catch (e) { console.info("[Writer] 操作失败:", e); }
       ctx.markDirty();
     }
 
     /* ---------- P0 增强：字体 / 段落 / 剪贴板 辅助 ---------- */
     function setFontSize(px) {
       page.focus();
-      try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
-      try { document.execCommand("fontSize", false, px + "px"); } catch (e) {}
-      try { document.execCommand("styleWithCSS", false, false); } catch (e) {}
+      try { document.execCommand("styleWithCSS", false, true); } catch (e) { console.info("[Writer] 操作失败:", e); }
+      try { document.execCommand("fontSize", false, px + "px"); } catch (e) { console.info("[Writer] 操作失败:", e); }
+      try { document.execCommand("styleWithCSS", false, false); } catch (e) { console.info("[Writer] 操作失败:", e); }
       ctx.markDirty();
     }
 
@@ -155,12 +158,12 @@
       } else {
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { OS.toast("请选中要应用格式的文字", "warn"); return; }
         page.focus();
-        try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
+        try { document.execCommand("styleWithCSS", false, true); } catch (e) { console.info("[Writer] 操作失败:", e); }
         if (/bold|700|800|900/.test(brushFormat.fontWeight)) document.execCommand("bold");
         if (brushFormat.fontStyle === "italic") document.execCommand("italic");
         if (/underline/.test(brushFormat.textDecoration)) document.execCommand("underline");
         if (brushFormat.color && brushFormat.color !== "rgba(0, 0, 0, 0)") document.execCommand("foreColor", false, brushFormat.color);
-        try { document.execCommand("styleWithCSS", false, false); } catch (e) {}
+        try { document.execCommand("styleWithCSS", false, false); } catch (e) { console.info("[Writer] 操作失败:", e); }
         brushFormat = null;
         OS.toast("已应用格式", "ok");
         ctx.markDirty();
@@ -343,7 +346,7 @@
       const input = card.querySelector(".cmt-input");
       const send = () => { const v = input.value.trim(); if (!v) return; addReply(c.id, v); };
       card.querySelector(".cmt-send").onclick = send;
-      input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); send(); } });
+      _on(input, "keydown", e => { if (e.key === "Enter") { e.preventDefault(); send(); } });
       return card;
     }
 
@@ -429,8 +432,8 @@
       if (tocLink) {
         const t = document.getElementById(tocLink.dataset.target);
         if (t) {
-          if (t.scrollIntoView) { try { t.scrollIntoView({ block: "start" }); } catch (er) {} }
-          try { const sel = window.getSelection(); const r = document.createRange(); r.selectNodeContents(t); sel.removeAllRanges(); sel.addRange(r); } catch (er) {}
+          if (t.scrollIntoView) { try { t.scrollIntoView({ block: "start" }); } catch (er) { console.info("[Writer] 操作失败:", e); } }
+          try { const sel = window.getSelection(); const r = document.createRange(); r.selectNodeContents(t); sel.removeAllRanges(); sel.addRange(r); } catch (er) { console.info("[Writer] 操作失败:", e); }
           page.focus();
         }
         return;
@@ -535,7 +538,7 @@
       upd();
       const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
       ov.querySelector(".pg-cancel").onclick = close;
-      ov.addEventListener("click", e => { if (e.target === ov) close(); });
+      _on(ov, "click", e => { if (e.target === ov) close(); });
       ov.querySelector(".pg-ok").onclick = () => {
         data.page.size = ov.querySelector(".pg-size").value;
         data.page.orientation = ov.querySelector(".pg-orient .on").dataset.o;
@@ -548,7 +551,7 @@
         OS.toast("已更新页面设置", "ok");
       };
     }
-    function doPrint() { try { if (typeof window.print === "function") window.print(); } catch (e) {} }
+    function doPrint() { try { if (typeof window.print === "function") window.print(); } catch (e) { console.info("[Writer] 操作失败:", e); } }
 
     /* ---------- 页眉 / 页脚 / 页码 ---------- */
     // 字段令牌：&[PAGE] 当前页 / &[PAGES] 总页数 / &[DATE] 日期 / &[TIME] 时间 / &[TITLE] 文档标题
@@ -630,7 +633,7 @@
       });
       const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
       ov.querySelector(".pg-cancel").onclick = close;
-      ov.addEventListener("click", e => { if (e.target === ov) close(); });
+      _on(ov, "click", e => { if (e.target === ov) close(); });
       ov.querySelector(".pg-ok").onclick = () => {
         const zones = ov.querySelectorAll(".hf-zone");
         const hz = zones[0], fz = zones[1];
@@ -715,7 +718,7 @@
       const root = buildPrintPages();
       document.body.appendChild(root);
       const cleanup = () => { if (root.parentNode) root.parentNode.removeChild(root); window.removeEventListener("afterprint", cleanup); };
-      window.addEventListener("afterprint", cleanup);
+      _on(window, "afterprint", cleanup);
       try { window.print(); } catch (e) { cleanup(); }
     }
     function openPrintPreview() {
@@ -730,10 +733,10 @@
       ov.querySelector(".pp-close").onclick = () => ov.remove();
       ov.querySelector(".pp-do-print").onclick = () => {
         const cleanup = () => { ov.remove(); window.removeEventListener("afterprint", cleanup); };
-        window.addEventListener("afterprint", cleanup);
+        _on(window, "afterprint", cleanup);
         try { window.print(); } catch (e) { cleanup(); }
       };
-      ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
+      _on(ov, "click", e => { if (e.target === ov) ov.remove(); });
     }
 
     /* ---------- 功能区（标签页） ---------- */
@@ -1018,8 +1021,8 @@
           sel.removeAllRanges();
           sel.addRange(r);
           page.focus();
-        } catch (e) {}
-        if (cur.scrollIntoView) { try { cur.scrollIntoView({ block: "center" }); } catch (e) {} }
+        } catch (e) { console.info("[Writer] 操作失败:", e); }
+        if (cur.scrollIntoView) { try { cur.scrollIntoView({ block: "center" }); } catch (e) { console.info("[Writer] 操作失败:", e); } }
       }
       findCount.textContent = (findState.marks.length ? (findState.idx + 1) + " / " + findState.marks.length : "0 / 0");
     }
@@ -1076,7 +1079,7 @@
           label: el.tagName.toLowerCase() + "：" + t.replace(/\s+/g, " ").slice(0, 36),
           previewHtml: OS.shell.snippet(t, q),
           goto: () => {
-            if (el.scrollIntoView) { try { el.scrollIntoView({ block: "center" }); } catch (e) {} }
+            if (el.scrollIntoView) { try { el.scrollIntoView({ block: "center" }); } catch (e) { console.info("[Writer] 操作失败:", e); } }
             el.classList.remove("search-flash"); void el.offsetWidth; el.classList.add("search-flash");
           }
         });
@@ -1124,8 +1127,8 @@
       sbRead.textContent = "约 " + mins + " 分钟";
     }
 
-    findInput.addEventListener("input", runFind);
-    findCase.addEventListener("change", runFind);
+    _on(findInput, "input", runFind);
+    _on(findCase, "change", runFind);
     findInput.addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); gotoFind(e.shiftKey ? -1 : 1); }
     });
@@ -1152,7 +1155,7 @@
           const sel = window.getSelection();
           sel.removeAllRanges();
           sel.addRange(r.cloneRange());
-          try { document.execCommand("delete", false, null); document.execCommand("insertText", false, out); } catch (e) {}
+          try { document.execCommand("delete", false, null); document.execCommand("insertText", false, out); } catch (e) { console.info("[Writer] 操作失败:", e); }
           ctx.markDirty();
         },
         insertAfter(out) {
@@ -1160,7 +1163,7 @@
           sel.removeAllRanges();
           sel.addRange(r.cloneRange());
           sel.collapseToEnd();
-          try { document.execCommand("insertParagraph", false, null); document.execCommand("insertText", false, out); } catch (e) {}
+          try { document.execCommand("insertParagraph", false, null); document.execCommand("insertText", false, out); } catch (e) { console.info("[Writer] 操作失败:", e); }
           ctx.markDirty();
         },
         suggest() {
@@ -1177,6 +1180,103 @@
       getSelection,
       onApplied() {}
     });
+
+    /* ---------- AI 浮动工具面板（writer 专属：批量润色 / 大纲 / 排版） ---------- */
+    (function initWriterAiTools() {
+      const panel = document.createElement("div");
+      panel.className = "writer-ai-panel";
+      panel.innerHTML = `
+        <div class="writer-ai-head">🤖 AI 工具
+          <button class="writer-ai-close" title="收起">▾</button>
+        </div>
+        <div class="writer-ai-body">
+          <button class="writer-ai-btn" data-ai="bulkPolish" title="全文档一键润色">✨ 批量润色</button>
+          <button class="writer-ai-btn" data-ai="outline" title="基于全文生成大纲">📋 生成大纲</button>
+          <button class="writer-ai-btn" data-ai="cleanFormat" title="清理多余空行/空格/标点">🧹 排版优化</button>
+          <button class="writer-ai-btn" data-ai="summarize" title="生成全文摘要">📝 摘要</button>
+        </div>
+      `;
+      // 先隐藏，加 CSS
+      panel.style.cssText = "position:absolute;top:8px;right:8px;z-index:20;background:var(--bg2,#fff);border:1px solid var(--rule,#ddd);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);font-size:13px;max-width:200px;";
+      panel.querySelector(".writer-ai-head").style.cssText = "padding:8px 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--rule,#eee);";
+      panel.querySelector(".writer-ai-close").style.cssText = "background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;";
+      panel.querySelector(".writer-ai-body").style.cssText = "display:flex;flex-direction:column;gap:4px;padding:6px;";
+      panel.querySelectorAll(".writer-ai-btn").forEach(b => {
+        b.style.cssText = "padding:8px 12px;border:1px solid var(--rule,#ddd);background:transparent;border-radius:6px;cursor:pointer;font-size:13px;text-align:left;transition:background .15s;";
+        b.onmouseenter = () => { b.style.background = "var(--accent,#2563eb)"; b.style.color = "#fff"; };
+        b.onmouseleave = () => { b.style.background = "transparent"; b.style.color = ""; };
+      });
+      wrap.appendChild(panel);
+
+      // 收起/展开
+      let collapsed = false;
+      panel.querySelector(".writer-ai-close").onclick = () => {
+        collapsed = !collapsed;
+        panel.querySelector(".writer-ai-body").style.display = collapsed ? "none" : "flex";
+        panel.querySelector(".writer-ai-close").textContent = collapsed ? "▴" : "▾";
+      };
+
+      // 按钮事件
+      panel.querySelectorAll(".writer-ai-btn").forEach(btn => {
+        btn.onclick = async () => {
+          const mode = btn.dataset.ai;
+          const local = OS.AI && OS.AI.local;
+          if (!local || !local[mode]) { OS.toast("AI 引擎未就绪", "err"); return; }
+
+          if (mode === "bulkPolish") {
+            // 批量润色：遍历所有段落，逐段替换
+            const blocks = page.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote");
+            const originalHtml = page.innerHTML; // 用于撤销
+            let n = 0, skip = 0;
+            for (const el of blocks) {
+              const text = (el.textContent || "").trim();
+              if (text.length < 3) { skip++; continue; }
+              const polished = local.polish(text);
+              if (polished && polished !== text) {
+                // 用 replaceChildren 保留标签
+                const frag = document.createRange().createContextualFragment(OS.util.escapeHtml(polished));
+                el.replaceChildren(...frag.childNodes);
+                n++;
+              }
+            }
+            ctx.markDirty();
+            OS.toast(`批量润色完成：${n} 段已优化${skip ? `，${skip} 段过短已跳过` : ""}`, "ok");
+          } else if (mode === "outline") {
+            const allText = page.innerText;
+            const out = local.outline(allText);
+            // 在文档开头以批注形式插入大纲
+            const para = document.createElement("p");
+            para.innerHTML = "<hr><b>📋 AI 生成大纲</b><br>" + OS.util.escapeHtml(out).replace(/\n/g, "<br>") + "<hr>";
+            para.style.cssText = "color:var(--muted,#666);font-size:12px;margin:12px 0;";
+            page.insertBefore(para, page.firstChild);
+            ctx.markDirty();
+            OS.toast("大纲已插入文档开头", "ok");
+          } else if (mode === "cleanFormat") {
+            const blocks = page.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote");
+            let n = 0;
+            for (const el of blocks) {
+              const text = (el.textContent || "").trim();
+              const cleaned = local.cleanFormat(text);
+              if (cleaned !== text) {
+                el.textContent = cleaned;
+                n++;
+              }
+            }
+            ctx.markDirty();
+            OS.toast(`排版优化完成：${n} 段已清理`, "ok");
+          } else if (mode === "summarize") {
+            const allText = page.innerText;
+            const out = local.summarize(allText);
+            const para = document.createElement("p");
+            para.innerHTML = "<hr><b>📝 AI 摘要</b><br>" + OS.util.escapeHtml(out).replace(/\n/g, "<br>") + "<hr>";
+            para.style.cssText = "color:var(--muted,#666);font-size:12px;margin:12px 0;";
+            page.insertBefore(para, page.firstChild);
+            ctx.markDirty();
+            OS.toast("摘要已插入文档开头", "ok");
+          }
+        };
+      });
+    })();
 
     function load(html) {
       page.innerHTML = bandHtml("header") + (html || "") + bandHtml("footer");
@@ -1207,7 +1307,7 @@
       const last = frag.lastChild; // insertNode 会把 frag 的子节点移走，需先留存末节点
       range.insertNode(frag);
       if (last) { range.setStartAfter(last); range.collapse(true); }
-      if (sel) { sel.removeAllRanges(); try { sel.addRange(range); } catch (e) {} }
+      if (sel) { sel.removeAllRanges(); try { sel.addRange(range); } catch (e) { console.info("[Writer] 操作失败:", e); } }
       ctx.markDirty();
     }
     function insertToc() {
@@ -1415,7 +1515,13 @@
         if (selbar && selbar.destroy) selbar.destroy();
         if (ribbon.el) ribbon.el.remove();
         wrap.remove();
-      }
+        _offAll(); // 清理所有 addEventListener
+      },
+      // ↓↓ UndoManager 接入：writer 用浏览器原生 execCommand 栈，不需要自己 snapshot
+      undo() { return exec("undo"), true; },
+      redo() { return exec("redo"), true; },
+      canUndo() { return true; },     // 浏览器有自己的 undo 栈，我们不知道空不空
+      canRedo() { return true; }
     };
   }
 

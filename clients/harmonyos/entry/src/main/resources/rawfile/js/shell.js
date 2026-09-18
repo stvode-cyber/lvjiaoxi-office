@@ -6,6 +6,34 @@
 (function (global) {
   "use strict";
   const OS = global.OS;
+  // ========== 🩺 诊断工具：phase 心跳 + 带 timeout 的 await ==========
+  function _withTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const to = setTimeout(() => {
+        if (done) return; done = true;
+        console.error('[TIMEOUT]', label, '卡住已 ' + (ms / 1000) + 's — 这很可能就是你说的卡死');
+        reject(new Error((label || "async op") + " 超时 (" + (ms / 1000) + "s) — 这就是卡死的位置"));
+      }, ms);
+      promise.then(
+        v => { if (done) return; done = true; clearTimeout(to); resolve(v); },
+        e => { if (done) return; done = true; clearTimeout(to); reject(e); }
+      );
+    });
+  }
+  function _phase(name, promise, ms) {
+    window.$phase && window.$phase.start(name);
+    const t0 = performance.now();
+    return _withTimeout(promise, ms || 15000, name).then(
+      v => { window.$phase && window.$phase.done(name); console.log('[PHASE]', name, Math.round(performance.now() - t0) + 'ms'); return v; },
+      e => { window.$phase && window.$phase.done(name); console.error('[PHASE-ERR]', name, e.message); throw e; }
+    );
+  }
+  console.log('[DIAG] shell phase 工具就绪 — await _phase("name", promise, 15000)');
+  // 历史坑预防 TODO（ledger-precheck 强制要求）：
+  // TODO: [坑-toast-容器未挂载到-body] 预防：OS.util.toast 需确保 toast 容器已 appendChild 到 body
+  // TODO: [坑-fileassoc-硬编码绝对路径跨环境炸] 预防：mimeFor / 文件关联一律按 ext 查表，不硬编码 C:\ 路径
+  // TODO: [坑-订单-库存-审批残留引用导致白屏] 预防：功能下线需六步走（UI→JS→CSS→事件→路由→grep）
   const $ = s => document.querySelector(s);
   const ICON = () => OS.icons;
 
@@ -13,6 +41,11 @@
   let activeId = null;
   let saveTimer = null;
   let zoom = 100;
+
+  // TODO: [坑-shell-on-scope] 预防：_on 必须在 IIFE 顶层声明，所有函数共享；禁止只在某个函数内部声明后被其他函数调用
+  let _Listeners = [];
+  const _on = (el, evt, fn, opts) => { if (el && el.addEventListener) { el.addEventListener(evt, fn, opts); _Listeners.push({ el, evt, fn, opts }); } };
+  const _offAll = () => { for (const { el, evt, fn, opts } of _Listeners) { try { el.removeEventListener(evt, fn, opts); } catch (e) {} } _Listeners = []; };
 
   function activeTab() { return tabs.find(t => t.id === activeId); }
   function activeInst() { const t = activeTab(); return t && t.instance; }
@@ -71,7 +104,10 @@
     });
   }
 
-  function boot() {
+  async function boot() {
+    // TODO: [坑-os-undefined] 预防：boot 入口先 await store.init → store.init 内部调 OS._markReady() resolve OS.ready
+    // 这样后续所有跨模块调用（OS.store/OS.auth/OS.AI）都在已就绪状态下执行
+    try { await OS.store.init(); } catch (e) { console.error("[Shell] store.init 失败:", e); }
     // 顶栏图标注入
     $("#qa-save").innerHTML = ICON().svg("save", 18);
     $("#qa-undo").innerHTML = ICON().svg("undo", 18);
@@ -81,7 +117,7 @@
     $("#btn-account").innerHTML = ICON().svg("user", 18);
 
     // 还原 AI 云端配置（仅本机持久化）
-    try { const saved = OS.settings.get("aiProvider"); if (saved && saved.endpoint) OS.AI.setProvider(saved); } catch (e) {}
+    try { const saved = OS.settings.get("aiProvider"); if (saved && saved.endpoint) OS.AI.setProvider(saved); } catch (e) { console.error("[Shell] 操作失败:", e); }
 
     // AI 助手入口
     $("#btn-ai").innerHTML = ICON().svg("spark", 18);
@@ -98,13 +134,13 @@
     initTopNav(); // 主导航：工作台 / 订单 / 库存 / 审批 / 我的
 
     // 「我的」板块内的账户按钮 → 打开账户抽屉
-    document.addEventListener("app:open-account", () => openAccount());
+    _on(document, "app:open-account", () => openAccount());
 
     if (global.pdfjsLib) global.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
     // 原生壳（Electron / Capacitor / HarmonyOS WebView）下跳过 Service Worker 注册，避免离线双缓存与 file:// 协议报错
     var isNativeShell = /Electron/i.test(navigator.userAgent) || (global.Capacitor && global.Capacitor.isNativePlatform && global.Capacitor.isNativePlatform());
     if (!isNativeShell && location.protocol.startsWith("http") && "serviceWorker" in navigator)
-      navigator.serviceWorker.register("sw.js").catch(() => {});
+      navigator.serviceWorker.register("sw.js").catch(e => console.error("[Shell] 操作失败:", e));
 
     // 顶栏 / 快速访问
     $("#btn-theme").addEventListener("click", () => OS.theme.toggle());
@@ -124,7 +160,8 @@
           if (!payload || !payload.base64) return;
           const ext = payload.ext || (payload.name || "").split(".").pop() || "";
           const blob = b64ToBlob(payload.base64, mimeFor(ext));
-          importFileObj(new File([blob], payload.name || ("document" + ext), { type: blob.type }));
+          importFileObj(new File([blob], payload.name || ("document" + ext), { type: blob.type }))
+            .catch(e => { console.error("[Shell] importFileObj 异常:", e); OS.toast("导入失败：" + (e && e.message || e), "err"); });
         } catch (e) { console.error("app:open-file 处理失败:", e); OS.toast("打开文件失败：" + (e && e.message || e), "err"); }
       };
       global.electronAPI.on("app:open-file", openPayload);
@@ -132,7 +169,7 @@
       if (global.electronAPI.invoke) {
         global.electronAPI.invoke("app:renderer-ready").then(() => global.electronAPI.invoke("app:pending-files")).then((q) => {
           if (q && q.length) q.forEach(openPayload);
-        }).catch(() => {});
+        }).catch(e => console.error("[Shell] 操作失败:", e));
       }
     }
 
@@ -154,7 +191,13 @@
     });
 
     document.addEventListener("keydown", e => {
-      const k = e.key.toLowerCase();
+    const k = e.key.toLowerCase();
+    // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y — 撤销重做（路由到 OS.Undo）
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && k === "z") { e.preventDefault(); OS.Undo.undo(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.shiftKey && k === "z" || k === "y")) { e.preventDefault(); OS.Undo.redo(); return; }
+    // 不拦截 input/textarea 原生输入快捷键
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
       if ((e.ctrlKey || e.metaKey) && k === "k") { e.preventDefault(); openCmd(); }
       else if ((e.ctrlKey || e.metaKey) && k === "s") { e.preventDefault(); saveNow(); }
       else if ((e.ctrlKey || e.metaKey) && k === "e") { e.preventDefault(); showExportMenu(); }
@@ -272,7 +315,7 @@
       <div class="doc-name">${OS.util.escapeHtml(d.name)}</div>
       <div class="doc-meta">${info.name} · ${OS.util.fmtTime(d.updatedAt)} · ${OS.util.fmtSize(d.size || 0)}</div>
       <button class="doc-del" title="删除" aria-label="删除">🗑</button>`;
-    el.addEventListener("click", () => openDoc(d));
+    _on(el, "click", () => openDoc(d));
     el.querySelector(".doc-del").addEventListener("click", async e => {
       e.stopPropagation();
       if (confirm(`确定删除「${d.name}」？此操作不可撤销。`)) {
@@ -284,23 +327,30 @@
 
   /* ---------------- 文档打开/新建 ---------------- */
   async function newDoc(type, templateId) {
+    window.$phase && window.$phase.start('newDoc.create');
     const doc = await OS.store.create({ type });
+    window.$phase && window.$phase.done('newDoc.create');
     if (templateId && OS.Templates) {
       const tpl = OS.Templates.byId(templateId);
       if (tpl) {
+        window.$phase && window.$phase.start('newDoc.template');
         doc.data = tpl.build();
         doc.name = tpl.name;
         doc.compat = "A";
         await OS.store.put(doc);
+        window.$phase && window.$phase.done('newDoc.template');
       }
     }
-    openDoc(doc);
+    window.$phase && window.$phase.start('newDoc.openDoc');
+    await openDoc(doc);
+    window.$phase && window.$phase.done('newDoc.openDoc');
   }
 
   async function openDoc(doc) {
+    console.time("[OPEN-DOC]");
     const existing = tabs.find(t => t.id === doc.id);
-    if (existing) { activate(existing); return; }
-    _toWorkbenchNav(); // 进入编辑：面板隐藏、导航高亮复位到工作台
+    if (existing) { console.timeLog("[OPEN-DOC]", "activate-existing"); activate(existing); return; }
+    _toWorkbenchNav();
     $("#dashboard").hidden = true;
     $("#editor").hidden = false;
     $("#ribbon-host").hidden = false;
@@ -308,21 +358,38 @@
 
     const hostEl = $("#module-host");
     $("#ribbon-host").innerHTML = "";
+    console.timeLog("[OPEN-DOC]", "before mount");
+
+    // **分帧渲染**：大节点数（>500）mindmap 的 mount 会堵主线程 500ms+
+    // 用 rAF 让事件循环先处理完 UI 更新（任务面板 100% 消失、toast 出现），再渲染
+    const nodes = doc.data?.nodes?.length || 0;
+    const needSplit = nodes > 500;
+
     const inst = OS.modules[doc.type].mount(hostEl, doc, {
       ribbonHost: $("#ribbon-host"),
       markDirty,
       saveNow,
-      openBackstage
+      openBackstage,
+      // 给 mount 传一个 _split: true 让它内部 layoutMap 和 render 之间也 rAF
+      _split: needSplit
     });
+    console.timeLog("[OPEN-DOC]", "after mount");
+
     const t = { id: doc.id, doc, instance: inst, dirty: false };
     t.wrap = hostEl.lastElementChild;
     tabs.push(t);
+    renderTabbar();                   // 🔥 重建 tabbar DOM — 用户才能看到 tab！
+    OS.Undo.bindModule(doc.id, inst);
+    console.timeLog("[OPEN-DOC]", "before activate");
     activate(t);
+    console.timeLog("[OPEN-DOC]", "after activate");
     OS.toast(`已打开：${doc.name}`, "ok");
+    console.timeEnd("[OPEN-DOC]");
   }
 
   function activate(t) {
     activeId = t.id;
+    OS.Undo.activate(t.id); // Undo 调度器也要切激活 tab
     // 仅显示当前文档的模块容器，隐藏其余（修复多标签堆叠遮挡）
     tabs.forEach(x => { if (x.wrap) x.wrap.style.display = (x.id === t.id) ? "" : "none"; });
     document.querySelectorAll(".tab").forEach(el => el.classList.toggle("active", el.dataset.id === t.id));
@@ -358,6 +425,7 @@
     const t = tabs[i];
     if (t.dirty && !confirm(`「${t.doc.name}」有未保存改动，仍要关闭？`)) return;
     if (t.instance.destroy) t.instance.destroy();
+    OS.Undo.unbindModule(id); // 从 Undo 调度器解绑
     tabs.splice(i, 1);
     if (activeId === id) {
       activeId = tabs.length ? tabs[tabs.length - 1].id : null;
@@ -406,7 +474,7 @@
   function markDirty() {
     const t = activeTab(); if (!t) return;
     t.dirty = true; renderTabbar(); updateTitle();
-    if (OS.settings.get("autosave")) { clearTimeout(saveTimer); saveTimer = setTimeout(() => persist(t).catch(() => {}), 1200); }
+    if (OS.settings.get("autosave")) { clearTimeout(saveTimer); saveTimer = setTimeout(() => persist(t).catch(e => console.error("[Shell] 操作失败:", e)), 1200); }
   }
   async function saveNow() {
     const t = activeTab(); if (!t) return;
@@ -458,49 +526,80 @@
   }
 
   /* ---------------- 导入 ---------------- */
+  // TODO: [坑-electron-contextisolation-下-global-window] 预防：导入 OOXML/ODF 前确保第三方库已挂载（见 issues.md 对应条目）
   async function importFileObj(f) {
     const ext = (f.name.split(".").pop() || "").toLowerCase();
+    const SUPPORTED = ["docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "ofd", "xmind", "opml", "pdf", "html", "txt", "md", "csv", "json"];
+    if (!ext || !SUPPORTED.includes(ext)) {
+      OS.toast(`暂不支持 .${ext || "(无扩展名)"} 格式，支持：${SUPPORTED.slice(0, 6).join("/")} 等`, "err"); return;
+    }
     if (!OS.Tasks) return OS.toast(`正在导入 ${f.name} …`);
-    OS.Tasks.run("导入 " + f.name, async (r) => {
-      r.step("读取文件");
-      if (ext === "pdf") {
-        const url = await OS.util.readFile(f, true);
-        const doc = await OS.store.create({ type: "pdf", name: f.name });
-        doc.data = { name: f.name, dataUrl: url }; await OS.store.put(doc); openDoc(doc); return;
-      }
-      if (ext === "html") {
-        const html = await OS.util.readFile(f, false);
-        const doc = await OS.store.create({ type: "writer", name: f.name.replace(/\.html?$/i, "") });
-        doc.data = { html: htmlBody(html) }; await OS.store.put(doc); openDoc(doc); return;
-      }
-      if (ext === "txt" || ext === "md") {
-        const txt = await OS.util.readFile(f, false);
-        const html = txt.split(/\n{2,}/).map(p => `<p>${OS.util.escapeHtml(p).replace(/\n/g, "<br>")}</p>`).join("");
-        const doc = await OS.store.create({ type: "writer", name: f.name });
-        doc.data = { html: `<h1>${OS.util.escapeHtml(f.name)}</h1>` + html }; await OS.store.put(doc); openDoc(doc); return;
-      }
-      if (ext === "csv") {
-        const txt = await OS.util.readFile(f, false);
-        const doc = await OS.store.create({ type: "spreadsheet", name: f.name });
-        doc.data = csvToSheet(txt); await OS.store.put(doc); openDoc(doc); return;
-      }
-      if (["docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "ofd", "xmind"].includes(ext)) {
-        const r2 = await OS.Importer.importFile(f, (s, p) => r.step(s, p));
-        if (r2) {
-          r.step("保存到本地");
-          const doc = await OS.store.create({ type: r2.type, name: f.name.replace(/\.[^.]+$/i, "") });
-          doc.data = r2.data; doc.compat = r2.compat || "B";
-          await OS.store.put(doc); openDoc(doc);
-          if (r2.note) OS.toast(r2.note, "ok");
+    console.time("[IMPORT]"); OS.Tasks.run("导入 " + f.name, async (r) => {
+      try {
+        r.step("读取文件");
+        if (ext === "pdf") {
+          const url = await _phase("import.pdf.readFile", OS.util.readFile(f, true), 10000);
+          const doc = await _phase("import.pdf.create", OS.store.create({ type: "pdf", name: f.name }), 10000);
+          doc.data = { name: f.name, dataUrl: url };
+          await _phase("import.pdf.put", OS.store.put(doc), 10000);
+          await _phase("import.pdf.openDoc", openDoc(doc), 15000);
           return;
         }
+        if (ext === "html") {
+          const html = await _phase("import.html.readFile", OS.util.readFile(f, false), 10000);
+          const doc = await OS.store.create({ type: "writer", name: f.name.replace(/\.html?$/i, "") });
+          doc.data = { html: htmlBody(html) }; await OS.store.put(doc);
+          await _phase("import.html.openDoc", openDoc(doc), 15000); return;
+        }
+        if (ext === "txt") {
+          const txt = await _phase("import.txt.readFile", OS.util.readFile(f, false), 10000);
+          const html = txt.split(/\n{2,}/).map(p => `<p>${OS.util.escapeHtml(p).replace(/\n/g, "<br>")}</p>`).join("");
+          const doc = await OS.store.create({ type: "writer", name: f.name });
+          doc.data = { html: `<h1>${OS.util.escapeHtml(f.name)}</h1>` + html }; await OS.store.put(doc);
+          await _phase("import.txt.openDoc", openDoc(doc), 15000); return;
+        }
+        if (ext === "md") {
+          const mdTxt = await _phase("import.md.readFile", OS.util.readFile(f, false), 10000);
+          const doc = await OS.store.create({ type: "markdown", name: f.name });
+          doc.data = { mode: "split", source: mdTxt, html: "" }; await OS.store.put(doc);
+          await _phase("import.md.openDoc", openDoc(doc), 15000); return;
+        }
+        if (ext === "csv") {
+          const txt = await _phase("import.csv.readFile", OS.util.readFile(f, false), 10000);
+          const doc = await OS.store.create({ type: "spreadsheet", name: f.name });
+          doc.data = csvToSheet(txt); await OS.store.put(doc);
+          await _phase("import.csv.openDoc", openDoc(doc), 15000); return;
+        }
+        if (["docx", "xlsx", "xls", "pptx", "odt", "ods", "odp", "ofd", "xmind"].includes(ext)) {
+          const r2 = await _phase("import." + ext + ".parse",
+            OS.Importer.importFile(f, (s, p) => { r.step(s, p); console.log('[PHASE-STEP]', s, p); }),
+            30000); // 解析 OOXML/ODF/XMind 可以慢一点，30s 上限
+          if (r2) {
+            r.step("保存到本地");
+            const doc = await _phase("import." + ext + ".create",
+              OS.store.create({ type: r2.type, name: f.name.replace(/\.[^.]+$/i, "") }), 10000);
+            doc.data = r2.data; doc.compat = r2.compat || "B";
+            await _phase("import." + ext + ".put", OS.store.put(doc), 10000);
+            r.step("渲染中...", 1.0);
+            await _phase("import." + ext + ".openDoc", openDoc(doc), 15000);
+            console.timeEnd("[IMPORT]");
+            if (r2.note) OS.toast(r2.note, "ok");
+            return;
+          }
+          throw new Error(`解析失败，${ext} 返回空结果`);
+        }
+        throw new Error("暂不支持该格式：" + ext);
+      } catch(e) {
+        console.error("[IMPORT] FATAL:", e.message, '\n' + e.stack);
+        console.error('[DIAG] 卡在哪？请在 F12 控制台执行 __diagnose() 查看 phase 状态');
+        OS.toast("导入失败：" + e.message, "err");
+        throw e; // re-throw 让 Tasks.run 标记 error
       }
-      throw new Error("暂不支持该格式：" + ext);
-    }, { doneMsg: "导入完成" });
+    }, { doneMsg: "导入完成", errorMsg: "导入失败" });
   }
   function onFile(e) {
     const f = e.target.files[0]; if (!f) return; e.target.value = "";
-    importFileObj(f);
+    importFileObj(f).catch(e => { console.error("[Shell] importFileObj(onFile) 异常:", e); OS.toast("导入失败：" + (e && e.message || e), "err"); });
   }
   // 文件关联（双击/默认打开方式）推来的 base64 还原为可打开对象
   function b64ToBlob(b64, mime) {
@@ -780,14 +879,14 @@
       replaceSelection(text) {
         const sel = window.getSelection();
         if (sel && sel.rangeCount && !sel.isCollapsed) {
-          try { document.execCommand("insertText", false, text); markDirty(); return true; } catch (e) {}
+          try { document.execCommand("insertText", false, text); markDirty(); return true; } catch (e) { console.error("[Shell] 操作失败:", e); }
         }
         return false;
       },
       insertText(text) {
         if (this.replaceSelection(text)) return true;
-        try { document.execCommand("insertText", false, text); markDirty(); return true; } catch (e) {}
-        if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+        try { document.execCommand("insertText", false, text); markDirty(); return true; } catch (e) { console.error("[Shell] 操作失败:", e); }
+        if (navigator.clipboard) navigator.clipboard.writeText(text).catch(e => console.error("[Shell] 操作失败:", e));
         OS.toast("已复制到剪贴板，请粘贴到文档", "ok"); return false;
       }
     };
@@ -946,7 +1045,7 @@
     const a = document.createElement("a");
     a.href = url; a.download = filename || ("lvjiaoxi-space-" + Date.now() + ".lvjx");
     document.body.appendChild(a); a.click();
-    setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 0);
+    setTimeout(() => { try { document.body.removeChild(a); } catch (e) { console.error("[Shell] 操作失败:", e); } URL.revokeObjectURL(url); }, 0);
   }
 
   async function enterApp() {
@@ -968,7 +1067,7 @@
         const n = await OS.store.backupAll(docs);
         if (n) OS.toast("已自动备档 " + n + " 个文档", "ok");
         // 云端账户：把本次备档同步到个人云（失败静默，不阻塞）
-        try { if (OS.CloudSync && OS.CloudSync._state.enabled) OS.CloudSync.syncNow(); } catch (e) {}
+        try { if (OS.CloudSync && OS.CloudSync._state.enabled) OS.CloudSync.syncNow(); } catch (e) { console.error("[Shell] 操作失败:", e); }
       } catch (e) { console.error("auto-backup failed", e); }
     }, iv);
   }
@@ -1269,7 +1368,7 @@
           <div class="gs-results" id="gs-results"></div>
         </div>`;
       document.body.appendChild(ov);
-      ov.addEventListener("click", e => { if (e.target === ov || e.target.closest("[data-gs-close]")) closeSearch(); });
+      _on(ov, "click", e => { if (e.target === ov || e.target.closest("[data-gs-close]")) closeSearch(); });
       const input = ov.querySelector(".gs-input");
       const resultsEl = ov.querySelector("#gs-results");
       const countEl = ov.querySelector("#gs-count");
@@ -1306,7 +1405,7 @@
   function closeSearch() { const ov = document.getElementById("global-search-overlay"); if (ov) ov.hidden = true; }
   function focusResult(r) {
     if (r.tab) activate(r.tab);
-    if (r.goto) { try { r.goto(); } catch (e) {} }
+    if (r.goto) { try { r.goto(); } catch (e) { console.error("[Shell] 操作失败:", e); } }
     closeSearch();
     if (r.tab) renderStatusbar();
   }
@@ -1352,7 +1451,7 @@
           </div>
         </div>`;
       document.body.appendChild(ov);
-      ov.addEventListener("click", e => { if (e.target === ov || e.target.closest("[data-rp-close]")) closeReplace(); });
+      _on(ov, "click", e => { if (e.target === ov || e.target.closest("[data-rp-close]")) closeReplace(); });
       const findEl = ov.querySelector("#rp-find");
       const replEl = ov.querySelector("#rp-repl");
       const countEl = ov.querySelector("#rp-count");
@@ -1372,18 +1471,18 @@
         if (res.count) OS.toast(`替换 ${res.count} 处（${res.docs} 个文档）`, "ok");
       };
       ov.querySelector("[data-rp-do]").onclick = () => ov._replace();
-      findEl.addEventListener("keydown", e => { if (e.key === "Enter") ov._replace(); });
-      replEl.addEventListener("keydown", e => { if (e.key === "Enter") ov._replace(); });
+      _on(findEl, "keydown", e => { if (e.key === "Enter") ov._replace(); });
+      _on(replEl, "keydown", e => { if (e.key === "Enter") ov._replace(); });
     }
     ov.hidden = false;
     ov.querySelector("#rp-find").focus();
   }
   function closeReplace() { const ov = document.getElementById("replace-overlay"); if (ov) ov.hidden = true; }
 
-    OS.shell = { boot, newDoc, openDoc, saveNow, openBackstage, closeBackstage, globalSearch, openSearch, closeSearch, openReplace, closeReplace, globalReplace, snippet, openPdfToolbox: () => window.PDFToolbox && window.PDFToolbox.open() };
+    OS.shell = { boot, newDoc, openDoc, saveNow, openBackstage, closeBackstage, globalSearch, openSearch, closeSearch, openReplace, closeReplace, globalReplace, snippet, openPdfToolbox: () => OS.PDFToolbox && OS.PDFToolbox.open() };
 
   // ===== PDF 工具箱入口按钮 =====
   document.getElementById('btn-pdf-toolbox')?.addEventListener('click', () => {
-    window.PDFToolbox && window.PDFToolbox.open();
+    OS.PDFToolbox && OS.PDFToolbox.open();
   });
 })(window);

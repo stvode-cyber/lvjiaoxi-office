@@ -9,7 +9,8 @@
   const BASE = "lvjiaoxi-office";
   const STORE_DOCS = "docs";
   const STORE_BACKUPS = "backups";
-  const VER = 2;
+  const STORE_VERSIONS = "versions";
+  const VER = 3;
 
   let dbp = null;
   const memDocs = new Map();     // localStorage 不可用时的内存兜底（文档）
@@ -47,11 +48,25 @@
     return (OS.auth && OS.auth.dbNameFor) ? OS.auth.dbNameFor(accountName()) : (BASE + "-" + accountName());
   }
 
-  function openDB() {
+  let __dbTimed = false; function openDB() { if(!__dbTimed){console.time("[DB]");__dbTimed=true;}
     if (dbp) return dbp;
     if (!global.indexedDB) { dbp = Promise.reject(new Error("no-idb")); return dbp; }
     dbp = new Promise((resolve, reject) => {
+      // TODO: [坑-os-冷启动-indexedDB-blocked] 预防：indexedDB.open 可能因其他连接 blocked 永不 settle — 必须加 onblocked + 3s timeout
+      let settled = false;
       const req = indexedDB.open(dbName(), VER);
+      const to = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          console.error("[Store] indexedDB.open blocked 3s → 降级为 localStorage");
+          reject(new Error("indexedDB blocked"));
+        }
+      }, 3000);
+      req.onblocked = e => {
+        // 其他连接持有旧版本 DB，等它关闭（3s timeout 兜底）
+        console.warn("[Store] indexedDB.open blocked — 等待其他连接关闭...");
+        if (req.result && req.result.close) { try { req.result.close(); } catch {} }
+      };
       req.onupgradeneeded = e => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains(STORE_DOCS)) {
@@ -61,15 +76,69 @@
           const bs = db.createObjectStore(STORE_BACKUPS, { keyPath: "id" });
           bs.createIndex("docId", "docId", { unique: false });
         }
+        if (!db.objectStoreNames.contains(STORE_VERSIONS)) {
+          const vs = db.createObjectStore(STORE_VERSIONS, { keyPath: "id" });
+          vs.createIndex("docId", "docId", { unique: false });
+          vs.createIndex("ts", "ts", { unique: false });
+        }
       };
-      req.onsuccess = e => resolve(e.target.result);
-      req.onerror = () => reject(req.error);
+      req.onsuccess = e => {
+        if (settled) return; settled = true; clearTimeout(to);
+        resolve(e.target.result); if(__dbTimed){console.timeEnd("[DB]");__dbTimed=false;}
+      };
+      req.onerror = () => {
+        if (settled) return; settled = true; clearTimeout(to);
+        reject(req.error); if(__dbTimed){console.timeEnd("[DB]");__dbTimed=false;}
+      };
     });
     return dbp;
   }
 
+  // === Promise 超时工具 + 自动降级 ===
+  function _withTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const to = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error("timeout " + ms + "ms: " + label));
+      }, ms);
+      promise.then(v => { if (settled) return; settled = true; clearTimeout(to); resolve(v); },
+                   e => { if (settled) return; settled = true; clearTimeout(to); reject(e); });
+    });
+  }
+  // IndexedDB → localStorage 自动降级（一次后永久降级）
+  function _autoFailover() {
+    if (OS._storeMode === "localstorage") return;
+    console.warn("[Store] IndexedDB 自动降级为 localStorage");
+    OS._storeMode = "localstorage";
+    try {
+      // 尝试把已存在的 IndexedDB docs 读进 memDocs（降级后不丢数据）
+      indexedDB.open(dbName(), VER).onsuccess = e => {
+        const db = e.target.result;
+        try {
+          const tx2 = db.transaction(STORE_DOCS, "readonly").objectStore(STORE_DOCS);
+          const cur = tx2.openCursor();
+          cur.onsuccess = ev => {
+            const c = ev.target.result;
+            if (c) { memDocs.set(c.value.id, c.value); c.continue(); }
+            else db.close();
+          };
+        } catch (e2) { db.close(); }
+      };
+    } catch (_) {}
+  }
+
   function tx(mode, storeName) {
-    return openDB().then(db => db.transaction(storeName, mode).objectStore(storeName));
+    // 已降级就别试了
+    if (OS._storeMode === "localstorage") return Promise.reject(new Error("localstorage-mode"));
+    return _withTimeout(openDB().then(db => {
+      try { return db.transaction(storeName, mode).objectStore(storeName); }
+      catch (e) { _autoFailover(); throw e; }
+    }), 5000, "tx(" + mode + "," + storeName + ")").catch(e => {
+      _autoFailover();
+      throw e;
+    });
   }
 
   const idbAvailable = () => !!global.indexedDB;
@@ -78,8 +147,11 @@
   const Store = {
     async init() {
       dbp = null; // 每次初始化重置（账户可能切换）
+      // TODO: [坑-os-undefined] 预防：OS.store.init() 是所有子模块 mount 后才安全调用的入口
       try { await openDB(); OS._storeMode = "indexeddb"; }
       catch (e) { OS._storeMode = "localstorage"; }
+      // TODO: [坑-os-undefined] 预防：store init 完成后标记 OS.ready，后续依赖方可 await
+      if (OS._markReady) OS._markReady();
       return OS._storeMode;
     },
 
@@ -340,6 +412,8 @@
     return { writer: "未命名文档", spreadsheet: "未命名表格", presentation: "未命名演示", pdf: "PDF 文件", mindmap: "未命名脑图" }[type] || "未命名";
   }
 
+  Store.dbName = dbName;
+  Store.VER = VER;
   OS.store = Store;
   OS.docMeta = { defaultName };
 

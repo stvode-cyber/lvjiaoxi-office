@@ -35,6 +35,11 @@
           </div>
           <button class="btn" data-act="split" style="width:100%">✂ 按范围拆分</button>
           <p class="muted" style="font-size:11px;margin-top:8px">合并/拆分支持常见 PDF（1.4 风格内联对象）。</p>
+          <hr style="border:none;border-top:1px solid var(--rule);margin:10px 0">
+          <div class="pdf-thumbs-toggle" style="cursor:pointer;font-size:12px;color:var(--muted);padding:4px 0;display:flex;justify-content:space-between;align-items:center">
+            <span>🖼 页面缩略图</span><span class="thumbs-count"></span>
+          </div>
+          <div class="pdf-thumbs" style="max-height:40vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px"></div>
         </div>
         <div class="pdf-search">
           <span style="font-size:13px">🔍</span>
@@ -404,6 +409,42 @@
         ovl.addEventListener("pointermove", e => onPointerMove(e, ovl, canvas, p));
         ovl.addEventListener("pointerup", e => onPointerUp(e, ovl, canvas, p));
         ovl.addEventListener("pointercancel", e => onPointerUp(e, ovl, canvas, p));
+      }
+      buildThumbs();
+    }
+
+    // —— 缩略图（ONLYOFFICE 9.0 同款）——
+    async function buildThumbs() {
+      const box = wrap.querySelector(".pdf-thumbs");
+      const countEl = wrap.querySelector(".thumbs-count");
+      if (!pdfDoc) return;
+      box.innerHTML = "";
+      countEl.textContent = `${pdfDoc.numPages} 页`;
+      const thumbScale = 0.22;
+      for (let p = 1; p <= pdfDoc.numPages; p++) {
+        try {
+          const page = await pdfDoc.getPage(p);
+          const vp = page.getViewport({ scale: thumbScale });
+          const wrap2 = document.createElement("div");
+          wrap2.style.cssText = "position:relative;cursor:pointer;border:2px solid transparent;border-radius:4px;background:var(--bg2);overflow:hidden;";
+          wrap2.dataset.p = p;
+          wrap2.addEventListener("click", () => {
+            const target = view.querySelector(`.pdf-page-box[data-p="${p}"]`);
+            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+            [...box.children].forEach((c) => (c.style.borderColor = "transparent"));
+            wrap2.style.borderColor = "var(--accent)";
+          });
+          const c = document.createElement("canvas");
+          c.width = vp.width; c.height = vp.height;
+          c.style.cssText = "display:block;width:100%;height:auto;";
+          wrap2.appendChild(c);
+          const label = document.createElement("div");
+          label.textContent = p;
+          label.style.cssText = "position:absolute;bottom:2px;right:4px;font-size:10px;color:var(--muted);background:rgba(255,255,255,0.85);padding:0 3px;border-radius:2px;";
+          wrap2.appendChild(label);
+          box.appendChild(wrap2);
+          await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+        } catch (e) { /* 单页缩略图失败不阻塞 */ }
       }
     }
 
@@ -1501,7 +1542,7 @@
             } else if (a.type === "note") {
               octx.fillStyle = a.color;
               octx.beginPath(); octx.arc(a.x * cw, a.y * ch, 6 * scale, 0, Math.PI * 2); octx.fill();
-              octx.fillStyle = "#ffffff"; octx.font = (10 * scale) + "px sans-serif";
+              octx.fillStyle = OS.theme.getVar("undefined"); octx.font = (10 * scale) + "px sans-serif";
               octx.textBaseline = "middle"; octx.textAlign = "center";
               octx.fillText("!", a.x * cw, a.y * ch);
             } else if (a.type === "sign") {
@@ -1705,12 +1746,75 @@
       OS.toast("已盖章签名到当前页", "ok");
     }
 
+    /* ---------- AI 选区浮层（润色/改写 → 真实文本编辑；扩写/解释 → 批注追加） ---------- */
+    function getSelectionForAI() {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return null;
+      // 只接受 pdf-text-layer 里的文本（canvas 上层的透明 span）
+      const range = sel.getRangeAt(0);
+      const el = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+      if (!el || !el.closest(".pdf-text-layer")) return null;
+      const text = range.toString().trim();
+      if (!text) return null;
+      const pageBox = el.closest(".pdf-page-box");
+      const pageIdx = pageBox ? (+pageBox.querySelector(".pdf-page").dataset.p) - 1 : 0;
+      return {
+        text,
+        rect: OS.AI.safeRect(range),
+        pageIndex: pageIdx,
+        async replace(newText) {
+          if (!OS.PDFTextEditor) { OS.toast("PDF 编辑引擎未加载", "warn"); return; }
+          try {
+            OS.toast("正在替换 PDF 文本…", "ok");
+            const curData = doc.data && doc.data.dataUrl ? doc.data : null;
+            if (!curData) { OS.toast("没有可编辑的 PDF", "warn"); return; }
+            const i = curData.dataUrl.indexOf(",");
+            const bin = atob(curData.dataUrl.slice(i + 1));
+            const u8 = new Uint8Array(bin.length);
+            for (let k = 0; k < bin.length; k++) u8[k] = bin.charCodeAt(k);
+            const res = await OS.PDFTextEditor.editTextOnPage({
+              pdfBytes: u8, pageIndex: pageIdx, oldText: text, newText
+            });
+            if (res && res.bytes) {
+              let outBin = "";
+              const CH = 8192;
+              for (let k = 0; k < res.bytes.length; k += CH) outBin += String.fromCharCode.apply(null, res.bytes.subarray(k, k + CH));
+              const newDataUrl = "data:application/pdf;base64," + btoa(outBin);
+              doc.data.dataUrl = newDataUrl;
+              await OS.store.put(doc);
+              await loadPdf(newDataUrl);
+              OS.toast("替换成功（" + (res.mode === "content-stream" ? "内容流" : "批注覆盖") + "模式）", "ok");
+            }
+          } catch (e) { console.error("[PDF AI] replace 失败:", e); OS.toast("替换失败: " + e.message, "err"); }
+        },
+        async insertAfter(newText) {
+          // PDF 不支持"追加文本"，改为追加一条批注
+          const page = pageIdx + 1;
+          Anno.add(data.annotations, { page, type: "note", text: "【AI 输出】\n" + newText, x: 0.5, y: 0.5, w: 0.15, h: 0.1, color: Anno.COLORS.note });
+          ctx.markDirty();
+          const box = view.querySelector('[data-p="' + page + '"]')?.closest(".pdf-page-box");
+          const canvas = box?.querySelector("canvas.pdf-page");
+          if (box && canvas) renderAnnotations(box, canvas, page);
+          OS.toast("已追加为批注", "ok");
+        },
+        suggest() { OS.toast("PDF 审阅建议暂未开放", "warn"); },
+        manual() { OS.toast("请使用左侧「📝 批注」按钮", "info"); }
+      };
+    }
+    OS.AI.createSelToolbar({
+      container: wrap,
+      features: { replace: true, insert: true, suggest: false, manual: false, assistant: true },
+      getSelection: getSelectionForAI,
+      onApplied() {}
+    });
+
     return {
       serialize() { return data; },
       exportAs,
       focus() {},
       ribbon,
-      destroy() { wrap.remove(); }
+      destroy() { wrap.remove(); },
+      undo() { return false; }, redo() { return false; }, canUndo() { return false; }, canRedo() { return false; }
     };
   }
 

@@ -127,7 +127,7 @@
     // Web / PWA：若 SW 已有等待中的新版，直接激活；否则触发更新并刷新
     if (swReg && swReg.waiting) { swReg.waiting.postMessage({ type: "skip-waiting" }); return; }
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.getRegistration().then(function (reg) { if (reg) reg.update(); });
+      navigator.serviceWorker.getRegistration().then(function (reg) { if (reg) reg.update(); }).catch(function(e) { console.info("[Updater] SW getRegistration 失败:", e); });
     }
     setTimeout(function () { location.reload(); }, 400); // 兜底刷新
   }
@@ -147,7 +147,7 @@
         else if (global.open) global.open(url, "_blank");
         if (bar) bar.remove();
       }
-    }).catch(function () {});
+    }).catch(function(e) { console.error("[updater] 操作失败:", e); });
   }
 
   // 订阅主进程推送的下载进度 / 完成 / 错误事件
@@ -213,7 +213,7 @@
             });
           });
         }
-      });
+      }).catch(function(e) { console.info("[Updater] SW 注册失败:", e); });
     }
     // 桌面版：订阅主进程静默更新推送（无 electronAPI 时跳过）
     if (isNativeShell() && global.electronAPI && typeof global.electronAPI.invoke === "function") {

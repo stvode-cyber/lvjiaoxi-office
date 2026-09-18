@@ -10,8 +10,9 @@
   const MEASURE_FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif';
 
   function uid(p) { return OS.util.uid(p || "n"); }
-  function mkNode(text, x, y, parent) {
-    return { id: uid("n"), x: x || 0, y: y || 0, text: text || "", color: "#2563eb", shape: "rounded", fontSize: 14, parent: parent || null, isRoot: false };
+  // TODO: [坑-mknode-color] 预防：渲染函数默认值必须显式硬编码，禁止依赖"上游总会传"；解析 JSON 前先判空
+  function mkNode(text, x, y, parent, color) {
+    return { id: uid("n"), x: x || 0, y: y || 0, text: text || "", color: color || "#2563eb", shape: "rounded", fontSize: 14, parent: parent || null, isRoot: false };
   }
   function blank() {
     const root = mkNode("中心主题", 0, 0);
@@ -26,6 +27,52 @@
     let mode = data.mode || "map";
     let selId = null, connectFrom = null, connectMode = false, panning = null, dragNode = null;
     let tx = 40, ty = 40, k = 1, editorEl = null, editingNode = null;
+
+    /* ---------- O(1) 索引：mount 开头建一次，mutation 后 rebuild ---------- */
+    const _nodeById = new Map();   // id → node  替代 data.nodes.find()
+    const _childrenMap = new Map(); // parentId → [node, node, ...]  替代 data.nodes.filter()
+    function _rebuildIndex() {
+      _nodeById.clear(); _childrenMap.clear();
+      data.nodes.forEach(n => {
+        _nodeById.set(n.id, n);
+        if (n.parent) {
+          if (!_childrenMap.has(n.parent)) _childrenMap.set(n.parent, []);
+          _childrenMap.get(n.parent).push(n);
+        }
+      });
+    }
+    _rebuildIndex();
+
+    /* ---------- Undo/Redo（显式 snapshot 模式，同 spreadsheet/presentation）----------
+       mutation 函数开头手动调 _snapshot()，存"mutation 之前"的 data 到 undoStack */
+    const _undoStack = [], _redoStack = [];
+    function _snapshot() {
+      _undoStack.push(JSON.parse(JSON.stringify(data)));
+      if (_undoStack.length > 100) _undoStack.shift();
+      _redoStack.length = 0;
+    }
+    function _restore(snap) {
+      const r = JSON.parse(JSON.stringify(snap));
+      Object.keys(data).forEach((k) => delete data[k]);
+      Object.assign(data, r);
+      _rebuildIndex();
+      selId = null;
+      layoutMap(); render(); syncSide(); ctx.markDirty();
+    }
+    function _undo() {
+      if (!_undoStack.length) return false;
+      _redoStack.push(JSON.parse(JSON.stringify(data)));
+      _restore(_undoStack.pop());
+      return true;
+    }
+    function _redo() {
+      if (!_redoStack.length) return false;
+      _undoStack.push(JSON.parse(JSON.stringify(data)));
+      _restore(_redoStack.pop());
+      return true;
+    }
+    function _canUndo() { return _undoStack.length > 0; }
+    function _canRedo() { return _redoStack.length > 0; }
 
     /* ---------- 文本测量 / 自动换行 / 自动尺寸 ---------- */
     const _mc = document.createElement("canvas").getContext("2d");
@@ -45,38 +92,78 @@
       return lines;
     }
     function fitNode(n) {
+      // 🔥 兜底：fontSize 可能缺失（store 持久化 / 外部导入数据不完整）
+      if (!n.fontSize || !Number.isFinite(n.fontSize)) n.fontSize = 14;
       const padX = 22, padY = 12, lineH = n.fontSize * 1.45, maxW = 240;
+      const sig = (n.text || "") + "|" + n.fontSize + "|" + maxW;
+      if (n._fitSig === sig && Number.isFinite(n.w) && Number.isFinite(n.h)) return;
+      n._fitSig = sig;
       const lines = wrapText(n.text, maxW, n.fontSize);
-      const w = Math.min(maxW, Math.max(90, Math.max(1, ...lines.map(l => _mc.measureText(l).width)) + padX * 2));
-      const h = Math.max(40, lines.length * lineH + padY * 2);
-      n.w = w; n.h = h; n._lines = lines; n._lineH = lineH;
+      // 🔥 兜底：空 lines 或 measureText 返回 NaN
+      let maxTextW = 1;
+      try {
+        if (lines.length) {
+          const widths = lines.map(l => _mc.measureText(l).width).filter(w => Number.isFinite(w));
+          if (widths.length) maxTextW = Math.max(1, ...widths);
+        }
+      } catch(e) {}
+      const w = Math.min(maxW, Math.max(90, maxTextW + padX * 2));
+      const h = Math.max(40, lines.length * (Number.isFinite(lineH)?lineH:n.fontSize*1.45) + padY * 2);
+      // 🔥 最终兜底：任何不是 finite 的值都强制默认
+      n.w = Number.isFinite(w) ? w : 120;
+      n.h = Number.isFinite(h) ? h : 40;
+      n._lines = lines;
+      n._lineH = Number.isFinite(lineH) ? lineH : n.fontSize * 1.45;
     }
 
     /* ---------- 树 / 查询 ---------- */
-    function getNode(id) { return data.nodes.find(n => n.id === id); }
-    function childrenOf(id) { return data.nodes.filter(n => n.parent === id); }
+    function getNode(id) { return _nodeById.get(id); }
+    function childrenOf(id) { return _childrenMap.get(id) || []; }
 
     /* ---------- 思维导图自动布局（水平树） ---------- */
-    function layoutMap() {
+    function layoutMap() { console.time("[MINDMAP-LAYOUT]");
+      _rebuildIndex();
       const root = getNode(data.rootId);
-      if (!root) return;
-      const LEAF_H = 46, X_STEP = 260;
-      const leaves = {};
-      function count(n) {
+      if (!root) {
+        // 🔥 rootId 找不到兜底：用第一个有 parent 指向它的节点，或直接第一个节点
+        data.rootId = data.nodes.find(n => !n.parent)?.id || data.nodes[0]?.id;
+        if (!data.rootId) { console.warn('[MINDMAP] 没有任何节点可布局'); return; }
+        console.warn('[MINDMAP-LAYOUT] rootId 不存在，改用', data.rootId);
+      }
+      const LEAF_H = 46, X_STEP = 260, MAX_DEPTH = 50;
+      const leaves = {}, _visited = new Set();
+      function count(n, depth) {
+        if (depth > MAX_DEPTH || _visited.has(n.id)) { leaves[n.id] = 1; return 1; }
+        _visited.add(n.id);
         const ch = childrenOf(n.id);
         if (!ch.length) { leaves[n.id] = 1; return 1; }
-        let s = 0; ch.forEach(c => s += count(c)); leaves[n.id] = s; return s;
+        let s = 0; ch.forEach(c => s += count(c, depth + 1)); leaves[n.id] = s; return s;
       }
-      count(root);
+      count(getNode(data.rootId), 0);
       let cursor = 0;
+      const _placed = new Set();
       function place(n, depth) {
+        if (!n || depth > MAX_DEPTH || _placed.has(n.id)) return;
+        _placed.add(n.id);
         n.x = depth * X_STEP + 60;
         const ch = childrenOf(n.id);
         if (!ch.length) { n.y = cursor + LEAF_H / 2; cursor += LEAF_H; }
-        else { ch.forEach(c => place(c, depth + 1)); n.y = (ch[0].y + ch[ch.length - 1].y) / 2; }
+        else { ch.forEach(c => place(c, depth + 1)); const first = childrenOf(n.id)[0], last = childrenOf(n.id)[childrenOf(n.id).length - 1]; if (first && last && Number.isFinite(first.y) && Number.isFinite(last.y)) n.y = (first.y + last.y) / 2; else n.y = cursor + LEAF_H / 2; }
         fitNode(n);
       }
-      place(root, 0);
+      place(getNode(data.rootId), 0);
+
+      // 🔥 防御：所有没被 place 的孤立节点给默认位置（root 找错 / 环 / 悬空 parent 都会触发）
+      let orphanCount = 0;
+      data.nodes.forEach(n => {
+        if (!_placed.has(n.id)) {
+          n.x = 0; n.y = cursor + LEAF_H / 2; cursor += LEAF_H;
+          _placed.add(n.id); orphanCount++;
+          fitNode(n);
+        }
+      });
+      if (orphanCount > 0) console.warn('[MINDMAP-LAYOUT] 有', orphanCount, '个孤立节点（不在 root 子树下），已强制布局');
+      console.timeEnd("[MINDMAP-LAYOUT]");
     }
 
     /* ---------- 坐标换算 ---------- */
@@ -92,6 +179,8 @@
         : data.edges;
     }
     function edgePath(a, b) {
+      // 🔥 NaN 防御：坏数据 / 未 place 过的节点跳过
+      if (!a || !b || !Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(b.x) || !Number.isFinite(b.y)) return null;
       if (mode === "map") {
         const sx = a.x + a.w / 2, sy = a.y, ex = b.x - b.w / 2, ey = b.y, mx = (sx + ex) / 2;
         return `M${sx},${sy} C${mx},${sy} ${mx},${ey} ${ex},${ey}`;
@@ -106,9 +195,11 @@
       edgesForRender().forEach(e => {
         const a = getNode(e.from), b = getNode(e.to);
         if (!a || !b) return;
+        const d = edgePath(a, b);
+        if (!d) return;  // 🔥 NaN 防御
         const p = document.createElementNS(SVGNS, "path");
         p.setAttribute("class", "mm-edge");
-        p.setAttribute("d", edgePath(a, b));
+        p.setAttribute("d", d);
         eg.appendChild(p);
       });
       view.appendChild(eg);
@@ -118,6 +209,9 @@
       zoomLabel.textContent = Math.round(k * 100) + "%";
     }
     function renderNode(n) {
+      // 🔥 坐标兜底：任何非 finite 坐标都强制归零（布局 bug 时不会炸）
+      if (!Number.isFinite(n.x)) n.x = 0;
+      if (!Number.isFinite(n.y)) n.y = 0;
       const g = document.createElementNS(SVGNS, "g");
       g.setAttribute("class", "mm-node" + (n.id === selId ? " selected" : ""));
       g.setAttribute("transform", `translate(${n.x},${n.y})`);
@@ -140,8 +234,8 @@
       shape.setAttribute("stroke", "rgba(0,0,0,.15)");
       shape.setAttribute("stroke-width", "1.5");
       g.appendChild(shape);
-      const lines = n._lines || wrapText(n.text, n.w - 44, n.fontSize);
-      const lineH = n._lineH || n.fontSize * 1.45;
+      const lines = n._lines || wrapText(n.text, Math.max(50, n.w - 44), n.fontSize);
+      const lineH = Number.isFinite(n._lineH) ? n._lineH : n.fontSize * 1.45;
       const t = document.createElementNS(SVGNS, "text");
       t.setAttribute("text-anchor", "middle");
       t.setAttribute("dominant-baseline", "central");
@@ -149,7 +243,8 @@
       const startY = -(lines.length - 1) * lineH / 2;
       lines.forEach((ln, i) => {
         const ts = document.createElementNS(SVGNS, "tspan");
-        ts.setAttribute("x", "0"); ts.setAttribute("y", (startY + i * lineH));
+        const ty = startY + i * lineH;
+        ts.setAttribute("x", "0"); ts.setAttribute("y", Number.isFinite(ty) ? ty : 0);
         ts.textContent = ln; t.appendChild(ts);
       });
       g.appendChild(t);
@@ -203,7 +298,8 @@
             <button class="btn" data-act="connect" style="width:100%">🔗 点两节点连线</button></div>
           <div class="field"><button class="btn" data-act="autolayout" style="width:100%">⤡ 自动布局 / 适应</button></div>
           <div class="field"><button class="btn" data-act="example" style="width:100%">✨ 载入示例脑图</button></div>
-          <input type="file" data-import accept=".json,application/json" hidden>
+          <div class="field"><button class="btn" data-act="ai-outline" style="width:100%;background:var(--accent);color:var(--accent-ink)">🤖 AI 生成脑图</button></div>
+          <input type="file" data-import accept=".json,.xmind,.md,.markdown,.opml,.opml.xml,application/json" hidden>
         </div>
       </div>`;
     host.appendChild(wrap);
@@ -357,6 +453,7 @@
 
     /* ---------- 示例 ---------- */
     function loadExample() {
+    _snapshot();
       data.nodes = []; data.edges = [];
       const root = mkNode("绿角犀 Office", 0, 0); root.isRoot = true; root.color = "#1e3a5f";
       data.nodes.push(root); data.rootId = root.id;
@@ -376,7 +473,177 @@
       OS.toast("已载入示例脑图", "ok");
     }
 
+    /* ---------- AI 生成脑图（抄 WPS 2026 轻量版：OS.AI.local.outline 转层级）---------- */
+    function loadAIOutline() {
+    _snapshot();
+      const topic = prompt("🤖 AI 生成脑图\n\n请输入主题或关键词（如：产品规划、项目管理、季度报告）", "产品规划");
+      if (!topic) return;
+      OS.toast("AI 正在构思「" + topic + "」…");
+      // 用本地 outline + 解析层级
+      let outline = topic;
+      try {
+        if (OS.AI && OS.AI.local && typeof OS.AI.local.outline === "function") {
+          outline = OS.AI.local.outline(topic);
+        }
+      } catch (e) { console.warn("AI outline 失败，用默认层级", e); }
+      // 解析带编号的层级文本 → 节点树
+      const lines = outline.split("\n").map(l => l.trim()).filter(Boolean);
+      const colors = ["#2563eb", "#0d9488", "#d97706", "#db2777", "#7c3aed", "#dc2626", "#16a34a"];
+      data.nodes = []; data.edges = [];
+      const root = mkNode(topic, 0, 0); root.isRoot = true; root.color = "#1e3a5f";
+      data.nodes.push(root); data.rootId = root.id;
+      // 解析：行首数字/缩进决定层级（一、→ Level 1，1. → Level 2，1.1 → Level 3）
+      const parentStack = [root.id]; // [root, L1, L2, ...]
+      lines.forEach((raw) => {
+        const text = raw.replace(/^[\s\u3000]*[\d一二三四五六七八九十]+[.、．]\s*/, "").trim();
+        if (!text) return;
+        // 估算层级：通过数字前缀判断
+        let level = 0;
+        const m1 = raw.match(/^(\d+)\.(\d+)\.(\d+)/); if (m1) level = 3;
+        else { const m2 = raw.match(/^(\d+)\.(\d+)/); if (m2) level = 2; else if (/^[\d一二三四五六七八九十]+[.、．]/.test(raw)) level = 1; else level = 1; }
+        // 缩进也作为辅助
+        const indent = (raw.match(/^\s*/) || [""])[0].length;
+        if (indent >= 6) level = Math.max(level, 3); else if (indent >=  2) level = Math.max(level, 2);
+        // 调整 parentStack 长度
+        while (parentStack.length > level + 1) parentStack.pop();
+        const pId = parentStack[parentStack.length - 1];
+        const node = mkNode(text, 0, 0, pId);
+        const parent = data.nodes.find(n => n.id === pId);
+        const isBranch = parent && parent.parent === root.id;
+        node.color = isBranch ? colors[(data.nodes.filter(n => n.parent === root.id).length - 1) % colors.length] : "#64748b";
+        data.nodes.push(node);
+        parentStack.push(node.id);
+      });
+      selId = null; mode = "map"; data.mode = "map"; layoutMap(); render(); syncSide(); updateModeBtns(); ctx.markDirty();
+      OS.toast("AI 脑图已生成：" + data.nodes.length + " 个节点", "ok");
+    }
+
     /* ---------- 导入 / 导出 ---------- */
+    const BRANCH_COLORS = ["#2563eb", "#0d9488", "#d97706", "#db2777", "#7c3aed", "#dc2626", "#16a34a"];
+
+    /* ---- XMind .xmind / .xmind.zip 导入 ---- */
+    async function importXmind(file) {
+      try {
+        const buf = await file.arrayBuffer();
+        // JSZip 在 renderer 层通过 require 可用（electron nodeIntegration=true）
+        let JSZip; try { JSZip = require("jszip"); } catch (e) { JSZip = window.JSZip; }
+        if (!JSZip) { OS.toast("需要 JSZip 支持，请联系开发者", "err"); return; }
+        const zip = await JSZip.loadAsync(buf);
+        // XMind v3: content.json 在 content 目录下；v1/v2: 直接在根目录
+        let content;
+        if (zip.files["content.json"]) content = JSON.parse(await zip.files["content.json"].async("string"));
+        else if (zip.files["content/content.json"]) content = JSON.parse(await zip.files["content/content.json"].async("string"));
+        else { OS.toast("不认识的 XMind 文件结构", "err"); return; }
+        if (!Array.isArray(content)) content = [content];
+        // 多画布 XMind 只取第一个
+        const rootTopic = content[0].rootTopic || content[0].rootTopic || content[0];
+        if (!rootTopic || !rootTopic.title) { OS.toast("XMind 根节点找不到", "err"); return; }
+
+        // 递归转换 topic → node
+        data.nodes = []; data.edges = [];
+        let depthIdx = 0;
+        function walkTopic(topic, parentId, depth) {
+          const color = BRANCH_COLORS[depth % BRANCH_COLORS.length];
+          const text = (topic.title || topic.title || topic.text || "").trim();
+          if (!text) return;
+          const isFirst = data.nodes.length === 0;
+          const id = uid("n");
+          data.nodes.push({ id, x: 0, y: 0, text, color: isFirst ? "#1e3a5f" : color, shape: "rounded", fontSize: isFirst ? 16 : 14, parent: parentId, isRoot: isFirst });
+          if (isFirst) data.rootId = id;
+          // 子节点：attached (XMind v3) 或 children (旧格式) 或直接 children
+          const kids = (topic.children && topic.children.attached) || topic.children || topic.subtopics || [];
+          (kids || []).forEach(kt => walkTopic(kt, id, depth + 1));
+        }
+        walkTopic(rootTopic, null, 0);
+        if (!data.nodes.length) { OS.toast("XMind 为空", "err"); return; }
+        data.mode = "map"; selId = null; mode = "map";
+        layoutMap(); render(); syncSide(); updateModeBtns(); ctx.markDirty();
+        OS.toast("已从 XMind 导入 " + data.nodes.length + " 节点", "ok");
+      } catch (err) {
+        console.error("[mindmap] XMind 导入失败:", err);
+        OS.toast("XMind 解析失败：" + err.message, "err");
+      }
+    }
+
+    /* ---- Markdown 大纲导入 ---- */
+    function importMarkdown(file) {
+      file.text().then(t => {
+        try {
+          const lines = t.split("\n");
+          data.nodes = []; data.edges = [];
+          let parentStack = [null]; // parentStack[level] = parentId
+          let rootId = null;
+          let levelCount = {}; // 每个 level 的序号，用于分配颜色
+          for (const raw of lines) {
+            const m = raw.match(/^(#{1,6})\s+(.+)$/);
+            if (!m) continue;
+            const level = m[1].length; // 1-6
+            const text = m[2].trim();
+            // parent = 最近的 < level 的节点
+            let parentId = null;
+            for (let l = level - 1; l >= 1; l--) {
+              if (parentStack[l]) { parentId = parentStack[l]; break; }
+            }
+            const depth = level - 1;
+            const color = BRANCH_COLORS[depth % BRANCH_COLORS.length];
+            const id = uid("n");
+            const isFirst = !rootId;
+            if (isFirst) rootId = id;
+            data.nodes.push({ id, x: 0, y: 0, text, color: isFirst ? "#1e3a5f" : color, shape: "rounded", fontSize: isFirst ? 16 : 14, parent: parentId, isRoot: isFirst });
+            parentStack[level] = id;
+            // 清理更深层的 parent
+            for (let l = level + 1; l <= 6; l++) parentStack[l] = null;
+          }
+          if (!data.nodes.length) { OS.toast("Markdown 里没找到标题 (#)", "err"); return; }
+          data.rootId = rootId; data.mode = "map";
+          selId = null; mode = "map";
+          layoutMap(); render(); syncSide(); updateModeBtns(); ctx.markDirty();
+          OS.toast("已从 Markdown 导入 " + data.nodes.length + " 节点", "ok");
+        } catch (err) { OS.toast("Markdown 解析失败：" + err.message, "err"); }
+      });
+    }
+
+    /* ---- OPML 大纲导入（兼容 OmniOutliner / WorkFlowy） ---- */
+    function importOpml(file) {
+      file.text().then(t => {
+        try {
+          const xml = new DOMParser().parseFromString(t, "text/xml");
+          const parseError = xml.querySelector("parsererror");
+          if (parseError) { OS.toast("OPML XML 解析失败", "err"); return; }
+          data.nodes = []; data.edges = [];
+          let rootId = null;
+          function walkOutline(outline, parentId, depth) {
+            const text = outline.getAttribute("text") || outline.getAttribute("title") || "";
+            if (!text) { // 有些 OPML 的 title 在子 <title> 元素
+              const tEl = outline.getElementsByTagName("title")[0];
+              if (tEl) text = tEl.textContent;
+            }
+            if (!text) return;
+            const color = BRANCH_COLORS[depth % BRANCH_COLORS.length];
+            const id = uid("n");
+            const isFirst = !rootId;
+            if (isFirst) rootId = id;
+            data.nodes.push({ id, x: 0, y: 0, text, color: isFirst ? "#1e3a5f" : color, shape: "rounded", fontSize: isFirst ? 16 : 14, parent: parentId, isRoot: isFirst });
+            outline.childNodes.forEach(child => {
+              if (child.nodeName === "outline") walkOutline(child, id, depth + 1);
+            });
+          }
+          const outlines = xml.getElementsByTagName("outline");
+          // 顶层 outline
+          for (let i = 0; i < outlines.length; i++) {
+            if (!outlines[i].parentElement || outlines[i].parentElement.nodeName !== "outline") {
+              walkOutline(outlines[i], null, 0);
+            }
+          }
+          if (!data.nodes.length) { OS.toast("OPML 为空", "err"); return; }
+          data.rootId = rootId; data.mode = "map";
+          selId = null; mode = "map";
+          layoutMap(); render(); syncSide(); updateModeBtns(); ctx.markDirty();
+          OS.toast("已从 OPML 导入 " + data.nodes.length + " 节点", "ok");
+        } catch (err) { OS.toast("OPML 解析失败：" + err.message, "err"); }
+      });
+    }
+
     function importJson(file) {
       file.text().then(t => {
         try {
@@ -541,7 +808,18 @@
     wrap.querySelector('[data-act="connect"]').addEventListener("click", () => { connectMode = !connectMode; if (!connectMode) connectFrom = null; updateConnectBtn(); render(); });
     wrap.querySelector('[data-act="autolayout"]').addEventListener("click", () => { if (mode === "map") layoutMap(); else fit(); render(); ctx.markDirty(); });
     wrap.querySelector('[data-act="example"]').addEventListener("click", loadExample);
-    importInput.addEventListener("change", e => { const f = e.target.files[0]; if (f) { importJson(f); } e.target.value = ""; });
+    wrap.querySelector('[data-act="ai-outline"]').addEventListener("click", loadAIOutline);
+    importInput.addEventListener("change", e => {
+      const f = e.target.files[0];
+      if (f) {
+        const name = (f.name || "").toLowerCase();
+        if (name.endsWith(".xmind") || name.endsWith(".xmind.zip")) importXmind(f);
+        else if (name.endsWith(".md") || name.endsWith(".markdown")) importMarkdown(f);
+        else if (name.endsWith(".opml") || name.endsWith(".opml.xml")) importOpml(f);
+        else importJson(f);
+      }
+      e.target.value = "";
+    });
     wrap.querySelector('[data-z="in"]').addEventListener("click", () => zoomBy(1.15));
     wrap.querySelector('[data-z="out"]').addEventListener("click", () => zoomBy(1 / 1.15));
     wrap.querySelector('[data-z="fit"]').addEventListener("click", fit);
@@ -631,7 +909,12 @@
       serialize, exportAs,
       focus() { wrap.focus(); },
       ribbon,
-      destroy() { if (mmSelbar) mmSelbar.destroy(); closeEditor(); if (ribbon.el) ribbon.el.remove(); wrap.remove(); }
+      destroy() { if (mmSelbar) mmSelbar.destroy(); closeEditor(); if (ribbon.el) ribbon.el.remove(); wrap.remove(); },
+      // ↓↓ UndoManager 接入
+      undo: _undo,
+      redo: _redo,
+      canUndo: _canUndo,
+      canRedo: _canRedo
     };
   }
 
@@ -671,8 +954,60 @@
     return '<?xml version="1.0" encoding="UTF-8"?>\n<ofd:Content xmlns:ofd="http://www.ofdspec.org/2016">\n' + paras + '\n</ofd:Content>';
   }
 
-  OS.modules = OS.modules || {};
-  OS.modules.mindmap = { type: "mindmap", blank, mount, toMarkdown, toDocxHtml, toOfdXml, _buildTree };
+  function _undoCore(initialData, options) {
+    const {
+      onRestore = () => {},
+      maxStack = 100
+    } = options || {};
+
+    const undoStack = [], redoStack = [];
+    let pending = null;   // 上一次 markDirty 时的 data clone（"mutation 后"状态）
+    // 双次提交模式：
+    //   1st markDirty:  pending = clone(data)          // 存下当前状态
+    //   2nd markDirty:  undoStack.push(pending);       // pending 是上一次状态 = undo 目标
+    //                   pending = clone(data)          // 再存当前
+    // undo() 前 commitSnap() 把 pending 入栈，pop 出上上一次状态
+
+    function snapshot() {
+      // snapshot() 是 mutation **之前**调的（spreadsheet 风格），立即入栈
+      undoStack.push(JSON.parse(JSON.stringify(initialData)));
+      if (undoStack.length > maxStack) undoStack.shift();
+      redoStack.length = 0;
+    }
+
+    // 深恢复：先清空所有旧 key 再 Object.assign（避免数组引用残留）
+    function _restoreFrom(snapClone) {
+      Object.keys(initialData).forEach((k) => delete initialData[k]);
+      Object.assign(initialData, snapClone);
+    }
+
+    function undo() {
+      if (!undoStack.length) return false;
+      redoStack.push(JSON.parse(JSON.stringify(initialData)));
+      _restoreFrom(undoStack.pop());
+      onRestore("undo");
+      return true;
+    }
+
+    function redo() {
+      if (!redoStack.length) return false;
+      undoStack.push(JSON.parse(JSON.stringify(initialData)));
+      _restoreFrom(redoStack.pop());
+      onRestore("redo");
+      return true;
+    }
+
+    function canUndo() { return undoStack.length > 0; }
+    function canRedo() { return redoStack.length > 0; }
+    function stackSize() { return { undo: undoStack.length, redo: redoStack.length }; }
+
+    // 额外暴露 markDirty/commitSnap 给 mindmap mount 闭包 hook（但 mount 里已不用 hook 了）
+    function markDirty() { snapshot(); }       // 兼容旧接口
+    function commitSnap() { /* 已无 pending，空操作 */ }
+
+    return { snapshot, markDirty, commitSnap, undo, redo, canUndo, canRedo, stackSize };
+  }OS.modules = OS.modules || {};
+  OS.modules.mindmap = { type: "mindmap", blank, mount, toMarkdown, toDocxHtml, toOfdXml, _buildTree, _undoCore };
   OS.blankDoc = (function (orig) {
     return function (t) { if (t === "mindmap") return blank(); return orig ? orig(t) : { type: t, data: {} }; };
   })(OS.blankDoc);

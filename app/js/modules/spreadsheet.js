@@ -1691,6 +1691,71 @@
       onApplied() {}
     });
 
+    /* ---------- AI 浮动工具面板（spreadsheet 专属：自然语言→公式） ---------- */
+    (function initSheetAiTools() {
+      const panel = document.createElement("div");
+      panel.className = "sheet-ai-panel";
+      panel.innerHTML = `
+        <div class="sheet-ai-head">🤖 AI 公式
+          <button class="sheet-ai-close" title="收起">▾</button>
+        </div>
+        <div class="sheet-ai-body">
+          <input class="sheet-ai-input" placeholder="输入自然语言，如：求 A 列总和" />
+          <div class="sheet-ai-suggests">
+            <button class="sheet-ai-sug" title="=SUM(A1:A10)">求 A 列总和</button>
+            <button class="sheet-ai-sug" title="=AVERAGE(A1:A10)">求平均值</button>
+            <button class="sheet-ai-sug" title="=RANK(A1, A1:A10)">排名</button>
+            <button class="sheet-ai-sug" title="=IF(条件, 真值, 假值)">条件判断</button>
+          </div>
+          <button class="sheet-ai-gen">✨ 生成公式</button>
+        </div>
+      `;
+      panel.style.cssText = "position:absolute;top:8px;right:8px;z-index:20;background:var(--bg2,#fff);border:1px solid var(--rule,#ddd);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);font-size:13px;max-width:220px;";
+      panel.querySelector(".sheet-ai-head").style.cssText = "padding:8px 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--rule,#eee);";
+      panel.querySelector(".sheet-ai-close").style.cssText = "background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;";
+      panel.querySelector(".sheet-ai-body").style.cssText = "display:flex;flex-direction:column;gap:6px;padding:8px;";
+      const input = panel.querySelector(".sheet-ai-input");
+      input.style.cssText = "padding:6px 10px;border:1px solid var(--rule,#ddd);border-radius:6px;font-size:13px;width:100%;box-sizing:border-box;outline:none;";
+      const sugDiv = panel.querySelector(".sheet-ai-suggests");
+      sugDiv.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;";
+      panel.querySelectorAll(".sheet-ai-sug").forEach(b => {
+        b.style.cssText = "padding:3px 8px;border:1px solid var(--rule,#ddd);background:transparent;border-radius:12px;cursor:pointer;font-size:11px;color:var(--muted,#666);";
+        b.onclick = () => { input.value = b.textContent; };
+      });
+      const genBtn = panel.querySelector(".sheet-ai-gen");
+      genBtn.style.cssText = "padding:8px;background:var(--accent,#2563eb);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;";
+      wrap.appendChild(panel);
+
+      // 收起/展开
+      let collapsed = false;
+      panel.querySelector(".sheet-ai-close").onclick = () => {
+        collapsed = !collapsed;
+        panel.querySelector(".sheet-ai-body").style.display = collapsed ? "none" : "flex";
+        panel.querySelector(".sheet-ai-close").textContent = collapsed ? "▴" : "▾";
+      };
+
+      // 生成公式
+      function doGen() {
+        const desc = input.value.trim();
+        if (!desc) { OS.toast("请输入描述", "warn"); return; }
+        if (!OS.AI || !OS.AI.local || !OS.AI.local.toTableFormula) { OS.toast("AI 引擎未就绪", "err"); return; }
+        const formula = OS.AI.local.toTableFormula(desc);
+        // 写入当前选中单元格
+        const curTd = table.querySelector('td[contenteditable="true"]');
+        if (curTd) {
+          curTd.textContent = formula;
+          const ref = curTd.dataset.ref;
+          commit(ref, formula);
+          paint();
+          OS.toast(`已生成公式：${formula}`, "ok");
+        } else {
+          OS.toast("请先选中一个单元格", "warn");
+        }
+      }
+      genBtn.onclick = doGen;
+      input.addEventListener("keydown", e => { if (e.key === "Enter") doGen(); });
+    })();
+
     /* ---------------- 多工作表 + 冻结窗格 ---------------- */
     function bindAliases() {
       const sh = data.sheets[data.activeSheet];

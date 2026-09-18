@@ -61,7 +61,7 @@
     const ac = el.querySelector("#pf-account"); if (ac) ac.addEventListener("click", openAcct);
     const lo = el.querySelector("#pf-logout");
     if (lo) lo.addEventListener("click", async () => {
-      if (confirm("确定退出当前账号？")) { try { await OS.auth.logout(); } catch (e) {} await render(el); }
+      if (confirm("确定退出当前账号？")) { try { await OS.auth.logout(); } catch (e) { console.warn("[Profile] 操作失败:", e); } await render(el); }
     });
 
     el.querySelector("#pf-theme").addEventListener("change", e => OS.theme.set(e.target.checked ? "dark" : "light"));

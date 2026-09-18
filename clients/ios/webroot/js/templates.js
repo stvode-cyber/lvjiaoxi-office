@@ -140,11 +140,11 @@
 
     /* Presentation */
     { id: "pres-blank", module: "presentation", name: "空白演示", desc: "从空白幻灯片开始", accent: "#7c3aed", thumb: thumbPres("#7c3aed"),
-      build: () => ({ slides: [{ bg: "#ffffff", elements: [{ id: uid("el"), type: "text", x: 220, y: 170, w: 320, h: 90, text: "点击编辑标题", fontSize: 32, color: "#111827", bold: true }] }] }) },
+      build: () => ({ slides: [{ bg: "#ffffff", elements: [{ id: uid("el"), type: "text", x: 220, y: 170, w: 320, h: 90, text: "点击编辑标题", fontSize: 32, color:OS.theme.getVar("undefined"), bold: true }] }] }) },
     { id: "pres-business", module: "presentation", name: "商务汇报", desc: "封面 + 内容 + 结尾", accent: "#7c3aed", thumb: thumbPres("#7c3aed"),
       build: () => ({ slides: [
         { bg: "#1e3a5f", elements: [
-          { id: uid("el"), type: "text", x: 120, y: 150, w: 520, h: 80, text: "季度业务汇报", fontSize: 40, color: "#ffffff", bold: true },
+          { id: uid("el"), type: "text", x: 120, y: 150, w: 520, h: 80, text: "季度业务汇报", fontSize: 40, color:OS.theme.getVar("undefined"), bold: true },
           { id: uid("el"), type: "text", x: 120, y: 240, w: 520, h: 40, text: "2026 Q3 · 战略与执行", fontSize: 20, color: "#cbd5e1" }
         ] },
         { bg: "#ffffff", elements: [
@@ -152,7 +152,7 @@
           { id: uid("el"), type: "text", x: 60, y: 120, w: 640, h: 200, text: "• 营收同比增长 18%\n• 新签客户 120 家\n• 产品 NPS 提升至 62", fontSize: 18, color: "#334155" }
         ] },
         { bg: "#1e3a5f", elements: [
-          { id: uid("el"), type: "text", x: 240, y: 185, w: 280, h: 60, text: "谢谢观看", fontSize: 36, color: "#ffffff", bold: true }
+          { id: uid("el"), type: "text", x: 240, y: 185, w: 280, h: 60, text: "谢谢观看", fontSize: 36, color:OS.theme.getVar("undefined"), bold: true }
         ] }
       ] }) },
     { id: "pres-lesson", module: "presentation", name: "教学课件", desc: "标题 + 要点 + 小结", accent: "#7c3aed", thumb: thumbPres("#7c3aed"),

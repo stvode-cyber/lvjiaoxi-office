@@ -161,6 +161,7 @@
   function getInflater(opts) {
     if (opts && typeof opts.inflate === "function") return opts.inflate;
     try {
+      // 使用 Node zlib — renderer 层保留 nodeIntegration 以提升 PDF/Excel 处理性能
       const zlib = require("zlib");
       return (buf) => {
         const b = (buf instanceof Uint8Array) ? Buffer.from(buf) : Buffer.from(buf);

@@ -798,6 +798,163 @@
       canRedo,
       destroy() { if (presSelbar) presSelbar.destroy(); if (presenterEl) presenterEl.remove(); if (ribbon.el) ribbon.el.remove(); wrap.remove(); }
     };
+
+    /* ============================================================
+       🤖 AI 幻灯片生成面板（text → slides）
+       输入主题/段落 → AI 生成大纲 → 拆成 slides JSON → 插入到当前文档
+       本地走 local.outline()，云端走 run() 调用大模型
+       ============================================================ */
+    (function initPresAiPanel() {
+      const panel = document.createElement("div");
+      panel.className = "pres-ai-panel";
+      panel.innerHTML = `
+        <div class="pres-ai-head">🤖 AI 生成
+          <button class="pres-ai-close" title="收起">▾</button>
+        </div>
+        <div class="pres-ai-body">
+          <textarea class="pres-ai-text" rows="4" placeholder="输入主题或几段文字，AI 会自动拆成幻灯片..."></textarea>
+          <div class="pres-ai-actions">
+            <label class="pres-ai-source">
+              <input type="checkbox" class="pres-ai-cloud" /> 云端（大模型）
+            </label>
+            <button class="pres-ai-gen">✨ 生成幻灯片</button>
+          </div>
+          <div class="pres-ai-preview" hidden>
+            <div class="pres-ai-preview-title">预览大纲</div>
+            <pre class="pres-ai-outline"></pre>
+            <div class="pres-ai-preview-actions">
+              <button class="pres-ai-confirm">📥 导入到当前文档</button>
+              <button class="pres-ai-regen">🔄 重新生成</button>
+            </div>
+          </div>
+        </div>
+      `;
+      panel.style.cssText = "position:absolute;top:8px;right:8px;z-index:20;background:var(--bg2,#fff);border:1px solid var(--rule,#ddd);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);font-size:13px;max-width:280px;";
+      panel.querySelector(".pres-ai-head").style.cssText = "padding:8px 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--rule,#eee);";
+      panel.querySelector(".pres-ai-close").style.cssText = "background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;";
+      panel.querySelector(".pres-ai-body").style.cssText = "display:flex;flex-direction:column;gap:6px;padding:8px;";
+      const ta = panel.querySelector(".pres-ai-text");
+      ta.style.cssText = "padding:6px 10px;border:1px solid var(--rule,#ddd);border-radius:6px;font-size:13px;width:100%;box-sizing:border-box;outline:none;resize:vertical;font-family:inherit;";
+      const actions = panel.querySelector(".pres-ai-actions");
+      actions.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;";
+      const genBtn = panel.querySelector(".pres-ai-gen");
+      genBtn.style.cssText = "padding:7px 14px;background:var(--accent,#2563eb);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;";
+      const srcLabel = panel.querySelector(".pres-ai-source");
+      srcLabel.style.cssText = "font-size:12px;color:var(--muted,#666);display:flex;align-items:center;gap:4px;cursor:pointer;";
+      const preview = panel.querySelector(".pres-ai-preview");
+      preview.style.cssText = "border-top:1px solid var(--rule,#eee);padding-top:8px;margin-top:6px;";
+      panel.querySelector(".pres-ai-preview-title").style.cssText = "font-size:12px;color:var(--muted,#666);margin-bottom:4px;";
+      const outlineEl = panel.querySelector(".pres-ai-outline");
+      outlineEl.style.cssText = "background:#f5f5f5;padding:8px;border-radius:4px;font-size:12px;white-space:pre-wrap;max-height:160px;overflow-y:auto;margin:0 0 6px 0;";
+      panel.querySelector(".pres-ai-preview-actions").style.cssText = "display:flex;gap:6px;";
+      panel.querySelector(".pres-ai-confirm").style.cssText = "flex:1;padding:6px;background:var(--accent,#2563eb);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;";
+      panel.querySelector(".pres-ai-regen").style.cssText = "padding:6px 10px;background:transparent;border:1px solid var(--rule,#ddd);border-radius:4px;cursor:pointer;font-size:12px;";
+
+      wrap.appendChild(panel);
+
+      // 收起/展开
+      let collapsed = false;
+      panel.querySelector(".pres-ai-close").onclick = () => {
+        collapsed = !collapsed;
+        panel.querySelector(".pres-ai-body").style.display = collapsed ? "none" : "flex";
+        panel.querySelector(".pres-ai-close").textContent = collapsed ? "▴" : "▾";
+      };
+
+      let lastOutline = null;
+
+      // 生成大纲
+      async function doGenerate() {
+        const text = ta.value.trim();
+        if (!text) { OS.toast("请输入主题或内容", "warn"); return; }
+        const useCloud = panel.querySelector(".pres-ai-cloud").checked;
+        genBtn.disabled = true;
+        genBtn.textContent = "生成中...";
+        try {
+          let outlineText;
+          if (useCloud && typeof OS.AI.run === "function" && OS.AI.getProvider && OS.AI.getProvider()) {
+            const result = await OS.AI.run({
+              mode: "outline",
+              system: "你是一个演示文稿大纲生成助手。根据用户输入的主题或文本，生成 3-6 页的幻灯片大纲。每页一行，用「#」标记标题页，「##」标记内容页。每页包含简短的标题和 2-4 个要点。",
+              user: text,
+              onDelta: null,
+              allowCloud: true
+            });
+            outlineText = result.text;
+          } else {
+            outlineText = OS.AI.local ? OS.AI.local.outline(text) : "无法生成";
+          }
+          lastOutline = outlineText;
+          outlineEl.textContent = outlineText;
+          preview.hidden = false;
+          OS.toast("大纲生成完成（" + (useCloud ? "云端" : "本地") + "）", "ok");
+        } catch (e) {
+          OS.toast("生成失败：" + e.message, "err");
+        } finally {
+          genBtn.disabled = false;
+          genBtn.textContent = "✨ 生成幻灯片";
+        }
+      }
+      genBtn.onclick = doGenerate;
+      panel.querySelector(".pres-ai-regen").onclick = () => { preview.hidden = true; doGenerate(); };
+
+      // 确认导入
+      panel.querySelector(".pres-ai-confirm").onclick = () => {
+        if (!lastOutline) { OS.toast("请先生成大纲", "warn"); return; }
+        const slides = _outlineToSlides(lastOutline);
+        if (!slides.length) { OS.toast("无法解析大纲", "err"); return; }
+        snapshot();
+        for (let i = 0; i < slides.length; i++) {
+          data.slides.splice(cur + 1 + i, 0, slides[i]);
+        }
+        cur += slides.length;
+        renderAll();
+        ctx.markDirty();
+        preview.hidden = true;
+        OS.toast(`已生成 ${slides.length} 页幻灯片`, "ok");
+      };
+
+      /** 大纲文本 → slides 数组 */
+      function _outlineToSlides(text) {
+        const slides = [];
+        const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+        let curTitle = null, curBullets = [];
+
+        function flush() {
+          if (!curTitle && curBullets.length === 0) return;
+          const slide = {
+            bg: "#ffffff", notes: "",
+            transition: { type: "none", duration: 500 },
+            layout: "title-content",
+            elements: []
+          };
+          if (curTitle) {
+            slide.elements.push({ id: OS.util.uid("el"), type: "text", x: 60, y: 50, w: 640, h: 60, text: curTitle, fontSize: 28, fontWeight: "bold", color: "#111827", align: "left" });
+          }
+          curBullets.slice(0, 5).forEach((b, i) => {
+            slide.elements.push({ id: OS.util.uid("el"), type: "text", x: 60, y: 140 + i * 44, w: 640, h: 36, text: "• " + b, fontSize: 16, color: "#374151", align: "left" });
+          });
+          slides.push(slide);
+        }
+
+        for (const ln of lines) {
+          const h = ln.match(/^#{1,2}\s*(.+)$/);
+          if (h) { flush(); curTitle = h[1].trim(); curBullets = []; continue; }
+          const b = ln.match(/^[\d]+[\.\、\)]\s*(.+)$/) || ln.match(/^[\-\*\u2022]\s*(.+)$/);
+          if (b) { curBullets.push(b[1].trim()); continue; }
+          if (!curTitle || curBullets.length > 0) {
+            if (ln.length <= 30 && !curTitle) { flush(); curTitle = ln; }
+            else { curBullets.push(ln); }
+          }
+        }
+        flush();
+        if (slides.length === 0 && lines.length > 0) {
+          for (let i = 0; i < lines.length; i += 3) {
+            slides.push({ bg: "#ffffff", notes: "", transition: { type: "none", duration: 500 }, layout: "title-content", elements: [{ id: OS.util.uid("el"), type: "text", x: 60, y: 50, w: 640, h: 60, text: lines[i].slice(0, 30), fontSize: 24, fontWeight: "bold", color: "#111827", align: "left" }] });
+          }
+        }
+        return slides;
+      }
+    })();
   }
 
   OS.modules = OS.modules || {};

@@ -88,7 +88,7 @@
   function cancel(id) {
     const t = get(id); if (!t || t.status !== "running") return;
     t.status = "canceled";
-    if (t._onCancel) { try { t._onCancel(); } catch (e) {} }
+    if (t._onCancel) { try { t._onCancel(); } catch (e) { console.warn("[Tasks] 操作失败:", e); } }
     render();
     OS.toast("已取消：" + t.title, "warn");
   }
@@ -120,7 +120,8 @@
 
     const settle = (status, toastMsg, toastKind) => {
       t.status = status;
-      if (status === "done") t.progress = 1;
+      if (status === "done") { t.progress = 1; t.step = "完成"; }
+      else if (status === "error") t.step = "失败";
       render();
       if (status !== "running" && activeCount() === 0 && !opts.quiet) {
         setTimeout(() => { if (activeCount() === 0) hidePanel(); }, 2600);
@@ -128,10 +129,26 @@
       if (!opts.quiet && toastMsg) OS.toast(toastMsg, toastKind || (status === "error" ? "err" : "ok"));
     };
 
-    Promise.resolve()
-      .then(() => fn(reporter))
-      .then(() => settle("done", opts.doneMsg || null))
+    // === 全局 timeout 兜底：任何 await 永不 settle 也能让任务结束 ===
+    // 默认 60s，opts.timeout 覆盖；0 = 不超时
+    const defaultTimeout = 60000;
+    const timeoutMs = opts.timeout != null ? opts.timeout : defaultTimeout;
+    let settled = false;
+    function _wrap(promise) {
+      return new Promise((resolve, reject) => {
+        let done = false;
+        const finish = (ok, val) => { if (done || settled) return; done = true; if (ok) resolve(val); else reject(val); };
+        if (timeoutMs > 0) {
+          setTimeout(() => { finish(false, new Error("任务超时 " + (timeoutMs / 1000) + "s")); }, timeoutMs);
+        }
+        promise.then(v => finish(true, v), e => finish(false, e));
+      });
+    }
+
+    _wrap(Promise.resolve().then(() => fn(reporter)))
+      .then(() => { settled = true; settle("done", opts.doneMsg || null); })
       .catch(err => {
+        settled = true;
         t.error = err && err.message ? err.message : String(err);
         settle("error", "任务失败：" + t.error);
       });

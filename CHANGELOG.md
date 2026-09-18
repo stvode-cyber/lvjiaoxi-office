@@ -6,6 +6,20 @@
 
 ***
 
+
+## v1.1.1 · 2026-09-18
+
+**XMind / PDF 导入全链路修复 + 大文件稳定性 + 360 安全软件兼容**
+
+- 🧠 XMind 导入卡 95%：Tasks.run.settle 后 step 文字自动 → "完成"；shell.js 进度值合理分配（保存=0.95，渲染不提前设 1.0）
+- 📄 PDF 打不开：Electron CSP 拦截 data: URL → getDocument({ data: Uint8Array })；script 顺序 pdf-anno → pdf.js；pdf-app.js 加 PDFStore alias
+- 📊 36MB PPTX 崩：JSZip.loadAsync timeout 10s → 30s；parsePptx 所有 zip.file().async() 加 null 防御
+- 🛡️ GPU 禁用：pp.disableHardwareAcceleration() + --disable-gpu，解决 360 安全软件冲突
+- 🧠 mindmap.js 2501 节点 NaN path 防御 + O(N²) → O(1) 索引优化
+
+**门禁**: 4/4 XMind + PDF + 36MB PPTX 全通过
+***
+
 ## 版本总览
 
 | 版本      | 日期         | 一句话                                  | 门禁         |
@@ -243,5 +257,6 @@ DOCX 完整样式增强（fontSize/fontFamily/highlight/sup/sub/align/indent/spa
 | 发布 1.0.16 到 VPS            | ⛔ 待用户侧           | 沙箱→`8.149.245.252` 全端口被出口防火墙丢弃，SSH/HTTPS 均超时；双击 `scripts/publish-latest.bat` |
 | Android APK                | ⛔ 环境无 SDK/gradle | 未伪造；`clients/android/app/build` 已移出 git 索引                                   |
 | PDF→DOCX/TXT/MD/Excel 版面还原 | 🟢 已改进           | 段落合并 + 列表检测 + 多级标题已实现；仍非像素级                                                  |
+
 
 

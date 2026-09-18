@@ -120,9 +120,10 @@
   }
 
   function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[c]));
+    // 转发统一实现 — OS.util.escapeHtml（OS.util 未就绪时走内置 fallback）
+    const u = (global.OS && OS.util);
+    if (u && u.escapeHtml) return u.escapeHtml(s);
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   /** 生成按天分组的 Markdown 报告。 */

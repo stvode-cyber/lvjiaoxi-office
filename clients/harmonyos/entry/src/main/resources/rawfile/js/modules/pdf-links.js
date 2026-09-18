@@ -180,9 +180,10 @@
   }
 
   function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[c]));
+    // 转发统一实现 — OS.util.escapeHtml（OS.util 未就绪时走内置 fallback）
+    const u = (global.OS && OS.util);
+    if (u && u.escapeHtml) return u.escapeHtml(s);
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   const SRC_LABEL = { annotation: "标注", outline: "大纲", action: "动作" };
@@ -224,7 +225,7 @@
       const badge = l.kind === "uri" ? (SRC_LABEL[l.source] || "链接") : "跳转";
       const page = l.page != null ? `第 ${l.page} 页` : "—";
       const body = l.kind === "uri"
-        ? `<a href="${escapeHtml(l.target)}" target="_blank" rel="noopener" style="color:#2563eb;word-break:break-all">${escapeHtml(l.target)}</a>`
+        ? `<a href="${escapeHtml(l.target)}" target="_blank" rel="noopener" style="color:OS.theme.getVar("--accent");word-break:break-all">${escapeHtml(l.target)}</a>`
         : `<span style="word-break:break-all">${escapeHtml(l.target)}</span>`;
       parts.push(
         `<div style="padding:6px 8px;border-bottom:1px solid #eee;font-size:13px;display:flex;gap:8px;align-items:baseline">` +

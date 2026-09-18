@@ -8,6 +8,7 @@
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
 
   const E = window.PDFEngine;
+  const PDFStore = window.OS && window.OS.PDFStore;
   const PDF$ = (s) => document.querySelector(s);
 
   const sidebar = PDF$('#sidebar');
@@ -262,7 +263,7 @@
       fields: [
         { key: 'file', label: '选择 PDF', type: 'file', accept: 'application/pdf' },
         { key: 'mode', label: '背景类型', type: 'select', options: [ { value: 'color', label: '纯色' }, { value: 'image', label: '图片' } ] },
-        { key: 'color', label: '背景颜色', type: 'color', value: '#ffffff', group: 'color' },
+        { key: 'color', label: '背景颜色', type: 'color', value: 'OS.theme.getVar("--bg2")', group: 'color' },
         { key: 'image', label: '背景图片', type: 'file', accept: 'image/*', group: 'image' },
         { key: 'fit', label: '图片适配', type: 'select', options: [ { value: 'cover', label: '拉伸铺满整页' }, { value: 'tile', label: '按原尺寸平铺' } ], group: 'image' },
         { key: 'scope', label: '作用范围', type: 'select', options: [ { value: 'all', label: '全部页面' }, { value: 'custom', label: '指定页' } ] },
@@ -288,7 +289,7 @@
       },
       run: async (v, onProgress) => {
         if (!v.file) throw new Error('请选择 PDF');
-        const opts = { mode: v.mode || 'color', color: v.color || '#ffffff', password: v.password };
+        const opts = { mode: v.mode || 'color', color: v.color || 'OS.theme.getVar("--bg2")', password: v.password };
         if (opts.mode === 'image') {
           if (!v.image) throw new Error('请选择背景图片');
           opts.imageBytes = new Uint8Array(await v.image.arrayBuffer());
@@ -984,7 +985,7 @@
         { key: 'opacity', label: '不透明度', type: 'range', min: 0.1, max: 1, step: 0.05, value: 0.95 },
       ],
       run: async (v, onProgress) => {
-        let pts = []; try { pts = JSON.parse(v.points || '[]'); } catch (e) {}
+        let pts = []; try { pts = JSON.parse(v.points || '[]'); } catch (e) { console.error("[pdf-app] 操作失败:", e); }
         if (!pts.length) throw new Error('请先在预览上拖拽绘制手绘线');
         const b = await E.addVectorAnnotation({ file: v.file }, {
           type: 'ink', page: Number(v.page) || 1, points: pts,
@@ -1180,7 +1181,7 @@
         { key: 'fontSizeMM', label: '字号 (mm)', type: 'number', value: 5 },
         { key: 'lineHeightMM', label: '行距 (mm)', type: 'number', value: 9 },
         { key: 'margin', label: '页边距 (mm)', type: 'number', value: 15 },
-        { key: 'color', label: '文字颜色', type: 'color', value: '#000000' },
+        { key: 'color', label: '文字颜色', type: 'color', value: 'OS.theme.getVar("--ink")' },
         { key: 'password', label: '当前密码（若已加密）', type: 'password' },
       ],
       run: async (v, onProgress) => {
@@ -1199,7 +1200,7 @@
           fontSizeMM: Number(v.fontSizeMM) || 5,
           lineHeightMM: Number(v.lineHeightMM) || 9,
           margin: Number(v.margin) || 15,
-          color: v.color || '#000000',
+          color: v.color || 'OS.theme.getVar("--ink")',
           password: v.password,
         }, onProgress);
         const res = single('table-of-contents.pdf', out.bytes);
@@ -2727,7 +2728,7 @@
         const mmw = (tw / PT_PER_MM).toFixed(0), mmh = (th / PT_PER_MM).toFixed(0);
         ctx.fillText(`目标 ${mmw}×${mmh}mm · ${fit}`, 6, 16);
         ctx.restore();
-      });
+      }).catch(e => console.error("[PdfApp] 渲染预览失败:", e));
     }
 
     async function init(file) {
@@ -3213,7 +3214,7 @@
       const r = page.getViewport({ scale });
       previewCanvas.width = r.width; previewCanvas.height = r.height;
       await page.render({ canvasContext: previewCanvas.getContext('2d'), viewport: r }).promise;
-    } catch (_) {}
+    } catch (_) { console.error("[pdf-app] 操作失败:", e); }
   }
 
   function goPrev() { if (state.currentPage > 1) renderPreviewPage(state.currentPage - 1); }
@@ -3231,7 +3232,7 @@
       const r = page.getViewport({ scale });
       canvas.width = r.width; canvas.height = r.height;
       await page.render({ canvasContext: canvas.getContext('2d'), viewport: r }).promise;
-    } catch (_) {}
+    } catch (_) { console.error("[pdf-app] 操作失败:", e); }
   }
 
   /* ---------------- 绑定 ---------------- */
@@ -3311,16 +3312,23 @@
   }
 
 
-  window.PDFToolbox = {
+  OS = window.OS || {}; OS.PDFToolbox = {
+    _initialized: false,
     open: function() {
       var root = document.getElementById('pdfToolboxRoot');
+      if (!root) return;
       var dash = document.getElementById('dashboard');
       var ed = document.getElementById('editor');
-      if (!root) return;
       root.hidden = false;
       if (dash) dash.hidden = true;
       if (ed) ed.hidden = true;
-      // 触发一次 resize 让 canvas 正确渲染
+      // 延迟初始化：pdf.js mount 创建 DOM 骨架后由 open 触发原项目 UI 渲染
+      if (!this._initialized) {
+        try { buildSidebar(); } catch(_e) { console.warn('[PDF] buildSidebar:', _e.message); }
+        try { buildHome(); } catch(_e) { console.warn('[PDF] buildHome:', _e.message); }
+        try { showHome(); } catch(_e) { console.warn('[PDF] showHome:', _e.message); }
+        this._initialized = true;
+      }
       setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 100);
     },
     close: function() {

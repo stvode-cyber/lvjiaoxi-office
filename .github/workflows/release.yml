@@ -80,6 +80,7 @@ jobs:
         env:
           LVJX_UPDATE_FEED: ${{ vars.LVJX_UPDATE_FEED }}
         run: |
+          # TODO: [坑-csc-link] 预防：所有 CI secrets 必须 if guard，空值禁止注入（electron-builder 会当文件路径崩溃）
           # 仅在提供证书签名 secret 时注入，避免空值被 electron-builder 当文件路径解析崩溃
           if [ -n "${{ secrets.WINDOWS_CSC_LINK }}" ]; then
             export CSC_LINK="${{ secrets.WINDOWS_CSC_LINK }}"

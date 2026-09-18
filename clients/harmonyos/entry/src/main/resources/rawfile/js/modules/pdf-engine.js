@@ -1,4 +1,4 @@
-﻿/* =========================================================================
+/* =========================================================================
  * 绿角犀 PDF · 跨平台引擎层 (engine.js)
  * 纯客户端实现：合并 / 拆分 / 旋转 / 删除 / 重排 / 提取
  *               加密 / 解密 / 权限
@@ -74,7 +74,7 @@
   };
 
   function hexToRgb(hex) {
-    hex = (hex || '#000000').replace('#', '');
+    hex = (hex || 'OS.theme.getVar("--ink")').replace('#', '');
     if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');
     const n = parseInt(hex, 16);
     return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
@@ -342,7 +342,7 @@
   }
 
   // P6-③ 页面背景：给页面加纯色或图片背景，绘制在现有内容「下层」（按 /Contents 顺序前置，故显示为背景）。
-  // opts: { mode:'color'|'image', color:'#RRGGBB'(默认 #ffffff), imageBytes:Uint8Array, fit:'cover'|'tile'(仅 image),
+  // opts: { mode:'color'|'image', color:'#RRGGBB'(默认 OS.theme.getVar("--bg2")), imageBytes:Uint8Array, fit:'cover'|'tile'(仅 image),
   //         pages:number[] (1-based) | pageRanges:'1-3,5' | 缺省=全部, password }
   // 返回 { bytes }。纯本地、文件不上传。
   async function setPageBackground(file, opts, onProgress) {
@@ -377,7 +377,7 @@
     }
 
     const f = (n) => Number(n).toFixed(3);
-    const col = hexToRgb(opts.color || '#ffffff');
+    const col = hexToRgb(opts.color || 'OS.theme.getVar("--bg2")');
     const fit = opts.fit === 'tile' ? 'tile' : 'cover';
 
     for (let ti = 0; ti < targets.length; ti++) {
@@ -498,7 +498,7 @@
         }
         for (const s of streams) {
           let raw = null;
-          try { if (typeof s.getContents === 'function') raw = s.getContents(); } catch (e) {}
+          try { if (typeof s.getContents === 'function') raw = s.getContents(); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
           if (!raw && s.contents) raw = s.contents;
           if (!raw || raw.length === 0) continue;
           const txt = Buffer.from(raw).toString('latin1');
@@ -567,7 +567,7 @@
     const b0 = raw[0], b1 = raw[1];
     const isFlate = (b0 === 0x78) && (b1 === 0x01 || b1 === 0x9c || b1 === 0xda);
     if (!isFlate) return raw;
-    if (typeof require === 'function') { try { return new Uint8Array(require('zlib').inflateSync(Buffer.from(raw))); } catch (e) {} }
+    if (typeof require === 'function') { try { return new Uint8Array(require('zlib').inflateSync(Buffer.from(raw))); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } }
     if (typeof DecompressionStream !== 'undefined') {
       try {
         const ds = new DecompressionStream('deflate');
@@ -577,7 +577,7 @@
         let l = 0; for (const p of parts) l += p.length;
         const o = new Uint8Array(l); let o2 = 0; for (const p of parts) { o.set(p, o2); o2 += p.length; }
         return o;
-      } catch (e) {}
+      } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     }
     return raw;
   }
@@ -609,7 +609,7 @@
     // 1) 内容流：getContents() 取字节（本打包版仍带 Flate 头）→ 解压 → 归一资源名 → 哈希
     for (const s of collectContentStreams(node, ctx)) {
       let raw = null;
-      try { if (typeof s.getContents === 'function') raw = await s.getContents(); } catch (e) {}
+      try { if (typeof s.getContents === 'function') raw = await s.getContents(); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       if (!raw && s.contents) raw = s.contents;
       if (!raw || raw.length === 0) continue;
       const dec = await maybeInflate(raw);
@@ -629,7 +629,7 @@
             const ref = xod.lookup(PDFName.of(stripSlash(nm)));
             const obj = (ref instanceof PDFRef) ? ctx.lookup(ref) : ref;
             if (obj && typeof obj.getContents === 'function') {
-              let raw = null; try { raw = await obj.getContents(); } catch (e) {}
+              let raw = null; try { raw = await obj.getContents(); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
               if (!raw && obj.contents) raw = obj.contents;
               if (raw && raw.length) imgBytesList.push(raw);
             }
@@ -1588,7 +1588,7 @@
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
       let annotsArr;
-      try { annotsArr = page.node.lookup(PDFName.of('Annots')); } catch (e) {}
+      try { annotsArr = page.node.lookup(PDFName.of('Annots')); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       if (!annotsArr || typeof annotsArr.size !== 'function') continue;
 
       for (let j = 0; j < annotsArr.size(); j++) {
@@ -1634,7 +1634,7 @@
                   if (first && typeof first.asNumber === 'function') {
                     targetPage = first.asNumber() + 1; // 1基
                   }
-                } catch (e) {}
+                } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
                 action = { type: 'GoTo', targetPage };
               }
             } else if (s === 'GoToR') {
@@ -1692,7 +1692,7 @@
     const lineHmm = opts.lineHeightMM == null ? 9 : Number(opts.lineHeightMM);
     const fsMm = opts.fontSizeMM == null ? 5 : Number(opts.fontSizeMM);
     const fs = fsMm * PT_PER_MM;
-    const color = hexToRgb(opts.color || '#000000');
+    const color = hexToRgb(opts.color || 'OS.theme.getVar("--ink")');
     const titleX = marginMm * PT_PER_MM;
     const rightX = pw - marginMm * PT_PER_MM;
     let yMm = (ph / PT_PER_MM) - marginMm;
@@ -1705,7 +1705,7 @@
       const yPt = ph - yMm * PT_PER_MM;
       const title = (it.title == null || it.title === '') ? ('第 ' + it.page + ' 页') : String(it.title);
       // 标题（CJK 经 textToImagePng 渲染；无 canvas 环境降级为不显示，但链接注解仍在）
-      const g = await textToImagePng(doc, title, { fontSize: Math.max(10, fs * 1.4), color: opts.color || '#000000' });
+      const g = await textToImagePng(doc, title, { fontSize: Math.max(10, fs * 1.4), color: opts.color || 'OS.theme.getVar("--ink")' });
       if (g) page.drawImage(g.img, { x: titleX, y: yPt, width: g.w, height: g.h });
       // 页码（数字，Helvetica）
       const numStr = String(it.page);
@@ -1743,7 +1743,7 @@
         else if (f instanceof PDFRadioGroup) { type = 'radio'; options = f.getOptions(); value = f.getSelected(); }
         else if (f instanceof PDFDropdown) { type = 'dropdown'; options = f.getOptions(); value = f.getSelected(); }
         else if (f instanceof PDFButton) { type = 'button'; }
-      } catch (e) {}
+      } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       return { name, type, value, options };
     }).filter((f) => f.type !== 'unknown' && f.type !== 'button');
   }
@@ -1771,7 +1771,7 @@
             if (ref) pageOfWidget.set(ref.toString(), p + 1);
           }
         }
-      } catch (e) {}
+      } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     }
 
     if (onProgress) onProgress({ done: 0, total: 0, phase: '读取表单字段' });
@@ -1785,7 +1785,7 @@
         else if (f instanceof PDFRadioGroup) { type = 'radio'; options = f.getOptions(); value = f.getSelected(); }
         else if (f instanceof PDFDropdown) { type = 'dropdown'; options = f.getOptions(); value = f.getSelected(); }
         else if (f instanceof PDFButton) { type = 'button'; }
-      } catch (e) {}
+      } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       // 单选/下拉可能返回数组（多选或单元素数组），统一为单值字符串，便于阅读与自动填表
       if ((type === 'radio' || type === 'dropdown') && Array.isArray(value)) {
         value = value.length === 1 ? value[0] : value;
@@ -1807,7 +1807,7 @@
         for (const r of refs) {
           if (r && pageOfWidget.has(r.toString())) { page = pageOfWidget.get(r.toString()); break; }
         }
-      } catch (e) {}
+      } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       return { name, type, value, options, page };
     }).filter((f) => f.type !== 'unknown' && f.type !== 'button');
 
@@ -1840,7 +1840,7 @@
         else if (f instanceof PDFRadioGroup) { type = 'radio'; let s = f.getSelected(); value = Array.isArray(s) ? (s[0] || '') : (s || ''); }
         else if (f instanceof PDFDropdown) { type = 'dropdown'; let s = f.getSelected(); value = Array.isArray(s) ? (s[0] || '') : (s || ''); }
         else if (f instanceof PDFButton) { type = 'button'; value = null; }
-      } catch (e) {}
+      } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       if (type === 'unknown' || type === 'button') return;
       fields.push({ name, type, value });
     });
@@ -1942,7 +1942,7 @@
     try {
       const acroForm = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
       if (acroForm) acroForm.set(PDFName.of('NeedAppearances'), PDFBool.True);
-    } catch (e) {}
+    } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
   }
 
   // 把 values（字段名 → 值）写入已加载文档的表单。被 fillForm 与 batchFillForms 复用。
@@ -1977,7 +1977,7 @@
             try { f.select(String(v)); }
             catch (e) {
               // 选项不存在等：兜底写原始值
-              try { f.acroField.dict.set(PDFName.of('V'), PDFHexString.fromText(String(v))); needRaw = true; } catch (_) {}
+              try { f.acroField.dict.set(PDFName.of('V'), PDFHexString.fromText(String(v))); needRaw = true; } catch (_) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
             }
           }
         }
@@ -1988,7 +1988,7 @@
           const v = String(values[name] == null ? '' : values[name]);
           f.acroField.dict.set(PDFName.of('V'), PDFHexString.fromText(v));
           needRaw = true;
-        } catch (_) {}
+        } catch (_) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       }
     }
     if (needRaw) setNeedAppearances(doc);
@@ -2069,8 +2069,8 @@
     }
     // 现有字段名集合（含非按钮类，供匹配/缺失判定）
     const existing = new Set();
-    try { form.getFields().forEach((f) => { try { existing.add(f.getName()); } catch (e) {} }); }
-    catch (e) {}
+    try { form.getFields().forEach((f) => { try { existing.add(f.getName()); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } }); }
+    catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
 
     if (onProgress) onProgress({ done: 0, total: 0, phase: '解析映射' });
     const entries = parseFieldMapping(mappingText);
@@ -2275,7 +2275,7 @@
         else if (f instanceof PDFCheckBox) { type = 'checkbox'; value = f.isChecked(); }
         else if (f instanceof PDFRadioGroup) { type = 'radio'; value = f.getSelected(); }
         else if (f instanceof PDFDropdown) { type = 'dropdown'; value = f.getSelected(); }
-      } catch (e) {}
+      } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       const widgets = (f.acroField && f.acroField.getWidgets) ? f.acroField.getWidgets() : [];
       for (const w of widgets) {
         const page = findPageOfWidget(doc, w);
@@ -2294,11 +2294,11 @@
       }
       if (onProgress) onProgress({ done: i + 1, total: fields.length, phase: '表单扁平化' });
     }
-    for (const f of fields) { try { form.removeField(f); } catch (e) {} }
+    for (const f of fields) { try { form.removeField(f); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } }
     try {
       const acro = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
       if (acro) acro.set(PDFName.of('NeedAppearances'), PDFBool.False);
-    } catch (e) {}
+    } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     return doc.save();
   }
 
@@ -2553,7 +2553,7 @@
   async function getOcrWorker(langs, onProgress) {
     if (!globalThis.Tesseract) throw new Error('Tesseract 未加载（缺少 assets/vendor/tesseract/tesseract.min.js）');
     if (!_ocrWorker || _ocrLangs !== langs) {
-      if (_ocrWorker) { try { await _ocrWorker.terminate(); } catch (e) {} _ocrWorker = null; }
+      if (_ocrWorker) { try { await _ocrWorker.terminate(); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } _ocrWorker = null; }
       if (onProgress) onProgress({ phase: '加载 OCR 模型…' });
       // 注意：不要把 logger 回调塞进 createWorker 的 opts —— 本 vendored 版本会把 opts 整体 postMessage
       // 给 Worker，函数无法结构化克隆，直接抛 DataCloneError（即长期被误判为 CDN 受限的错误）。
@@ -2924,8 +2924,8 @@
     const n = srcDoc.getPageCount();
     const out = await PDFDocument.create();
     const col = opts.color;
-    let css = '#000000';
-    if (col === 'white') css = '#ffffff';
+    let css = 'OS.theme.getVar("--ink")';
+    if (col === 'white') css = 'OS.theme.getVar("--bg2")';
     else if (Array.isArray(col)) css = `rgb(${Math.round(col[0] * 255)},${Math.round(col[1] * 255)},${Math.round(col[2] * 255)})`;
     let pagesRedacted = 0, boxesCovered = 0;
     for (let i = 0; i < n; i++) {
@@ -3053,7 +3053,7 @@
         if (repl.trim() !== '') {
           let png = null;
           if (typeof document !== 'undefined' && document.createElement) {
-            try { png = await textToImage(repl, { fontSize: Math.max(6, b.h * 1.6), color: '#000000', opacity: 1, fontWeight: 'normal' }); } catch (e) { png = null; }
+            try { png = await textToImage(repl, { fontSize: Math.max(6, b.h * 1.6), color: 'OS.theme.getVar("--ink")', opacity: 1, fontWeight: 'normal' }); } catch (e) { png = null; }
           }
           if (png) {
             const pngBytes = await blobToBytes(png);
@@ -3319,9 +3319,9 @@
         }
       }
       for (const p of doc.getPages()) {
-        try { if (p.node.lookup(PDFName.of('AA'))) p.node.delete(PDFName.of('AA')); } catch (e) {}
+        try { if (p.node.lookup(PDFName.of('AA'))) p.node.delete(PDFName.of('AA')); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
       }
-    } catch (e) {}
+    } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
   }
 
   // 把 PDF/A 合规标记写到当前 doc（ICC + OutputIntent + XMP + MarkInfo + ID）
@@ -3350,7 +3350,7 @@
     // MarkInfo
     doc.catalog.set(PDFName.of('MarkInfo'), ctx.obj({ Marked: PDFBool.True }));
     // 文档 ID
-    try { ctx.trailerInfo.ID = ctx.obj([PDFString.of(randHex16()), PDFString.of(randHex16())]); } catch (e) {}
+    try { ctx.trailerInfo.ID = ctx.obj([PDFString.of(randHex16()), PDFString.of(randHex16())]); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
   }
 
   // 浏览器端：把每页栅格化为 PNG 重排成全新文档（彻底自包含归档）
@@ -3396,10 +3396,10 @@
       if (onProgress) onProgress({ done: 1, total: 6, phase: '扁平化表单' });
       try {
         const form = doc.getForm();
-        if (form) { const fs = form.getFields(); for (const f of fs) { try { form.removeField(f); } catch (e) {} } }
+        if (form) { const fs = form.getFields(); for (const f of fs) { try { form.removeField(f); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } } }
         const acro = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
         if (acro) acro.set(PDFName.of('NeedAppearances'), PDFBool.False);
-      } catch (e) {}
+      } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     }
 
     // 3. 移除 JavaScript
@@ -3946,8 +3946,8 @@
   function asName(x) { if (!x) return ''; try { const s = x.asString ? x.asString() : ''; return s.replace(/^\//, ''); } catch (e) { return ''; } }
   function textOf(x) {
     if (!x) return '';
-    try { if (typeof x.decodeText === 'function') return x.decodeText(); } catch (e) {}
-    try { if (typeof x.asString === 'function') return x.asString(); } catch (e) {}
+    try { if (typeof x.decodeText === 'function') return x.decodeText(); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
+    try { if (typeof x.asString === 'function') return x.asString(); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     return String(x);
   }
   function safeLookup(node, name) { try { return node ? node.lookup(PDFName.of(name)) : null; } catch (e) { return null; } }
@@ -4028,7 +4028,7 @@
     const s = node instanceof PDFRef ? ctx.lookup(node) : node;
     if (!s) return null;
     if (s.contents) return s.contents;
-    try { if (typeof s.getContents === 'function') return s.getContents(); } catch (e) {}
+    try { if (typeof s.getContents === 'function') return s.getContents(); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     return null;
   }
 
@@ -4099,7 +4099,7 @@
   }
 
   function detectPDFVersion(bytes) {
-    try { const head = new TextDecoder('latin1').decode(bytes.subarray(0, 2048)); const m = head.match(/%PDF-(\d+)\.(\d+)/); if (m) return { major: parseInt(m[1], 10), minor: parseInt(m[2], 10) }; } catch (e) {}
+    try { const head = new TextDecoder('latin1').decode(bytes.subarray(0, 2048)); const m = head.match(/%PDF-(\d+)\.(\d+)/); if (m) return { major: parseInt(m[1], 10), minor: parseInt(m[2], 10) }; } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     return null;
   }
   function detectLevelFromXMP(doc, ctx) {
@@ -4112,7 +4112,7 @@
         const cm = s.match(/pdfaid:conformance>([AB])</) || s.match(/pdfaid:conformance>([ab])</);
         if (pm) { const part = pm[1]; const conf = cm ? cm[1].toUpperCase() : 'B'; return part + conf; }
       }
-    } catch (e) {}
+    } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     return '2B';
   }
 
@@ -4144,7 +4144,7 @@
       const tailStart = Math.max(0, bytes.length - 16 * 1024);
       const tail = new TextDecoder('latin1').decode(bytes.subarray(tailStart));
       if (/\/Encrypt\b/.test(tail)) encrypted = true;
-    } catch (e) {}
+    } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
     add('encrypt', '无加密', encrypted ? 'fail' : 'pass', encrypted ? '文档包含 /Encrypt，PDF/A 禁止加密' : '');
 
     // 2 字体嵌入
@@ -4219,8 +4219,8 @@
     // 6 trailer /ID
     {
       let hasID = false;
-      try { if (ctx.trailerInfo && ctx.trailerInfo.ID) hasID = true; } catch (e) {}
-      if (!hasID) { try { const t = ctx.trailer; const id = t ? t.lookup(PDFName.of('ID')) : null; if (id) hasID = true; } catch (e) {} }
+      try { if (ctx.trailerInfo && ctx.trailerInfo.ID) hasID = true; } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); }
+      if (!hasID) { try { const t = ctx.trailer; const id = t ? t.lookup(PDFName.of('ID')) : null; if (id) hasID = true; } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } }
       add('id', '含文档 /ID', hasID ? 'pass' : 'fail', hasID ? '' : 'trailer 缺少 /ID');
     }
 
@@ -4286,12 +4286,12 @@
   function concatBytes(arrs) { let len = 0; for (const a of arrs) len += a.length; const out = new Uint8Array(len); let off = 0; for (const a of arrs) { out.set(a, off); off += a.length; } return out; }
   function pngChunk(type, data) { const len = new Uint8Array(4); const ld = new DataView(len.buffer); ld.setUint32(0, data.length); const tn = new TextEncoder().encode(type); const crc = new Uint8Array(4); const cd = new DataView(crc.buffer); cd.setUint32(0, crc32(concatBytes([tn, data]))); return concatBytes([len, tn, data, crc]); }
   async function inflateBytes(bytes) {
-    if (typeof require === 'function') { try { return new Uint8Array(require('zlib').inflateSync(Buffer.from(bytes))); } catch (e) {} }
+    if (typeof require === 'function') { try { return new Uint8Array(require('zlib').inflateSync(Buffer.from(bytes))); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } }
     if (typeof DecompressionStream !== 'undefined') { const ds = new DecompressionStream('deflate'); const w = ds.writable.getWriter(); w.write(bytes); w.close(); const r = ds.readable.getReader(); const parts = []; let x; while (!(x = await r.read()).done) parts.push(x.value); let l = 0; for (const p of parts) l += p.length; const o = new Uint8Array(l); let o2 = 0; for (const p of parts) { o.set(p, o2); o2 += p.length; } return o; }
     throw new Error('无可用解压实现');
   }
   async function deflateBytes(bytes) {
-    if (typeof require === 'function') { try { return new Uint8Array(require('zlib').deflateSync(Buffer.from(bytes))); } catch (e) {} }
+    if (typeof require === 'function') { try { return new Uint8Array(require('zlib').deflateSync(Buffer.from(bytes))); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } }
     if (typeof CompressionStream !== 'undefined') { const cs = new CompressionStream('deflate'); const w = cs.writable.getWriter(); w.write(bytes); w.close(); const r = cs.readable.getReader(); const parts = []; let x; while (!(x = await r.read()).done) parts.push(x.value); let l = 0; for (const p of parts) l += p.length; const o = new Uint8Array(l); let o2 = 0; for (const p of parts) { o.set(p, o2); o2 += p.length; } return o; }
     throw new Error('无可用压缩实现');
   }
@@ -4313,7 +4313,7 @@
     if (!node) return null;
     if (typeof node.bytes !== 'undefined' && node.bytes) return (node.bytes instanceof Uint8Array) ? node.bytes : new Uint8Array(node.bytes);
     if (typeof node.getContents === 'function') { const b = node.getContents(); if (b) return b; }
-    if (typeof node.decode === 'function') { try { const b = node.decode(); if (b) return b; } catch (e) {} }
+    if (typeof node.decode === 'function') { try { const b = node.decode(); if (b) return b; } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } }
     let s = null;
     if (typeof node.asString === 'function') s = node.asString();
     else if (typeof node.value === 'string') s = node.value;
@@ -4432,7 +4432,7 @@
     return { images: out, total: out.length };
   }
 
-  window.PDFEngine = {
+  OS = window.OS || {}; OS.PDFEngine = {
     mergePDFs, splitPDF, extractPages, splitByOutline, splitByCount, splitBySize, setPageBackground, deletePages, removeBlankPages, detectBlankPages, detectDuplicatePages, removeDuplicatePages, reorderPages, rotatePages, rotateSelectedPages,
     encryptPDF, decryptPDF,
     addTextWatermark, addImageWatermark, addPageNumbers, addHeaderFooter,

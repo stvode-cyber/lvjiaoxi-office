@@ -84,19 +84,66 @@
       bar.style.left = left + "px";
     }
 
-    function quickAct(mode, how) {
+    async function quickAct(mode, how) {
       const s = getSel();
       if (!s || !s.text || !s.text.trim()) { OS.toast("请先选中文字", "warn"); return; }
-      let out;
-      try { out = OS.AI.local[mode] ? OS.AI.local[mode](s.text) : OS.AI.runLocal(mode, s.text); }
-      catch (e) { OS.toast("AI 处理失败：" + e.message, "warn"); hide(); return; }
-      if (!out) { hide(); return; }
-      try { if (how === "replace") s.replace(out); else s.insertAfter(out); }
-      catch (e) { OS.toast("应用失败：" + e.message, "warn"); }
-      onApplied();
-      hide();
       const label = (OS.AI.MODES[mode] && OS.AI.MODES[mode].label) || mode;
-      OS.toast("AI · " + label + " 已应用（可撤销）", "ok");
+      // 加个"处理中"状态
+      bar.querySelectorAll(".sel-btn").forEach(b => b.disabled = true);
+      try {
+        let out, source = "local";
+        // 判断是否配了云端（provider 存在 + 非 local-only 模式）
+        const provider = OS.AI.getProvider && OS.AI.getProvider();
+        const localOnly = !!(OS.settings && OS.settings.get("dataLocalOnly"));
+        if (provider && !localOnly && typeof OS.AI.run === "function") {
+          // 云端流式处理
+          try {
+            const sysPrompt = _systemPrompt(mode);
+            const result = await OS.AI.run({
+              mode,
+              system: sysPrompt,
+              user: s.text,
+              onDelta: null, // selbar 场景直接等完整结果
+              signal: null,
+              allowCloud: true
+            });
+            out = result.text;
+            source = result.source || "cloud";
+          } catch (cloudErr) {
+            console.warn("[AI selbar] 云端失败，回退本地:", cloudErr.message);
+            out = OS.AI.local[mode] ? OS.AI.local[mode](s.text) : OS.AI.runLocal(mode, s.text);
+          }
+        } else {
+          // 纯本地
+          out = OS.AI.local[mode] ? OS.AI.local[mode](s.text) : OS.AI.runLocal(mode, s.text);
+        }
+        if (!out) { hide(); return; }
+        try { if (how === "replace") s.replace(out); else s.insertAfter(out); }
+        catch (e) { OS.toast("应用失败：" + e.message, "warn"); }
+        onApplied();
+        hide();
+        OS.toast("AI · " + label + " 已应用（" + (source === "cloud" ? "云端" : "本地") + "）", "ok");
+      } catch (e) {
+        OS.toast("AI 处理失败：" + e.message, "warn");
+        hide();
+      } finally {
+        bar.querySelectorAll(".sel-btn").forEach(b => b.disabled = false);
+      }
+    }
+
+    /** 不同模式的系统提示词（用于云端大模型） */
+    function _systemPrompt(mode) {
+      const prompts = {
+        polish: "你是一个中文文本润色助手。你的任务是把用户提供的文本改得更通顺、更书面、更专业，但不要改变原意。保持语言简洁，不要添加多余的前缀后缀或解释性文字。只输出润色后的文本，不要输出任何其他内容。",
+        rewrite: "你是一个中文文本改写助手。你的任务是换一种说法来表达用户提供的文本，保持信息完整但改变表达方式。可以换句式、换同义词、调整语序。只输出改写后的文本。",
+        expand: "你是一个中文文本扩写助手。在用户提供的文本之后补充相关的论述和细节，使内容更丰富、更有说服力。保持主题一致。",
+        explain: "你是一个中文概念解释助手。请用通俗的语言解释用户选中的内容，帮助读者理解核心概念。",
+        summarize: "你是一个中文文本摘要助手。请提炼用户提供文本的核心要点，生成简明扼要的摘要。",
+        outline: "你是一个中文大纲生成助手。基于用户提供的文本，生成结构化的大纲，用数字编号列表呈现。",
+        translate: "你是一个中英双向翻译助手。请准确翻译用户提供的文本，保持专业术语的准确性。",
+        continue: "你是一个中文续写助手。基于用户提供文本的结尾主题，合理地续写下一段内容。",
+      };
+      return prompts[mode] || "你是一个中文文本处理助手，请根据用户的需求处理文本。";
     }
     function doSuggest() {
       const s = getSel();

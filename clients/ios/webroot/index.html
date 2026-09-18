@@ -2,6 +2,7 @@
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; font-src 'self' data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="x-app-version" content="1.1.1">
   <title>绿角犀 Office · 跨平台办公套件</title>
@@ -11,6 +12,84 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/pdf-app.css">
   <!-- 本地内联依赖（离线可用，不再依赖 CDN） -->
+  <!-- 🩺 诊断层：全局 phase 心跳 + 异常捕获，任何卡住都能秒定位 -->
+  <script>
+  (function(){
+    try {
+      // Phase 心跳：每个 async 阶段开始/结束都记一个时间戳
+      const phases = new Map(); // name -> { start, done }
+      let slowSnapshots = [];   // 自动存的 slow phase 快照
+      const $phase = {
+        start(name) { phases.set(name, { start: performance.now(), done: null }); save(); },
+        done(name) { const p = phases.get(name); if(p){ p.done = performance.now(); } save(); },
+        all() { return [...phases.entries()].map(([n,p])=>({name:n,ms:p.done?Math.round(p.done-p.start):'STILL-RUNNING',...p})); },
+        last() { return [...phases.keys()].pop() || 'none'; },
+      };
+      function save() {
+        try { localStorage.setItem('__last_phase', JSON.stringify({ ts: Date.now(), last: $phase.last(), all: $phase.all() })); } catch(e) {}
+      }
+      // 每 1 秒 heartbeat + 自动探测 slow phase（>3s 还没 done 就存快照）
+      setInterval(function heartbeatAndDetect() {
+        save();
+        const now = performance.now();
+        const stuck = [...phases.entries()].filter(([n,p]) => !p.done && (now - p.start) > 3000);
+        stuck.forEach(([name,p]) => {
+          // 避免重复存同一个 phase
+          if (!slowSnapshots.find(s => s.name === name)) {
+            const snap = { ts: Date.now(), name, waited: Math.round(now - p.start), stack: new Error().stack };
+            slowSnapshots.push(snap);
+            try { localStorage.setItem('__slow_phases', JSON.stringify(slowSnapshots)); } catch(_) {}
+            console.error('[DIAG-SLOW] phase "' + name + '" 已经跑了 ' + Math.round((now - p.start)/1000) + 's 还没返回 — 很可能就是卡死位置');
+          }
+        });
+      }, 1000);
+      window.$phase = $phase;
+
+      // 启动时自动回放上次的 slow phase / error / reject
+      try {
+        const prevSlow = JSON.parse(localStorage.getItem('__slow_phases') || '[]');
+        const prevErr = localStorage.getItem('__last_error');
+        const prevRej = localStorage.getItem('__last_reject');
+        if (prevSlow.length) {
+          console.warn('[DIAG] ⚠️ 上次有 phase 卡住没返回 —', prevSlow.map(s=>s.name+'('+Math.round(s.waited/1000)+'s)').join(', '));
+        }
+        if (prevErr) console.warn('[DIAG] ⚠️ 上次有 uncaught error —', prevErr.substring(0, 200));
+        if (prevRej) console.warn('[DIAG] ⚠️ 上次有 unhandled rejection —', prevRej.substring(0, 200));
+      } catch(_) {}
+
+      // 全局 uncaught exception
+      window.addEventListener('error', function(e) {
+        console.error('[GLOBAL-ERR]', e.message, '\n  at', e.filename + ':' + e.lineno + ':' + e.colno);
+        try { localStorage.setItem('__last_error', JSON.stringify({ts:Date.now(),msg:e.message,file:e.filename,line:e.lineno,col:e.colno,stack:e.error&&e.error.stack})); } catch(_) {}
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error('[UNHANDLED-REJECT]', e.reason && e.reason.message || e.reason);
+        try { localStorage.setItem('__last_reject', JSON.stringify({ts:Date.now(),msg:e.reason&&e.reason.message,stack:e.reason&&e.reason.stack})); } catch(_) {}
+      });
+
+      // 全局诊断命令
+      window.__diagnose = function() {
+        const info = {
+          time: new Date().toISOString(),
+          phase: $phase.last(),
+          phases: $phase.all(),
+          slow_snapshots: slowSnapshots.slice(-5),
+          last_error: null,
+          last_reject: null,
+          localStorage_last: null,
+        };
+        try { info.last_error = JSON.parse(localStorage.getItem('__last_error') || 'null'); } catch(_) {}
+        try { info.last_reject = JSON.parse(localStorage.getItem('__last_reject') || 'null'); } catch(_) {}
+        try { info.localStorage_last = JSON.parse(localStorage.getItem('__last_phase') || 'null'); } catch(_) {}
+        console.log('🩺 __diagnose() 结果（复制这段给开发者）:');
+        console.log(JSON.stringify(info, null, 2));
+        return info;
+      };
+      console.log('[DIAG] 诊断层就绪 — window.$phase, window.__diagnose()');
+      console.log('[DIAG] 任何 Promise 超过 3s 不 resolve 会自动在 console 红色报错 + localStorage 存快照');
+    } catch(e) { console.error('[DIAG] 诊断层加载失败', e); }
+  })();
+  </script>
   <script src="vendor/FileSaver.min.js"></script>
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/xlsx.full.min.js"></script>
@@ -19,7 +98,10 @@
 <script src="vendor/fontkit.min.js"></script>
 <script src="vendor/docx.umd.min.js"></script>
 <script src="vendor/tesseract/tesseract.min.js"></script>
-<script src="vendor/tesseract/worker.min.js"></script>
+<!-- NOTE: worker.min.js is a Web Worker script — DO NOT load inline as a direct tag!
+     It should be loaded only via new Worker() inside Tesseract.createWorker().
+     Previous inline load caused 12+ dispatchHandlers exceptions per page load
+     because self is not Worker context and t.action was undefined. Already removed. -->
 </head>
 <body>
   <div id="app">
@@ -65,7 +147,7 @@
         </div>
         <div class="start-hero-actions">
           <button class="btn" id="btn-open">📂 打开文件</button>
-          <input type="file" id="file-input" accept=".docx,.xlsx,.pptx,.pdf,.html,.txt,.csv,.md,.ofd" hidden>
+          <input type="file" id="file-input" accept=".docx,.xlsx,.xls,.pptx,.pdf,.html,.txt,.csv,.md,.ofd,.xmind,.opml,.json" hidden>
         </div>
       </section>
 
@@ -207,6 +289,7 @@
   <script src="js/modules/presentation.js"></script>
   <script src="js/modules/pdf-text.js"></script>
   <script src="js/modules/pdf.js"></script>
+  <script src="js/modules/pdf-text-edit.js"></script>
 <script src="js/modules/pdf-engine.js"></script>
   <script src="js/modules/rgba-composite.js"></script>
   <script src="js/modules/range-preset.js"></script>
@@ -233,6 +316,7 @@
   <script src="js/modules/pdf-history.js"></script>
   <script src="js/modules/pdf-anno.js"></script>
   <script src="js/modules/mindmap.js"></script>
+    <script src="js/modules/markdown.js"></script>
   <!-- 模板库（开始页画廊） -->
   <script src="js/templates.js"></script>
   <!-- 自定义模板（用户保存的个性化模板，持久化于 localStorage） -->
@@ -354,7 +438,95 @@
 
   <!-- PDF 工具箱（绿角犀 PDF 项目）— 必须在 pdfToolboxRoot DOM 之后加载 -->
   <script src="js/modules/pdf-store.js"></script>
-  <script src="js/modules/pdf-engine-app.js"></script>
+  <!-- pdf-engine-app.js 与 pdf-engine.js 完全相同，已移除重复引用 -->
   <script src="js/modules/pdf-app.js"></script>
+
+  <!-- OS.prompt / OS.confirm / OS.alert 全局模态框 — 替代 Electron 不支持的 window.prompt -->
+  <style>
+    .os-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center}
+    .os-modal-box{background:#fff;border-radius:10px;min-width:360px;max-width:480px;box-shadow:0 12px 32px rgba(0,0,0,0.25);padding:20px 24px;font-family:'Microsoft YaHei',sans-serif}
+    .os-modal-title{font-size:16px;font-weight:600;color:#1e293b;margin-bottom:12px}
+    .os-modal-body{color:#475569;font-size:14px;margin-bottom:16px;white-space:pre-wrap}
+    .os-modal-input{width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;box-sizing:border-box;margin-bottom:16px;outline:none}
+    .os-modal-input:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,0.15)}
+    .os-modal-actions{display:flex;gap:8px;justify-content:flex-end}
+    .os-modal-actions button{padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid transparent}
+    .os-modal-btn-cancel{background:#f1f5f9;color:#475569;border-color:#cbd5e1}
+    .os-modal-btn-ok{background:#2563eb;color:#fff}
+    .os-modal-btn-ok:hover{background:#1d4ed8}
+    .os-modal-btn-cancel:hover{background:#e2e8f0}
+  </style>
+  <script>
+  (function(){
+    function buildMask(){
+      const mask = document.createElement('div');
+      mask.className='os-modal-mask';
+      return mask;
+    }
+    OS.prompt = function(msg, def){
+      return new Promise(function(resolve){
+        const mask = buildMask();
+        const box = document.createElement('div'); box.className='os-modal-box';
+        const lines = String(msg||'').split('\n');
+        const title = lines.shift();
+        const bodyText = lines.join('\n');
+        const safeDef = String(def==null?'':def).replace(/"/g,'&quot;');
+        box.innerHTML = '<div class="os-modal-title">'+title+'</div>'
+          +(bodyText?'<div class="os-modal-body">'+bodyText+'</div>':'')
+          +'<input class="os-modal-input" type="text" value="'+safeDef+'" autofocus>'
+          +'<div class="os-modal-actions">'
+          +'<button class="os-modal-btn-cancel">取消</button>'
+          +'<button class="os-modal-btn-ok">确定</button></div>';
+        mask.appendChild(box); document.body.appendChild(mask);
+        const input = box.querySelector('.os-modal-input'); input.select(); input.focus();
+        const cleanup = function(){ mask.remove(); };
+        box.querySelector('.os-modal-btn-cancel').onclick = function(){ cleanup(); resolve(null); };
+        box.querySelector('.os-modal-btn-ok').onclick = function(){ cleanup(); resolve(input.value); };
+        input.addEventListener('keydown',function(e){
+          if(e.key==='Escape'){ cleanup(); resolve(null); }
+          if(e.key==='Enter'){ cleanup(); resolve(input.value); }
+        });
+        mask.addEventListener('click',function(e){ if(e.target===mask){ cleanup(); resolve(null); } });
+      });
+    };
+    OS.confirm = function(msg){
+      return new Promise(function(resolve){
+        const mask = buildMask();
+        const box = document.createElement('div'); box.className='os-modal-box';
+        const lines = String(msg||'').split('\n');
+        const title = lines.shift(); const bodyText = lines.join('\n');
+        box.innerHTML = '<div class="os-modal-title">'+title+'</div>'
+          +(bodyText?'<div class="os-modal-body">'+bodyText+'</div>':'')
+          +'<div class="os-modal-actions">'
+          +'<button class="os-modal-btn-cancel">取消</button>'
+          +'<button class="os-modal-btn-ok">确定</button></div>';
+        mask.appendChild(box); document.body.appendChild(mask);
+        const cleanup = function(){ mask.remove(); };
+        box.querySelector('.os-modal-btn-cancel').onclick = function(){ cleanup(); resolve(false); };
+        box.querySelector('.os-modal-btn-ok').onclick = function(){ cleanup(); resolve(true); };
+        mask.addEventListener('click',function(e){ if(e.target===mask){ cleanup(); resolve(false); } });
+      });
+    };
+    OS.alert = function(msg){
+      return new Promise(function(resolve){
+        const mask = buildMask();
+        const box = document.createElement('div'); box.className='os-modal-box';
+        box.innerHTML = '<div class="os-modal-body">'+String(msg||'').replace(/\n/g,'<br>')+'</div>'
+          +'<div class="os-modal-actions"><button class="os-modal-btn-ok">知道了</button></div>';
+        mask.appendChild(box); document.body.appendChild(mask);
+        const cleanup = function(){ mask.remove(); resolve(); };
+        box.querySelector('.os-modal-btn-ok').onclick = cleanup;
+        mask.addEventListener('click',function(e){ if(e.target===mask){ cleanup(); } });
+      });
+    };
+    // 兜底：原生 API 被禁用时自动替换（Electron 下 prompt/confirm/alert 不支持）
+    try { window.prompt('test'); /* 能跑就不替换 */ } catch(e) {
+      window.prompt = function(m,d){ return OS.prompt(m,d); };
+      window.confirm = function(m){ return OS.confirm(m); };
+      window.alert = function(m){ return OS.alert(m); };
+      console.log('[OS] window.prompt/confirm/alert → OS.* 模态框');
+    }
+  })();
+  </script>
 </body>
 </html>

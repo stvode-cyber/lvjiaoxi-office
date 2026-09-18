@@ -211,6 +211,37 @@
     return clean("【AI 审阅建议】\n" + body);
   };
 
+  // ---------- 修复 continue 命名不匹配（MODES key="continue"，原方法叫 continueWriting） ----------
+  local.continue = local.continueWriting;
+
+  // ---------- 新增批量/表格/排版工具 ----------
+  local.bulkPolish = function (items) {
+    if (!Array.isArray(items)) return local.polish(items);
+    return items.map(t => local.polish(t));
+  };
+
+  local.toTableFormula = function (desc) {
+    const s = String(desc || "").toLowerCase();
+    if (s.includes("求和") || s.includes("总和") || s.includes("sum")) return "=SUM(A1:A10)";
+    if (s.includes("平均") || s.includes("均值") || s.includes("average")) return "=AVERAGE(A1:A10)";
+    if (s.includes("最大") || s.includes("max")) return "=MAX(A1:A10)";
+    if (s.includes("最小") || s.includes("min")) return "=MIN(A1:A10)";
+    if (s.includes("计数") || s.includes("count")) return "=COUNT(A1:A10)";
+    if (s.includes("如果") || s.includes(" if ")) return "=IF(条件, 真值, 假值)";
+    if (s.includes("排名") || s.includes("rank")) return "=RANK(A1, A1:A10)";
+    return "请尝试更具体的描述，例如「求 A 列总和」";
+  };
+
+  local.cleanFormat = function (text) {
+    let s = clean(text);
+    s = s.replace(/\n{3,}/g, "\n\n");               // 多余空行 → 最多 2 行
+    s = s.replace(/[ \t]+/g, " ");                   // Tab/多空格 → 单空格
+    s = s.replace(/\s+([。！？，；：])/g, "$1");     // 标点前空格去掉
+    s = s.replace(/([。！？])\1+/g, "$1");           // 重复标点 → 单个
+    s = s.replace(/^#{1,6}\s*/gm, "");               // 去掉 markdown 标题符号
+    return s.trim();
+  };
+
   const MODES = {
     summarize: { label: "总结", hint: "凝练全文要点" },
     polish: { label: "润色", hint: "更书面、更通顺" },

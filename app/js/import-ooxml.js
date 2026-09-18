@@ -11,6 +11,25 @@
 (function (global) {
   "use strict";
   const OS = global.OS;
+  // Electron contextIsolation: true + nodeIntegration: false 下，
+  // 第三方库只挂到 window.XLSX / window.JSZip，不挂到 Node global。
+  // 用 typeof 守卫 + window 优先 + globalThis 兜底，兼容浏览器/Electron/jsdom/纯 Node 单测。
+  // TODO: [坑-electron-global-window] 预防：Electron contextIsolation 下 global ≠ window，第三方库查找必须 window 优先 + globalThis 兜底
+  function _pickLib(name) {
+    if (typeof window !== "undefined" && window[name]) return window[name];
+    if (typeof globalThis !== "undefined" && globalThis[name]) return globalThis[name];
+    if (typeof global !== "undefined" && global !== window && global[name]) return global[name];
+    return null;
+  }
+  // TODO: [坑-xmind-import-卡死] 预防：所有异步步骤必须有 timeout 兜底，防止 Promise 永不 settle 导致 Tasks.run 卡死
+  function withTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+      const to = setTimeout(() => reject(new Error((label || "async op") + " 超时（" + ms + "ms）")), ms);
+      promise.then(r => { clearTimeout(to); resolve(r); }, e => { clearTimeout(to); reject(e); });
+    });
+  }
+  const JSZip = _pickLib("JSZip");
+  const XLSX  = _pickLib("XLSX");
 
   /* ---------- 通用 XML/DOM 工具 ---------- */
   function parseXML(str) {
@@ -412,6 +431,8 @@
      PPTX -> Presentation slides
      ============================================================ */
   async function parsePptx(zip) {
+    // 安全取 zip 条目 — 大文件/特殊格式下 zip.file() 可能返回 null
+    const safeFile = (name) => zip.file(name);
     // 幻灯片尺寸（EMU → 像素）
     let sldW = 12192000, sldH = 6858000;
     let sldSzOrient = "land";
@@ -435,7 +456,9 @@
     const mediaFiles = Object.keys(zip.files).filter(n => /^ppt\/media\//.test(n));
     // 预读 media 文件
     await Promise.all(mediaFiles.map(async mp => {
-      const u8 = await zip.file(mp).async("uint8array");
+      const f = zip.file(mp);
+      if (!f) return;
+      const u8 = await f.async("uint8array");
       let mime = "image/png";
       if (/\.(jpe?g|jpe)$/.test(mp)) mime = "image/jpeg";
       else if (/\.gif$/.test(mp)) mime = "image/gif";
@@ -453,7 +476,9 @@
     // 预读所有 slide _rels 关系
     const slideRels = Object.keys(zip.files).filter(n => /^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(n)).sort();
     for (const rp of slideRels) {
-      const relXml = await zip.file(rp).async("string");
+      const relF = zip.file(rp);
+      if (!relF) continue;
+      const relXml = await relF.async("string");
       const slideName = rp.replace("ppt/slides/_rels/", "").replace(".rels", ""); // slide1.xml
       allRels[slideName] = parseRels(relXml);
     }
@@ -618,7 +643,7 @@
             id: OS.util.uid("el"), type: "shape", shape: "arrow",
             x, y, w, h, fill: "transparent",
             stroke: geom.stroke || "#111827", strokeWidth: geom.strokeWidth || 1,
-            text: "", fontSize: 14, color: "#111827", bold: false
+            text: "", fontSize: 14, color:OS.theme.getVar("undefined"), bold: false
           });
         }
         // nvGrpSpPr / grpSpPr 等 prst 属性直接忽略
@@ -887,7 +912,7 @@
           id: OS.util.uid("el"), type: "text",
           x: Math.round(x * cmToPx), y: Math.round(y * cmToPx),
           w: Math.max(40, Math.round(w * cmToPx)), h: Math.max(30, Math.round(h * cmToPx)),
-          text, fontSize: 24, color: "#111827", bold: false
+          text, fontSize: 24, color:OS.theme.getVar("undefined"), bold: false
         });
       });
       slides.push({ bg, elements });
@@ -974,7 +999,7 @@
           id: OS.util.uid("el"), type: "text",
           x: Math.round(ox + x * sc), y: Math.round(oy + y * sc),
           w: Math.max(40, Math.round(w * sc)), h: Math.max(20, Math.round(h * sc)),
-          text, fontSize: Math.max(10, Math.round(sizeMM * sc)), color: "#111827", bold: !!bold, italic: !!italic
+          text, fontSize: Math.max(10, Math.round(sizeMM * sc)), color:OS.theme.getVar("undefined"), bold: !!bold, italic: !!italic
         });
       });
       slides.push({ bg: "#ffffff", elements });
@@ -993,7 +1018,13 @@
   function xmJsonToNodes(rootTopic, nodes, parentId, depth) {
     if (!rootTopic) return;
     const id = xmUid();
-    const text = (rootTopic.title || rootTopic.text || "").trim() || "未命名主题";
+    // title 可能是 string 或国际化对象 { zh_CN: "...", en_US: "..." }
+    let rawTitle = rootTopic.title;
+    if (rawTitle && typeof rawTitle !== "string") {
+      // 国际化对象 — 取 zh_CN / en_US / 第一个值
+      rawTitle = rawTitle.zh_CN || rawTitle.en_US || Object.values(rawTitle)[0] || "";
+    }
+    const text = (rawTitle || rootTopic.text || "").trim() || "未命名主题";
     const node = {
       id, x: 0, y: 0, text,
       color: depth === 0 ? "#1e3a5f" : "#2563eb",
@@ -1003,7 +1034,7 @@
     nodes.push(node);
     const children = (rootTopic.children && rootTopic.children.attached) || rootTopic.children || [];
     if (Array.isArray(children)) {
-      children.forEach(ch => xmJsonToNodes(ch, nodes, id, depth + 1));
+      children.forEach(ch => { if (ch && typeof ch === "object") xmJsonToNodes(ch, nodes, id, depth + 1); });
     }
   }
   // XML 格式（XMind 8）
@@ -1078,6 +1109,12 @@
       }
     }
     if (!nodes.length) throw new Error("无法解析的 XMind 文件（缺少 content.json / content.xml）");
+    // 🔥 post-parse 防御：清理悬空 parent + 校验 rootId
+    const allIds = new Set(nodes.map(n => n.id));
+    let dangling = 0;
+    nodes.forEach(n => { if (n.parent && !allIds.has(n.parent)) { n.parent = null; dangling++; } });
+    if (!allIds.has(rootId)) rootId = nodes.find(n => !n.parent)?.id || nodes[0]?.id;
+    if (dangling > 0 || !rootId) console.warn('[XMIND-parse] 修正了', dangling, '个悬空 parent，rootId=', rootId);
     return { type: "mindmap", data: { mode: "map", nodes, edges: [], rootId }, compat: "B", note: `XMind 已导入（${nodes.length} 个节点，仅首个 sheet）` };
   }
 
@@ -1088,18 +1125,18 @@
      BIFF8 .xls (旧版 Excel 二进制) — 用 SheetJS 解析
      ============================================================ */
   function parseXls(buf) {
-    if (!global.XLSX) throw new Error("未加载 SheetJS（xlsx）库");
-    const wb = global.XLSX.read(buf, { type: "array", cellFormula: true, cellText: false, cellDates: false });
+    if (!XLSX) throw new Error("未加载 SheetJS（xlsx）库");
+    const wb = XLSX.read(buf, { type: "array", cellFormula: true, cellText: false, cellDates: false });
     const sheetName = wb.SheetNames[0] || "Sheet1";
     const ws = wb.Sheets[sheetName];
     if (!ws) throw new Error("XLS 工作簿为空");
     // 用 sheet_to_json 拉二维数组（含公式）
-    const rows = global.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
     const cells = {};
     let maxR = rows.length, maxC = 0;
     rows.forEach((row, ri) => {
       row.forEach((val, ci) => {
-        const ref = global.XLSX.utils.encode_cell({ r: ri, c: ci });
+        const ref = XLSX.utils.encode_cell({ r: ri, c: ci });
         maxC = Math.max(maxC, ci + 1);
         if (val === null || val === undefined || val === "") return;
         if (typeof val === "string" && val.startsWith("=")) {
@@ -1116,34 +1153,42 @@
   /* ============================================================
      入口
      ============================================================ */
-  async function importFile(file, onProgress) {
+  async function importFile(file, onProgress) { console.time("[IMPORT-OOXML]");
     const ext = (file.name.split(".").pop() || "").toLowerCase();
-    const buf = new Uint8Array(await file.arrayBuffer());
+    let buf;
+    try {
+      buf = new Uint8Array(await withTimeout(file.arrayBuffer(), 5000, "读取文件 " + file.name));
+    } catch (e) { throw new Error("读取文件失败：" + e.message); }
     if (onProgress) onProgress("读取文件字节", 0.2);
     // .xls 是 BIFF8 二进制，不走 JSZip，直接 SheetJS 解析
     if (ext === "xls") {
-      if (!global.XLSX) throw new Error("需加载 SheetJS 解析库");
+      if (!XLSX) throw new Error("需加载 SheetJS 解析库");
       if (onProgress) onProgress("解析旧版 Excel (.xls)", 0.7);
       const r = parseXls(buf);
       if (onProgress) onProgress("构建文档模型", 0.95);
       return r;
     }
     // 其他格式（docx/xlsx/pptx/odt/ods/odp/ofd/xmind）都是 ZIP 容器
-    if (!global.JSZip) throw new Error("需加载 JSZip 解析库");
-    const zip = await global.JSZip.loadAsync(buf.buffer);
+    if (!JSZip) throw new Error("需加载 JSZip 解析库");
+    let zip;
+    try {
+      zip = await withTimeout(JSZip.loadAsync(buf.buffer), 30000, "JSZip.loadAsync(" + file.name + ")");
+    } catch (e) { throw new Error("解压 ZIP 失败：" + e.message); }
     if (onProgress) onProgress("解压包结构", 0.5);
     let r;
-    switch (ext) {
-      case "docx": if (onProgress) onProgress("解析 Word 文档", 0.7); r = parseDocx(zip); break;
-      case "xlsx": if (onProgress) onProgress("解析工作簿", 0.7); r = parseXlsx(zip); break;
-      case "pptx": if (onProgress) onProgress("解析演示文稿", 0.7); r = parsePptx(zip); break;
-      case "odt":
-      case "ods":
-      case "odp": if (onProgress) onProgress("解析 ODF 文档", 0.7); r = parseOdf(ext, zip); break;
-      case "ofd": if (onProgress) onProgress("解析 OFD 版式文件", 0.7); r = parseOfd(zip); break;
-      case "xmind": if (onProgress) onProgress("解析思维导图 XMind", 0.7); r = parseXmind(zip); break;
-      default: r = null;
-    }
+    try {
+      switch (ext) {
+        case "docx": if (onProgress) onProgress("解析 Word 文档", 0.7); r = parseDocx(zip); break;
+        case "xlsx": if (onProgress) onProgress("解析工作簿", 0.7); r = parseXlsx(zip); break;
+        case "pptx": if (onProgress) onProgress("解析演示文稿", 0.7); r = parsePptx(zip); break;
+        case "odt":
+        case "ods":
+        case "odp": if (onProgress) onProgress("解析 ODF 文档", 0.7); r = parseOdf(ext, zip); break;
+        case "ofd": if (onProgress) onProgress("解析 OFD 版式文件", 0.7); r = parseOfd(zip); break;
+        case "xmind": if (onProgress) onProgress("解析思维导图 XMind", 0.7); r = await withTimeout(parseXmind(zip), 15000, "parseXmind(" + file.name + ")"); break;
+        default: r = null;
+      }
+    } catch (e) { throw new Error("解析 " + file.name + " 失败：" + e.message); }
     if (onProgress) onProgress("构建文档模型", 0.95);
     return r;
   }

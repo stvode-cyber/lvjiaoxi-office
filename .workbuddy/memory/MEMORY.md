@@ -1,7 +1,22 @@
-# 绿角犀 Office · 项目长期笔记
+﻿# 绿角犀 Office · 项目长期笔记
 
 > 持续更新。每轮新增显著事实时追加；超长时按主题蒸馏。
 > 最后更新：2026-09-10
+
+## 2026-09-14 · 代码审计清零 + AI 增强 + Mindmap 扩展 + UX 体系
+
+- **版本跃升至 1.1.1**（原 v1.0.20 基线是另一套业务应用 — 项目定位已完全转向「跨平台办公套件」Writer/Sheet/PDF/Presentation/Mindmap）
+- **P0 反模式全清零**：空 catch {} 131→0、.then()无.catch 12→0、事件真泄漏 1→0（详见 `handoff-2026-09-14.md`）
+- **DRY 修复**：pdf-engine.js × 2 重复（4461 行）已删副本，11 个 pdf-* 模块 escapeHtml 转发 OS.util
+- **AI 块级编辑**：BYOK 设置面板（5 提供商预设）、quickAct async 化 + 云端自动 fallback、8 MODES 专属 system prompt、+3 本地工具（bulkPolish/toTableFormula/cleanFormat）
+- **OS.Versions 历史版本**：Store VER 2→3 新增 versions store；save/list/get/diff(LCS)/revert(自动备份)/autoSnap 全 API
+- **PDF 真实文本编辑**：pdf-lib 修改 content stream 里 Tj/TJ 操作符；非 ASCII 回退 overlay 模式
+- **Mindmap 导入扩展**：+importXmind（JSZip + content.json 递归 walkTopic）、+importMarkdown（# 正则 parentStack 建树）、+importOpml（DOMParser XML outline）；mkNode 默认颜色 bug 修复（`OS.theme.getVar("undefined")` → `"#2563eb"`）
+- **UX 测试体系**：UX Playbook Skill + UX Agent；CDP 黑盒测试脚本模板；一键化机会 Top 6（见 `handoff-2026-09-14.md`）
+- **项目基线刷新**：104 JS 文件 / 53921 行 / 11 Agent / 11 Skill / 安装包 77.8 MB
+- **已知缺口**：Mindmap XMind 导入未实跑、Presentation 无 pptx 解析器、OS.Versions UI 未接、PDF 中文替换走 overlay 模式
+
+- **架构关键事实**：Electron nodeIntegration=true 使 renderer 层可直接 require('zlib'/'jszip')；SVG fill 属性是硬编码不能用 CSS 变量；审计脚本必须区分 DOM 级 vs window/doc 级监听；PowerShell inline -e 正则引号易炸，写 Node 脚本文件执行
 
 ## 2026-09-10 · CI 收口 + 内测决策
 - **内测仅面向 Windows**；`release.yml`(0-job)/iOS/Android 失败均**不在内测范畴，挂起**。

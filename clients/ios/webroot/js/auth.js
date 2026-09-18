@@ -16,6 +16,22 @@
   "use strict";
   const OS = global.OS || (global.OS = {});
 
+  // TODO: [坑-os-undefined] 预防：跨模块调用前必须 await OS.ready()；永不 hang —— 即使 store.init 失败也在 5s 后 auto-resolve
+  if (!OS._ready) {
+    let _resolve, _resolved = false;
+    OS._ready = new Promise(r => { _resolve = r; });
+    OS.ready = () => OS._ready;
+    OS._markReady = () => {
+      if (!_resolved && _resolve) { _resolved = true; const _r = _resolve; _resolve = null; _r(); }
+    };
+    // 超时兜底：5 秒后自动 resolve，防止某条初始化链路永远没调 _markReady
+    if (typeof setTimeout !== "undefined") {
+      setTimeout(() => {
+        if (!_resolved) { console.warn("[OS] _ready 超时自动 resolve（正常应在 store.init 后 resolve）"); OS._markReady(); }
+      }, 5000);
+    }
+  }
+
   // ---------- 常量 ----------
   const QUOTA = 50 * 1024 * 1024;        // 个人空间 50 MB
   const MAX_BACKUPS = 20;                // 每文档保留最近 20 份备档
@@ -79,7 +95,7 @@
         body: JSON.stringify(body),
         signal: ctrl.signal
       });
-      let data = null; try { data = await res.json(); } catch (e) {}
+      let data = null; try { data = await res.json(); } catch (e) { console.warn("[Auth] 操作失败:", e); }
       return { res, data: data || {} };
     } catch (e) {
       // TypeError = 网络不可达；AbortError = 超时；统一标记为 no-fetch
@@ -124,11 +140,11 @@
   function setSession(s, remember) {
     s.loginAt = Date.now();
     _session = s;
-    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch (e) {}
+    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch (e) { console.warn("[Auth] 操作失败:", e); }
     try {
       if (remember) localStorage.setItem(REMEMBER_KEY, JSON.stringify(s));
       else localStorage.removeItem(REMEMBER_KEY);
-    } catch (e) {}
+    } catch (e) { console.warn("[Auth] 操作失败:", e); }
     OS.bus && OS.bus.emit("auth", s);
     return s;
   }
@@ -136,12 +152,12 @@
     try {
       const raw = sessionStorage.getItem(SESSION_KEY);
       if (raw) return JSON.parse(raw);
-    } catch (e) {}
+    } catch (e) { console.warn("[Auth] 操作失败:", e); }
     // 跨会话恢复（记住我）
     try {
       const raw = localStorage.getItem(REMEMBER_KEY);
       if (raw) return JSON.parse(raw);
-    } catch (e) {}
+    } catch (e) { console.warn("[Auth] 操作失败:", e); }
     return _session;
   }
   function isCloudLinked() {
@@ -150,8 +166,8 @@
   }
   async function logout() {
     _session = null;
-    try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
-    try { localStorage.removeItem(REMEMBER_KEY); } catch (e) {}
+    try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { console.warn("[Auth] 操作失败:", e); }
+    try { localStorage.removeItem(REMEMBER_KEY); } catch (e) { console.warn("[Auth] 操作失败:", e); }
     OS.bus && OS.bus.emit("auth", null);
   }
 

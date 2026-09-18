@@ -10,7 +10,7 @@
  *    读回/注入通道（Electron 走主进程 IPC，移动端走 Filesystem.readFile）。
  *  - 全部同步读写（数据极小），并对 localStorage 配额/解析异常做 try/catch 兜底。
  * ========================================================================= */
-window.PDFStore = (function () {
+OS = window.OS || {}; OS.PDFStore = (function () {
   const P_ = 'pdfx:';                 // 命名空间前缀，避免与其他应用的 key 冲突
   const K_SET = P_ + 'settings';      // 设置整段 JSON 的 key
   const K_REC = P_ + 'recent';        // 最近文件 JSON 的 key

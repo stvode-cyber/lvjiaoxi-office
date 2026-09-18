@@ -161,7 +161,10 @@
 
   // ---------------- 导出 ----------------
   function escapeHtml(s) {
-    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    // 转发统一实现 — OS.util.escapeHtml（OS.util 未就绪时走内置 fallback）
+    const u = (global.OS && OS.util);
+    if (u && u.escapeHtml) return u.escapeHtml(s);
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   const VERDICT_TEXT = {
