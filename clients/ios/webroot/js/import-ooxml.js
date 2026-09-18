@@ -431,6 +431,8 @@
      PPTX -> Presentation slides
      ============================================================ */
   async function parsePptx(zip) {
+    // 安全取 zip 条目 — 大文件/特殊格式下 zip.file() 可能返回 null
+    const safeFile = (name) => zip.file(name);
     // 幻灯片尺寸（EMU → 像素）
     let sldW = 12192000, sldH = 6858000;
     let sldSzOrient = "land";
@@ -454,7 +456,9 @@
     const mediaFiles = Object.keys(zip.files).filter(n => /^ppt\/media\//.test(n));
     // 预读 media 文件
     await Promise.all(mediaFiles.map(async mp => {
-      const u8 = await zip.file(mp).async("uint8array");
+      const f = zip.file(mp);
+      if (!f) return;
+      const u8 = await f.async("uint8array");
       let mime = "image/png";
       if (/\.(jpe?g|jpe)$/.test(mp)) mime = "image/jpeg";
       else if (/\.gif$/.test(mp)) mime = "image/gif";
@@ -472,7 +476,9 @@
     // 预读所有 slide _rels 关系
     const slideRels = Object.keys(zip.files).filter(n => /^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(n)).sort();
     for (const rp of slideRels) {
-      const relXml = await zip.file(rp).async("string");
+      const relF = zip.file(rp);
+      if (!relF) continue;
+      const relXml = await relF.async("string");
       const slideName = rp.replace("ppt/slides/_rels/", "").replace(".rels", ""); // slide1.xml
       allRels[slideName] = parseRels(relXml);
     }
@@ -1166,7 +1172,7 @@
     if (!JSZip) throw new Error("需加载 JSZip 解析库");
     let zip;
     try {
-      zip = await withTimeout(JSZip.loadAsync(buf.buffer), 10000, "JSZip.loadAsync(" + file.name + ")");
+      zip = await withTimeout(JSZip.loadAsync(buf.buffer), 30000, "JSZip.loadAsync(" + file.name + ")");
     } catch (e) { throw new Error("解压 ZIP 失败：" + e.message); }
     if (onProgress) onProgress("解压包结构", 0.5);
     let r;

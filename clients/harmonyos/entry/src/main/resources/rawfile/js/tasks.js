@@ -120,7 +120,8 @@
 
     const settle = (status, toastMsg, toastKind) => {
       t.status = status;
-      if (status === "done") t.progress = 1;
+      if (status === "done") { t.progress = 1; t.step = "完成"; }
+      else if (status === "error") t.step = "失败";
       render();
       if (status !== "running" && activeCount() === 0 && !opts.quiet) {
         setTimeout(() => { if (activeCount() === 0) hidePanel(); }, 2600);

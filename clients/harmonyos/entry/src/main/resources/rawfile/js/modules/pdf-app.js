@@ -8,6 +8,7 @@
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
 
   const E = window.PDFEngine;
+  const PDFStore = window.OS && window.OS.PDFStore;
   const PDF$ = (s) => document.querySelector(s);
 
   const sidebar = PDF$('#sidebar');

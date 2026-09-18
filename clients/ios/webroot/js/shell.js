@@ -575,12 +575,12 @@
             OS.Importer.importFile(f, (s, p) => { r.step(s, p); console.log('[PHASE-STEP]', s, p); }),
             30000); // 解析 OOXML/ODF/XMind 可以慢一点，30s 上限
           if (r2) {
-            r.step("保存到本地");
+            r.step("保存到本地", 0.95);
             const doc = await _phase("import." + ext + ".create",
               OS.store.create({ type: r2.type, name: f.name.replace(/\.[^.]+$/i, "") }), 10000);
             doc.data = r2.data; doc.compat = r2.compat || "B";
             await _phase("import." + ext + ".put", OS.store.put(doc), 10000);
-            r.step("渲染中...", 1.0);
+            r.step("渲染中...");
             await _phase("import." + ext + ".openDoc", openDoc(doc), 15000);
             console.timeEnd("[IMPORT]");
             if (r2.note) OS.toast(r2.note, "ok");

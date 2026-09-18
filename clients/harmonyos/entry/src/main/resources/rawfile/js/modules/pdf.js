@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    绿角犀 Office · PDF 工具模块
    对应 PRD 3.4：阅读批注、合并拆分、PDF⇄Office 转换、表单填写、签名
    - 阅读（pdf.js 离线渲染）✅
@@ -100,7 +100,8 @@
       if (!global.pdfjsLib) { OS.toast("PDF 引擎未加载，请联网后重试", "err"); emptyState(); return; }
       view.innerHTML = "<p class='muted'>加载中…</p>";
       try {
-        const loading = global.pdfjsLib.getDocument(dataUrl);
+        // 不能用 data: URL — Electron CSP 拦截。改用 Uint8Array 直接喂
+        const loading = global.pdfjsLib.getDocument({ data: dataUrlToU8(dataUrl) });
         pdfDoc = await loading.promise;
         pageInput.max = pdfDoc.numPages;
         renderAll();
