@@ -1,10 +1,7 @@
 {
-  "version": "1.1.1",
+  "version": "1.1.2",
   "publishedAt": "2026-09-18",
   "notes": [
-    "XMind/PDF 导入修复 + 大文件稳定性 + GPU 禁用",
-    "修复 Tasks.run settle 后 step 文字卡 95%",
-    "PDF data: URL → Uint8Array 绕过 CSP",
-    "PPTX JSZip timeout 30s + null 防御"
+    "OS.Versions 历史版本快照 UI 接入 + 测试 95 套件 0 失败"
   ]
 }
