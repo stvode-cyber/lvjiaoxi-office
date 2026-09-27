@@ -113,8 +113,10 @@
     if (!data.html) data.html = mdToHtml(data.source);
     let mode = data.mode || "split";
 
-    host.innerHTML = "";
-    host.style.cssText = "position:relative;height:100%;overflow:hidden;display:flex;flex-direction:column;";
+    // 🔥 创建独立 wrap，避免覆盖 host 中已有的其他标签页模块容器（修复多标签堆叠遮挡）
+    const wrap = document.createElement("div");
+    wrap.className = "module-wrap markdown-wrap";
+    wrap.style.cssText = "position:relative;height:100%;overflow:hidden;display:flex;flex-direction:column;";
 
     // 顶部模式切换栏
     const bar = document.createElement("div");
@@ -131,7 +133,7 @@
       });
       bar.appendChild(btn);
     });
-    host.appendChild(bar);
+    wrap.appendChild(bar);
 
     function updateBar() {
       [...bar.children].forEach((b) => {
@@ -149,7 +151,7 @@
     // 主内容区
     const main = document.createElement("div");
     main.style.cssText = "flex:1;display:flex;overflow:hidden;position:relative;";
-    host.appendChild(main);
+    wrap.appendChild(main);
 
     // 源码 textarea
     const src = document.createElement("textarea");
@@ -249,8 +251,11 @@
       }, 800);
     };
 
+    // 🔥 将独立 wrap 挂到 host，不破坏其他标签页的容器
+    host.appendChild(wrap);
+
     return {
-      el: host,
+      el: wrap,
       saveNow,
       toMarkdown,
       toHtml,

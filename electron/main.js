@@ -170,19 +170,28 @@ let pendingFiles = [];
 let webReady = false;
 
 function openFileAt(p) {
+  // 零成本预检：statSync 拿 size，超上限直接跳过 — 避免读超大文件进内存
   try {
-    if (!p || typeof p !== "string") return;
-    const buf = fs.readFileSync(p);
-    if (buf.length > MAX_OPEN_BYTES) { console.warn("openFileAt 跳过超大文件:", p); return; }
-    const payload = {
-      path: p,
-      name: path.basename(p),
-      ext: path.extname(p).toLowerCase(),
-      base64: buf.toString("base64")
-    };
-    if (win && !win.isDestroyed() && webReady) win.webContents.send("app:open-file", payload);
-    else pendingFiles.push(payload);
-  } catch (e) { console.error("openFileAt 失败:", e); }
+    if (!p || typeof p !== "string") return Promise.resolve();
+    const st = fs.statSync(p);
+    if (!st.isFile()) return Promise.resolve();
+    if (st.size > MAX_OPEN_BYTES) { console.warn("openFileAt 跳过超大文件:", p, "(" + Math.round(st.size / 1024 / 1024) + "MB)"); return Promise.resolve(); }
+  } catch (e) { return Promise.resolve(); /* 文件不存在/无权限 — 跳过 */ }
+  // ★ 异步读：用 Promise 包装 fs.readFile，不阻塞 main 事件循环
+  return new Promise((resolve) => {
+    fs.readFile(p, (err, buf) => {
+      if (err) { console.error("openFileAt 读取失败:", p, err.message); resolve(); return; }
+      const payload = {
+        path: p,
+        name: path.basename(p),
+        ext: path.extname(p).toLowerCase(),
+        base64: buf.toString("base64")
+      };
+      if (win && !win.isDestroyed() && webReady) win.webContents.send("app:open-file", payload);
+      else pendingFiles.push(payload);
+      resolve();
+    });
+  });
 }
 
 function flushPendingFiles() {

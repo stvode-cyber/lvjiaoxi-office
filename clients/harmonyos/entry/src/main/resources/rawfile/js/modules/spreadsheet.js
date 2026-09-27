@@ -192,7 +192,149 @@
       ISLOGICAL: v => typeof v === "boolean",
       NA: () => "#N/A",
       RAND: () => Math.random(),
-      RANDBETWEEN: (a, b) => { const lo = Math.ceil(+a), hi = Math.floor(+b); return lo > hi ? "#NUM!" : Math.floor(Math.random() * (hi - lo + 1)) + lo; }
+      RANDBETWEEN: (a, b) => { const lo = Math.ceil(+a), hi = Math.floor(+b); return lo > hi ? "#NUM!" : Math.floor(Math.random() * (hi - lo + 1)) + lo; },
+      // ========== 新增 2026-09-19 ==========
+      /** SUMPRODUCT — 数组乘积求和，电商/财务最常用的"数组公式替代品" */
+      SUMPRODUCT: (...args) => {
+        if (!args.length) return 0;
+        // 第一个数组决定维度，所有数组必须同尺寸
+        const base = flat(args[0]);
+        let total = 0;
+        for (let i = 0; i < base.length; i++) {
+          let prod = 1;
+          for (let j = 0; j < args.length; j++) {
+            const arr = flat(args[j]);
+            if (arr.length !== base.length) return "#VALUE!";
+            const v = arr[i];
+            // 空或布尔视为 0/1
+            const n = (typeof v === "boolean") ? (v ? 1 : 0) : parseFloat(v);
+            if (isNaN(n)) { prod = 0; break; }
+            prod *= n;
+          }
+          total += prod;
+        }
+        return total;
+      },
+      /** HLOOKUP — 水平查找（VLOOKUP 的兄弟） */
+      HLOOKUP: (key, range, rowIdx, exact) => {
+        // range 是二维数组 [[col1,col2,...], [r1c1,r1c2,...], [r2c1,r2c2,...]]
+        if (!Array.isArray(range) || !range.length) return "#N/A";
+        const header = range[0];
+        let col = -1;
+        for (let c = 0; c < header.length; c++) { if (header[c] == key) { col = c; break; } }
+        if (col === -1) {
+          if (!exact) { let best = -Infinity; for (let c = 0; c < header.length; c++) if (+header[c] <= +key && +header[c] > best) { best = +header[c]; col = c; } }
+          if (col === -1) return "#N/A";
+        }
+        if (rowIdx < 1 || rowIdx > range.length) return "#REF!";
+        return range[rowIdx - 1][col];
+      },
+      /** COLUMN / ROW — 返回当前单元格坐标（动态公式必备）*/
+      COLUMN: () => "#REF!",       // 需要运行时注入，见 evalNode 补丁
+      ROW: () => "#REF!",          // 同上
+      /** ROWS / COLUMNS — 返回范围的行数/列数 */
+      ROWS: r => Array.isArray(r) ? (Array.isArray(r[0]) ? r.length : 1) : 0,
+      COLUMNS: r => Array.isArray(r) && Array.isArray(r[0]) ? r[0].length : (Array.isArray(r) ? 1 : 0),
+      /** COUNTBLANK — 统计空白单元格 */
+      COUNTBLANK: r => flat(r).filter(x => x === "" || x == null).length,
+      /** ISODD / ISEVEN — 奇偶判断 */
+      ISODD: x => Math.abs(Math.floor(+x)) % 2 === 1,
+      ISEVEN: x => Math.abs(Math.floor(+x)) % 2 === 0,
+      /** DATEDIF / DATEIF — Excel 隐藏函数，计算两日期差 */
+      DATEIF: (start, end, unit) => {
+        const s = new Date(start), e = new Date(end);
+        if (isNaN(s) || isNaN(e) || e < s) return "#NUM!";
+        const U = String(unit || "D").toUpperCase();
+        const diffMs = e - s;
+        const days = diffMs / 86400000;
+        switch (U) {
+          case "D": return Math.floor(days);
+          case "YD": { const y1 = s.getFullYear(), y2 = e.getFullYear(); return Math.floor((e - new Date(y2, s.getMonth(), s.getDate())) / 86400000); }
+          case "MD": return e.getDate() - s.getDate();
+          case "M": return Math.floor(days / 30.4375);
+          case "YM": return Math.floor((e.getFullYear() - s.getFullYear()) * 12 + e.getMonth() - s.getMonth());
+          case "Y": return e.getFullYear() - s.getFullYear();
+          default: return "#VALUE!";
+        }
+      },
+      DATEDIF: (s, e, u) => FUNCS.DATEIF(s, e, u),
+      /** WEEKDAY / WEEKNUM — 星期几 / 第几周 */
+      WEEKDAY: (d, firstDay) => {
+        const date = new Date(d);
+        const day = date.getDay(); // 0=Sun .. 6=Sat
+        if (firstDay === 2) return day === 0 ? 7 : day;        // Mon=1
+        if (firstDay === 3) return day === 0 ? 6 : (day === 1 ? 7 : day - 1); // Tue=1
+        return day + 1; // 默认 Sun=1
+      },
+      WEEKNUM: (d, firstDay) => {
+        const date = new Date(d);
+        const startOfYear = new Date(date.getFullYear(), 0, 1);
+        const dayDiff = (date - startOfYear) / 86400000;
+        const offset = (startOfYear.getDay() - (firstDay === 2 ? 1 : 0) + 7) % 7;
+        return Math.floor((dayDiff + offset) / 7) + 1;
+      },
+      /** HOUR / MINUTE / SECOND — 时间提取 */
+      HOUR: t => { const d = new Date(t); return isNaN(d) ? "#VALUE!" : d.getHours(); },
+      MINUTE: t => { const d = new Date(t); return isNaN(d) ? "#VALUE!" : d.getMinutes(); },
+      SECOND: t => { const d = new Date(t); return isNaN(d) ? "#VALUE!" : d.getSeconds(); },
+      /** FREQUENCY — 频率分布（直方图数据源）*/
+      FREQUENCY: (data, bins) => {
+        const d = numList(data).sort((a, b) => a - b);
+        const b = numList(bins).sort((a, b) => a - b);
+        const out = new Array(b.length + 1).fill(0);
+        let bi = 0;
+        for (const v of d) {
+          while (bi < b.length && v > b[bi]) bi++;
+          out[bi]++;
+        }
+        return out;
+      },
+      /** REPLACE — 按位置替换文本（不同于 SUBSTITUTE 按内容）*/
+      REPLACE: (oldTxt, start, len, newTxt) => {
+        const s = String(oldTxt);
+        const from = Math.max(0, (+start || 1) - 1);
+        const to = from + Math.max(0, +len || 0);
+        return s.slice(0, from) + String(newTxt) + s.slice(to);
+      },
+      /** T — 文本直通，非文本返回空 */
+      T: v => typeof v === "string" ? v : "",
+      /** N — 转数字，文本/布尔返回 0 或 1 */
+      N: v => typeof v === "boolean" ? (+v) : (typeof v === "number" ? v : 0),
+      /** FACT — 阶乘 */
+      FACT: n => { if (n < 0 || n > 170) return "#NUM!"; let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; },
+      /** PI / SINE / COS / TAN — 三角函数 */
+      PI: () => Math.PI,
+      SIN: a => Math.sin(+a),
+      COS: a => Math.cos(+a),
+      TAN: a => Math.tan(+a),
+      DEGREES: r => (+r) * 180 / Math.PI,
+      RADIANS: d => (+d) * Math.PI / 180,
+      /** AGGREGATE — 忽略错误/隐藏行的聚合（简化版，只处理数组错误）*/
+      AGGREGATE: (func, opt, ...args) => {
+        if (args.length < 1) return "#VALUE!";
+        const skipErrors = (opt & 1) === 1;
+        // 扁平化所有参数（支持范围 + 多参数）
+        let flatAll = [];
+        for (const a of args) {
+          if (Array.isArray(a)) for (const row of a) flatAll = flatAll.concat(Array.isArray(row) ? row : [row]);
+          else flatAll.push(a);
+        }
+        // 过滤错误
+        const nums = skipErrors ? flatAll.filter(x => !FUNCS.ISERROR(x) && FUNCS.ISNUMBER(x)).map(num) : numList(flatAll);
+        if (!nums.length && [1,2,3,4,5,6,7,8,9].includes(func)) return func === 1 ? "#NUM!" : 0;
+        switch (+func) {
+          case 1:  return nums.length ? sum(nums) / nums.length : "#NUM!";          // AVERAGE
+          case 2:  return nums.length ? nums.length : "#NUM!";                      // COUNT
+          case 3:  return flatAll.filter(x => x !== "" && x != null).length;        // COUNTA
+          case 4:  return nums.length ? Math.max(...nums) : "#NUM!";                // MAX
+          case 5:  return nums.length ? Math.min(...nums) : "#NUM!";                // MIN
+          case 6:  return nums.reduce((p, x) => p * x, 1);                          // PRODUCT
+          case 7:  { const m = sum(nums) / nums.length; return Math.sqrt(nums.reduce((s, x) => s + (x - m) ** 2, 0) / (nums.length - 1)); } // STDEV
+          case 8:  { const m = sum(nums) / nums.length; return Math.sqrt(nums.reduce((s, x) => s + (x - m) ** 2, 0) / nums.length); }    // STDEV.P
+          case 9:  return sum(nums);                                                // SUM
+          default: return "#NAME?";
+        }
+      }
     };
     function _percentile(sorted, k) {
       if (!sorted.length) return "#NUM!";
@@ -501,12 +643,18 @@
         return { ast, tokenize, toRPN, evalRPN }; // 兼容字段
       } catch (e) { return { error: "#ERROR!" }; }
     }
-    function run(formula, getCell) {
+    function run(formula, getCell, currentRef) {
       const c = compile(formula);
       if (c.error) return c.error;
+      // 为 COLUMN / ROW 提供当前单元格位置
+      FE._currentRef = currentRef;
       try { const r = evalNode(c.ast, getCell); if (r === Infinity) return "#DIV/0!"; return r; }
       catch (e) { return "#ERROR!"; }
+      finally { FE._currentRef = null; }
     }
+    // COLUMN / ROW 运行时解析（覆盖 FUNCS 里的默认实现）
+    FUNCS.COLUMN = () => { const r = FE._currentRef ? parseRef(FE._currentRef) : null; return r ? r.col : "#REF!"; };
+    FUNCS.ROW    = () => { const r = FE._currentRef ? parseRef(FE._currentRef) : null; return r ? r.row : "#REF!"; };
 
     return { run, compile, adjustFormula, colToIdx, idxToCol, parseRef, expandRange, tokenize };
   })();
@@ -517,6 +665,7 @@
     return {
       activeSheet: 0,
       freeze: { row: 0, col: 0 },
+      comments: [],
       sheets: [
         {
           name: "Sheet1",
@@ -543,6 +692,7 @@
     if (d.sheets && Array.isArray(d.sheets) && d.sheets.length) {
       if (typeof d.activeSheet !== "number" || d.activeSheet >= d.sheets.length) d.activeSheet = 0;
       if (!d.freeze) d.freeze = { row: 0, col: 0 };
+      d.comments = d.comments || [];
       d.sheets.forEach((s, i) => {
         s.cells = s.cells || {}; s.styles = s.styles || {}; s.charts = s.charts || [];
         s.condFormats = s.condFormats || []; s.filters = s.filters || [];
@@ -554,6 +704,7 @@
     return {
       activeSheet: 0,
       freeze: { row: 0, col: 0 },
+      comments: [],
       sheets: [{
         name: "Sheet1",
         rows: d.rows || 100, cols: d.cols || 16,
@@ -572,16 +723,30 @@
     let pdfPreset = ""; // PDF 导出范围预设（all/current），由「PDF 导出范围」下拉设置
 
     const wrap = document.createElement("div");
-    wrap.className = "sheet-wrap";
+    wrap.className = "module-wrap sheet-wrap";
     wrap.innerHTML = `
       <div class="sheet-toolbar">
         <input class="cell-ref" placeholder="A1">
         <input class="fx" placeholder="输入数值或公式，如 =SUM(A1:A3)">
       </div>
-      <div class="sheet-scroll"><table class="sheet"></table></div>
-      <div class="sheet-statusbar"><span class="st-sum"></span><span class="st-sel"></span><span class="st-info"></span></div>
-      <div class="sheet-tabs"><div class="sheet-tabs-list"></div><button class="sheet-add" title="新建工作表">＋</button></div>
-      <div class="sheet-charts" hidden></div>`;
+      <div class="sheet-body">
+        <div class="sheet-main">
+          <div class="sheet-scroll"><table class="sheet"></table></div>
+          <div class="sheet-statusbar"><span class="st-sum"></span><span class="st-sel"></span><span class="st-info"></span></div>
+          <div class="sheet-tabs"><div class="sheet-tabs-list"></div><button class="sheet-add" title="新建工作表">＋</button></div>
+          <div class="sheet-charts" hidden></div>
+        </div>
+        <div class="sheet-cmt-panel hidden">
+          <div class="cmt-panel-head">
+            <span class="cmt-count"></span>
+            <button id="cmt-close" title="关闭批注面板">✕</button>
+          </div>
+          <div class="cmt-panel-body">
+            <div class="cmt-list"></div>
+          </div>
+        </div>
+      </div>
+      <button id="cmt-toggle" class="cmt-toggle off" title="批注面板">💬</button>`;
     host.appendChild(wrap);
     const table = wrap.querySelector("table.sheet");
     const refInput = wrap.querySelector(".cell-ref");
@@ -619,7 +784,7 @@
       const raw = (data.cells[ref]) || {};
       let val;
       if (raw.f && raw.f.startsWith("=")) {
-        try { val = FE.run(raw.f, getCell); } catch { val = "#ERROR!"; }
+        try { val = FE.run(raw.f, getCell, ref); } catch { val = "#ERROR!"; }
       } else if (raw.v !== undefined && raw.v !== "") {
         val = isNum(raw.v) ? Number(raw.v) : raw.v;
       } else val = "";
@@ -710,6 +875,217 @@
     function select(ref) { selectCell(ref); }
     selectCell("A1");
 
+    /* ============================================================
+     * 批注系统（Excel 风格：按单元格引用挂载，侧栏展示）
+     * ============================================================ */
+    const cmtPanel = wrap.querySelector(".sheet-cmt-panel");
+    const cmtList = wrap.querySelector(".cmt-list");
+    const cmtCount = wrap.querySelector(".cmt-count");
+    const cmtToggle = wrap.querySelector("#cmt-toggle");
+    const cmtClose = wrap.querySelector("#cmt-close");
+    let panelOpen = false, activeCid = null, navIdx = 0;
+
+    function genId() { return "cmt" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+    function commentsOf(ref, sheet) {
+      const si = sheet != null ? sheet : data.activeSheet;
+      return (data.comments || []).filter(c => c.ref === ref && (c.sheet == null || c.sheet === si));
+    }
+    function currentRef() { return selected; }
+
+    function setPanelOpen(open) {
+      panelOpen = open;
+      cmtPanel.classList.toggle("hidden", !open);
+      cmtToggle.classList.toggle("off", !open);
+    }
+    function togglePanel() { setPanelOpen(!panelOpen); }
+    if (cmtToggle) cmtToggle.addEventListener("click", togglePanel);
+    if (cmtClose) cmtClose.addEventListener("click", () => setPanelOpen(false));
+
+    // 单元格徽章渲染：红色三角角标表示该格有批注
+    function highlightBadges() {
+      // 清掉旧徽章
+      table.querySelectorAll(".cmt-badge").forEach(b => b.remove());
+      const si = data.activeSheet;
+      const refs = new Set();
+      (data.comments || []).forEach(c => { if (c.sheet == null || c.sheet === si) refs.add(c.ref); });
+      refs.forEach(ref => {
+        const td = table.querySelector('td[data-ref="' + ref + '"]');
+        if (!td) return;
+        if (td.querySelector(".cmt-badge")) return;
+        const badge = document.createElement("span");
+        badge.className = "cmt-badge";
+        badge.title = (commentsOf(ref).filter(c => !c.resolved).length || commentsOf(ref).length) + " 条批注";
+        td.style.position = "relative";
+        td.appendChild(badge);
+      });
+    }
+
+    function addComment() {
+      const ref = currentRef();
+      const cid = genId();
+      data.comments = data.comments || [];
+      data.comments.push({
+        id: cid, ref: ref, sheet: data.activeSheet,
+        author: "我", createdAt: Date.now(), resolved: false,
+        replies: []
+      });
+      activeCid = cid;
+      setPanelOpen(true);
+      renderComments();
+      highlightBadges();
+      const input = cmtList.querySelector('.cmt-card[data-cid="' + cid + '"] .cmt-input');
+      if (input) input.focus();
+      ctx.markDirty();
+      OS.toast("已为 " + ref + " 添加批注", "ok");
+    }
+
+    function renderComments() {
+      cmtList.innerHTML = "";
+      const pending = (data.comments || []).filter(c => !c.resolved);
+      const resolved = (data.comments || []).filter(c => c.resolved);
+      cmtCount.textContent = data.comments && data.comments.length
+        ? (pending.length ? pending.length + " 条待处理" : "全部已解决")
+        : "";
+      if (!data.comments || !data.comments.length) {
+        cmtList.innerHTML = '<div class="cmt-empty">暂无批注。<br>选中一个单元格，在「审阅」选项卡点「新建批注」即可添加。</div>';
+        return;
+      }
+      pending.concat(resolved).forEach(c => cmtList.appendChild(commentCard(c)));
+    }
+
+    function commentCard(c) {
+      const card = document.createElement("div");
+      card.className = "cmt-card" + (c.resolved ? " resolved" : "") + (c.id === activeCid ? " active" : "");
+      card.dataset.cid = c.id;
+      const firstText = c.replies && c.replies[0] ? c.replies[0].text : "";
+      const repliesHtml = (c.replies || []).slice(1).map(r =>
+        `<div class="cmt-reply"><div class="cmt-reply-head"><b>${OS.util.escapeHtml(r.author)}</b><span>${OS.util.fmtTime(r.createdAt)}</span></div><div class="cmt-reply-text">${OS.util.escapeHtml(r.text)}</div></div>`
+      ).join("");
+      card.innerHTML = `
+        <div class="cmt-card-head">
+          <span class="cmt-avatar">${OS.util.escapeHtml((c.author || "我").slice(0, 1))}</span>
+          <span class="cmt-author">${OS.util.escapeHtml(c.author || "我")}</span>
+          <span class="cmt-time">${OS.util.fmtTime(c.createdAt)}</span>
+          ${c.resolved ? '<span class="cmt-badge-text">已解决</span>' : ''}
+        </div>
+        <div class="cmt-ref" title="跳到单元格">📌 ${OS.util.escapeHtml(c.ref || "")}</div>
+        ${firstText ? `<div class="cmt-quote">${OS.util.escapeHtml(firstText)}</div>` : `<div class="cmt-quote cmt-empty-quote" title="批注正文">（空批注）</div>`}
+        <div class="cmt-replies">${repliesHtml}</div>
+        <div class="cmt-add">
+          <input type="text" class="cmt-input" placeholder="回复…（第一次发就是批注正文）" />
+          <button class="cmt-send" title="发送">${OS.icons ? OS.icons.svg("chevron-right", 16) : "➤"}</button>
+        </div>
+        <div class="cmt-actions">
+          <button class="cmt-btn cmt-resolve">${c.resolved ? "重新打开" : "解决"}</button>
+          <button class="cmt-btn cmt-del" title="删除">${OS.icons ? OS.icons.svg("trash", 14) : "🗑"}</button>
+        </div>`;
+      card.querySelector(".cmt-ref").onclick = () => focusInCell(c.id);
+      card.querySelector(".cmt-resolve").onclick = () => toggleResolve(c.id);
+      card.querySelector(".cmt-del").onclick = () => deleteComment(c.id);
+      const input = card.querySelector(".cmt-input");
+      const send = () => { const v = input.value.trim(); if (!v) return; addReply(c.id, v); };
+      card.querySelector(".cmt-send").onclick = send;
+      input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); send(); } });
+      return card;
+    }
+
+    function addReply(cid, text) {
+      const c = (data.comments || []).find(x => x.id === cid); if (!c) return;
+      c.replies = c.replies || [];
+      c.replies.push({ author: "我", text, createdAt: Date.now() });
+      renderComments();
+      highlightBadges();
+      const input = cmtList.querySelector('.cmt-card[data-cid="' + cid + '"] .cmt-input');
+      if (input) input.focus();
+      ctx.markDirty();
+    }
+
+    function toggleResolve(cid) {
+      const c = (data.comments || []).find(x => x.id === cid); if (!c) return;
+      c.resolved = !c.resolved;
+      renderComments();
+      highlightBadges();
+      ctx.markDirty();
+    }
+
+    function deleteComment(cid) {
+      if (!confirm("删除这条批注？")) return;
+      data.comments = (data.comments || []).filter(x => x.id !== cid);
+      if (activeCid === cid) activeCid = null;
+      renderComments();
+      highlightBadges();
+      ctx.markDirty();
+    }
+
+    function resolveAll() {
+      let n = 0;
+      (data.comments || []).forEach(c => { if (!c.resolved) { c.resolved = true; n++; } });
+      if (n) { renderComments(); highlightBadges(); ctx.markDirty(); OS.toast("已解决 " + n + " 条批注", "ok"); }
+      else OS.toast("没有待处理的批注", "warn");
+    }
+
+    function navComment(dir) {
+      const pending = (data.comments || []).filter(c => !c.resolved);
+      if (!pending.length) { OS.toast("没有待处理的批注", "warn"); return; }
+      navIdx = (navIdx + dir + pending.length) % pending.length;
+      focusInCell(pending[navIdx].id);
+    }
+
+    function focusInCell(cid) {
+      const c = (data.comments || []).find(x => x.id === cid); if (!c) return;
+      if (c.sheet != null && c.sheet !== data.activeSheet && data.sheets[c.sheet]) {
+        switchSheet(c.sheet);
+      }
+      activeCid = cid;
+      selectCell(c.ref);
+      const td = table.querySelector('td[data-ref="' + c.ref + '"]');
+      if (td && td.scrollIntoView) { try { td.scrollIntoView({ block: "center" }); } catch (e) {} }
+      setPanelOpen(true);
+      highlightCommentCard(cid);
+    }
+
+    function highlightCommentCard(cid) {
+      cmtList.querySelectorAll(".cmt-card").forEach(el => el.classList.toggle("active", el.dataset.cid === cid));
+      const card = cmtList.querySelector('.cmt-card[data-cid="' + cid + '"]');
+      if (card && card.scrollIntoView) { try { card.scrollIntoView({ block: "nearest" }); } catch (e) {} }
+    }
+
+    // 单元格徽章鼠标悬停显示批注气泡
+    table.addEventListener("mouseover", e => {
+      const badge = e.target.closest(".cmt-badge");
+      if (!badge) return;
+      const td = badge.parentElement;
+      const ref = td ? td.dataset.ref : null;
+      if (!ref) return;
+      showCmtBubble(badge, ref);
+    });
+    table.addEventListener("mouseout", e => {
+      const b = e.target.closest(".cmt-bubble");
+      if (b && b.contains(e.relatedTarget)) return;
+      hideCmtBubble();
+    });
+    let cmtBubble = null;
+    function showCmtBubble(anchor, ref) {
+      hideCmtBubble();
+      const list = commentsOf(ref).filter(c => !c.resolved);
+      if (!list.length) return;
+      cmtBubble = document.createElement("div");
+      cmtBubble.className = "cmt-bubble";
+      cmtBubble.innerHTML = list.map(c => {
+        const first = c.replies && c.replies[0] ? c.replies[0].text : "";
+        const txt = first ? OS.util.escapeHtml(first) : "<span class='cmt-empty-quote'>（空批注）</span>";
+        return `<div class="cmt-bubble-item"><b>${OS.util.escapeHtml(c.author || "我")}</b> <span class="cmt-time-sm">${OS.util.fmtTime(c.createdAt)}</span><div class="cmt-bubble-text">${txt}</div></div>`;
+      }).join("<hr>");
+      document.body.appendChild(cmtBubble);
+      const r = anchor.getBoundingClientRect();
+      cmtBubble.style.top = (r.top + window.scrollY - 4) + "px";
+      cmtBubble.style.left = (r.left + window.scrollX + 12) + "px";
+    }
+    function hideCmtBubble() { if (cmtBubble) { cmtBubble.remove(); cmtBubble = null; } }
+
+    // 切换工作表时重绘徽章
+    const _origSwitchSheet = typeof switchSheet === "function" ? switchSheet : null;
+
     // 跳转到单元格并滚动可见（供全局搜索定位）
     function gotoCell(ref) {
       selectCell(ref);
@@ -754,6 +1130,116 @@
       });
       if (count) { buildGrid(); recompute(); renderCharts(); renderSheetTabs(); updateStatus(); ctx.markDirty(); }
       return count;
+    }
+    // ============ 查找替换面板（Excel 专属） ============
+    let findState = { query: "", matchCase: false, hits: [], idx: -1 };
+    let findOverlay = null;
+    function openFindPanel(mode) {
+      if (findOverlay) { findOverlay.hidden = false; findOverlay.querySelector(".sf-find").focus(); runLocalFind(); return; }
+      findOverlay = document.createElement("div");
+      findOverlay.className = "sf-find-overlay";
+      findOverlay.innerHTML = `
+        <div class="sf-find-panel">
+          <div class="sf-find-h">
+            <span>${OS.icons.svg(mode === "replace" ? "replace" : "search", 14)} 查找${mode === "replace" ? "和替换" : ""}</span>
+            <button class="icon-btn sf-find-close" title="关闭">✕</button>
+          </div>
+          <div class="sf-find-body">
+            <input class="sf-find sf-input" placeholder="查找内容…" />
+            ${mode === "replace" ? '<input class="sf-repl sf-input" placeholder="替换为（留空=删除）…" />' : ""}
+            <label class="sf-case"><input type="checkbox" /> 区分大小写</label>
+            <div class="sf-count"></div>
+            <div class="sf-find-btns">
+              <button class="btn" data-sf="prev">↑ 上一个</button>
+              <button class="btn" data-sf="next">↓ 下一个</button>
+              ${mode === "replace" ? '<button class="btn primary" data-sf="repl1">替换当前</button>' : ""}
+              ${mode === "replace" ? '<button class="btn" data-sf="replall">替换全部</button>' : ""}
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(findOverlay);
+      const inp = findOverlay.querySelector(".sf-find");
+      const repl = findOverlay.querySelector(".sf-repl");
+      const caseChk = findOverlay.querySelector(".sf-case input");
+      const countEl = findOverlay.querySelector(".sf-count");
+      findOverlay.querySelector(".sf-find-close").onclick = () => { findOverlay.hidden = true; clearFind(); };
+      inp.addEventListener("input", () => runLocalFind());
+      inp.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); gotoHit(e.shiftKey ? -1 : 1); }
+        else if (e.key === "Escape") { findOverlay.hidden = true; clearFind(); }
+      });
+      if (repl) repl.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); replaceOne(); } });
+      caseChk.addEventListener("change", () => runLocalFind());
+      findOverlay.querySelectorAll("[data-sf]").forEach(b => b.onclick = () => {
+        const a = b.dataset.sf;
+        if (a === "prev") gotoHit(-1);
+        else if (a === "next") gotoHit(1);
+        else if (a === "repl1") replaceOne();
+        else if (a === "replall") replaceAllLocal();
+      });
+      if (mode === "replace" && repl) repl.focus(); else inp.focus();
+    }
+    function clearFind() {
+      findState.hits = []; findState.idx = -1;
+      if (findOverlay) findOverlay.querySelector(".sf-count").textContent = "";
+    }
+    function runLocalFind() {
+      if (!findOverlay) return;
+      const q = findOverlay.querySelector(".sf-find").value.trim();
+      findState.matchCase = findOverlay.querySelector(".sf-case input").checked;
+      findState.query = q;
+      if (!q) { clearFind(); return; }
+      // 复用 search() 但加区分大小写（search 默认不区分）
+      const qc = findState.matchCase ? q : q.toLowerCase();
+      const c = data.cells || {};
+      const hits = [];
+      Object.keys(c).sort().forEach(ref => {
+        const cell = c[ref]; if (!cell) return;
+        const v = (cell.f != null ? cell.f : cell.v);
+        const s = String(v == null ? "" : v);
+        const t = findState.matchCase ? s : s.toLowerCase();
+        if (t.indexOf(qc) === -1) return;
+        hits.push({ ref, text: s });
+      });
+      findState.hits = hits;
+      findState.idx = hits.length ? 0 : -1;
+      const countEl = findOverlay.querySelector(".sf-count");
+      if (hits.length) { countEl.textContent = (findState.idx + 1) + " / " + hits.length; gotoHit(0); }
+      else countEl.textContent = "无匹配";
+    }
+    function gotoHit(dir) {
+      if (!findState.hits.length) return;
+      findState.idx = (findState.idx + dir + findState.hits.length) % findState.hits.length;
+      const h = findState.hits[findState.idx];
+      selectCell(h.ref); // 选中
+      const td = table.querySelector('td[data-ref="' + h.ref + '"]');
+      if (td && td.scrollIntoView) { try { td.scrollIntoView({ block: "center" }); } catch (e) {} }
+      findOverlay.querySelector(".sf-count").textContent = (findState.idx + 1) + " / " + findState.hits.length;
+    }
+    function replaceOne() {
+      if (!findState.hits.length || findState.idx < 0) { OS.toast("没有可替换的内容", "warn"); return; }
+      const h = findState.hits[findState.idx];
+      const rep = findOverlay.querySelector(".sf-repl").value;
+      snapshot();
+      const cell = data.cells[h.ref];
+      const q = findState.query;
+      const re = new RegExp(escapeRegex(q), findState.matchCase ? "g" : "gi");
+      if (cell.f != null) cell.f = cell.f.replace(re, rep);
+      if (typeof cell.v === "string") cell.v = cell.v.replace(re, rep);
+      buildGrid(); recompute(); renderCharts(); ctx.markDirty();
+      // 从 hits 里移除已替换的（文本可能变了）
+      findState.hits.splice(findState.idx, 1);
+      const countEl = findOverlay.querySelector(".sf-count");
+      if (!findState.hits.length) { countEl.textContent = "替换完成"; findState.idx = -1; }
+      else { findState.idx = findState.idx % findState.hits.length; gotoHit(0); }
+    }
+    function replaceAllLocal() {
+      const q = findState.query;
+      const rep = findOverlay.querySelector(".sf-repl").value;
+      const n = replaceAllText(q, rep, { matchCase: findState.matchCase });
+      clearFind();
+      OS.toast("已替换 " + n + " 处", n ? "ok" : "warn");
+      if (findOverlay) findOverlay.querySelector(".sf-count").textContent = "替换了 " + n + " 处";
     }
 
     // 拖拽选区 + 单击选择 + Shift 扩展
@@ -1200,6 +1686,14 @@
                   ]
                 }
               ]
+            },
+            {
+              label: "编辑", items: [
+                { kind: "btn", icon: "undo", title: "撤销 (Ctrl+Z)", onClick: undo },
+                { kind: "btn", icon: "redo", title: "重做 (Ctrl+Y)", onClick: redo },
+                { kind: "btn", icon: "search", title: "查找 (Ctrl+F)", onClick: () => openFindPanel("find") },
+                { kind: "btn", icon: "replace", title: "查找替换 (Ctrl+H)", onClick: () => openFindPanel("replace") }
+              ]
             }
           ]
         },
@@ -1262,6 +1756,19 @@
         ]
       },
       {
+        id: "review", label: "审阅", groups: [
+          {
+            label: "批注", items: [
+              { kind: "btn", icon: "comment", title: "为当前选中单元格新建批注（Ctrl+Shift+M）", onClick: addComment },
+              { kind: "btn", icon: "arrow-up", title: "上一条（待处理）", onClick: () => navComment(-1) },
+              { kind: "btn", icon: "arrow-down", title: "下一条（待处理）", onClick: () => navComment(1) },
+              { kind: "btn", icon: "search", title: "显示批注面板 / 隐藏批注面板", onClick: togglePanel },
+              { kind: "btn", icon: "check", title: "解决所有批注", onClick: resolveAll }
+            ]
+          }
+        ]
+      },
+      {
         id: "export", label: "导出", groups: [
           {
             label: "导出为", items: [
@@ -1313,6 +1820,7 @@
       }
     }
     applyFmt();
+    highlightBadges(); renderComments();
 
     /* ---------- 直接下载 PDF 文件（光栅化活动表 → PDF，零依赖，免去打印对话框） ---------- */
     const SHEET_ROW_H = 28, SHEET_COL_W = 92, SHEET_HEAD_W = 44, SHEET_HEAD_H = 28, SHEET_ROWS_PER_PAGE = 32;
@@ -1801,6 +2309,7 @@
       data.activeSheet = idx;
       bindAliases();
       buildGrid(); recompute(); renderCharts(); applyFreeze(); renderSheetTabs(); updateStatus();
+      highlightBadges();
       ctx.markDirty();
     }
     function removeSheet(idx) {
@@ -1815,6 +2324,7 @@
       if (data.activeSheet >= data.sheets.length) data.activeSheet = data.sheets.length - 1;
       bindAliases();
       buildGrid(); recompute(); renderCharts(); applyFreeze(); renderSheetTabs(); updateStatus();
+      highlightBadges();
       ctx.markDirty();
       return true;
     }
@@ -1878,9 +2388,11 @@
     function restore(snap) {
       data.activeSheet = snap.activeSheet || 0;
       data.freeze = snap.freeze || { row: 0, col: 0 };
+      data.comments = snap.comments || [];
       data.sheets = JSON.parse(JSON.stringify(snap.sheets));
       bindAliases();
       buildGrid(); recompute(); renderCharts(); applyFreeze(); renderSheetTabs(); updateStatus();
+      highlightBadges(); renderComments();
       ctx.markDirty();
     }
     function undo() {
@@ -2028,6 +2540,14 @@
       gotoCell,
       search,
       replaceAll: replaceAllText,
+      openFindPanel,
+      // 批注 API
+      addComment,
+      resolveAll,
+      navComment,
+      togglePanel,
+      toggleCommentPanel: togglePanel,
+      comments: () => (data.comments || []).slice(),
       // 多工作表 API
       sheets: () => data.sheets.map(s => ({ name: s.name, cells: s.cells, charts: s.charts })),
       activeSheet: () => data.activeSheet,

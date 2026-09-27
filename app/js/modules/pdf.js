@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    绿角犀 Office · PDF 工具模块
    对应 PRD 3.4：阅读批注、合并拆分、PDF⇄Office 转换、表单填写、签名
    - 阅读（pdf.js 离线渲染）✅
@@ -36,6 +36,9 @@
           <button class="btn" data-act="split" style="width:100%">✂ 按范围拆分</button>
           <p class="muted" style="font-size:11px;margin-top:8px">合并/拆分支持常见 PDF（1.4 风格内联对象）。</p>
           <hr style="border:none;border-top:1px solid var(--rule);margin:10px 0">
+          <button class="btn" data-act="pdf-dark" style="width:100%;display:flex;justify-content:space-between;align-items:center"><span>🌙 夜间模式</span><span class="pdf-dark-indicator" style="width:28px;height:16px;border-radius:8px;background:var(--rule);position:relative;transition:background .2s"><span style="position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;top:2px;left:2px;transition:left .2s"></span></span></button>
+          <button class="btn primary" data-act="toolbox" style="width:100%">🛠 页面工具箱（旋转 / 删除 / OCR…）</button>
+          <p class="muted" style="font-size:11px;margin-top:4px">当前 PDF 会自动载入 PDF 工具箱（30+ 工具全在本地跑）。</p>
           <div class="pdf-thumbs-toggle" style="cursor:pointer;font-size:12px;color:var(--muted);padding:4px 0;display:flex;justify-content:space-between;align-items:center">
             <span>🖼 页面缩略图</span><span class="thumbs-count"></span>
           </div>
@@ -63,6 +66,11 @@
 
     let pdfDoc = null, zoom = 1, textIndex = { pages: [] }, pageDims = {};
     let tool = "select";           // select | highlight | pen | note | rect
+    // 性能优化：renderAll 取消标记 + 缩略图缓存
+    let _renderCancel = 0;         // 每次 renderAll 开始时 +1，旧渲染检测到不匹配就放弃
+    const _thumbCache = new Map(); // pdfDoc 指纹 → 已渲染的缩略图 HTML 字符串
+    let _pdfLazyObs = null;       // IntersectionObserver（懒渲染剩余页）
+    let _pdfRenderedPages = new Set(); // zoom 变化时清空
     let color = Anno.COLORS.highlight;
     let selId = null;
     let annoQuery = "";             // 批注搜索关键字（V：搜索与过滤）
@@ -97,7 +105,8 @@
     }
 
     async function loadPdf(dataUrl) {
-      if (!global.pdfjsLib) { OS.toast("PDF 引擎未加载，请联网后重试", "err"); emptyState(); return; }
+      try { await OS.LazyLib.load("PDFJS"); } catch(e) { OS.toast("PDF 引擎加载失败："+e.message, "err"); emptyState(); return; }
+      if (!global.pdfjsLib) { OS.toast("PDF 引擎未加载，请重试", "err"); emptyState(); return; }
       view.innerHTML = "<p class='muted'>加载中…</p>";
       try {
         // 不能用 data: URL — Electron CSP 拦截。改用 Uint8Array 直接喂
@@ -384,69 +393,154 @@
 
     async function renderAll() {
       if (!pdfDoc) return;
+      _renderCancel++;               // 取消之前的渲染
+      const myToken = _renderCancel;
+      // 断开上一次的 IntersectionObserver（zoom 变化时所有 box 都要重建）
+      if (_pdfLazyObs) { _pdfLazyObs.disconnect(); _pdfLazyObs = null; }
+      _pdfRenderedPages.clear();
       view.innerHTML = "";
       textIndex = { pages: [] };
-      for (let p = 1; p <= pdfDoc.numPages; p++) {
+      const numPages = pdfDoc.numPages;
+      const scale = zoom * (window.devicePixelRatio || 1);
+
+      // —— Phase 1：只拿所有页尺寸（page.view 不渲，极快）——
+      // 空 box 先建出来（固定高度占位，防止滚动时页面跳）
+      for (let p = 1; p <= numPages; p++) {
         const page = await pdfDoc.getPage(p);
-        const scale = zoom * (window.devicePixelRatio || 1);
+        if (_renderCancel !== myToken) return;
+        const [x0, y0, x1, y1] = page.view;
+        pageDims[p] = { w: x1 - x0, h: y1 - y0 };
         const vp = page.getViewport({ scale });
-        pageDims[p] = { w: page.view[2] - page.view[0], h: page.view[3] - page.view[1] };
         const box = document.createElement("div");
         box.className = "pdf-page-box"; box.dataset.p = p;
         box.style.position = "relative"; box.style.margin = "0 auto 16px";
-        const canvas = document.createElement("canvas");
-        canvas.className = "pdf-page"; canvas.dataset.p = p;
-        const ctx2d = canvas.getContext("2d");
-        canvas.height = vp.height; canvas.width = vp.width;
-        canvas.style.width = (vp.width / (window.devicePixelRatio || 1)) + "px";
-        canvas.style.height = (vp.height / (window.devicePixelRatio || 1)) + "px";
-        await page.render({ canvasContext: ctx2d, viewport: vp }).promise;
-        box.appendChild(canvas);
+        // 占位高度：按 viewport 算，让滚动条位置正确
+        box.style.height = (vp.height / (window.devicePixelRatio || 1)) + "px";
         view.appendChild(box);
-        const spans = await buildTextLayer(box, canvas, page, vp);
-        textIndex.pages[p - 1] = spans;
-        const ovl = buildOverlay(box, canvas, p);
-        renderAnnotations(box, canvas, p);
-        ovl.addEventListener("pointermove", e => onPointerMove(e, ovl, canvas, p));
-        ovl.addEventListener("pointerup", e => onPointerUp(e, ovl, canvas, p));
-        ovl.addEventListener("pointercancel", e => onPointerUp(e, ovl, canvas, p));
+        textIndex.pages[p - 1] = null; // 预占位
       }
-      buildThumbs();
+
+      // —— Phase 2：渲前 3 页（保证首屏秒出）——
+      const PRE_RENDER = Math.min(3, numPages);
+      for (let p = 1; p <= PRE_RENDER; p++) {
+        if (_renderCancel !== myToken) return;
+        await _renderOnePage(p, scale, myToken);
+      }
+
+      // —— Phase 3：IntersectionObserver 懒渲剩余页 ——
+      if (numPages > PRE_RENDER) {
+        if ("IntersectionObserver" in window) {
+          _pdfLazyObs = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+              if (!entry.isIntersecting) return;
+              const box = entry.target;
+              const p = +box.dataset.p;
+              if (_pdfRenderedPages.has(p) || _renderCancel !== myToken) return;
+              _renderOnePage(p, scale, myToken);
+              _pdfLazyObs.unobserve(box);
+            });
+          }, { root: null, rootMargin: "200px", threshold: 0 });
+          // 监听从第 4 页开始的所有空 box
+          for (let p = PRE_RENDER + 1; p <= numPages; p++) {
+            const box = view.querySelector(`.pdf-page-box[data-p="${p}"]`);
+            if (box) _pdfLazyObs.observe(box);
+          }
+        } else {
+          // IE/老浏览器 fallback：直接全量渲
+          for (let p = PRE_RENDER + 1; p <= numPages; p++) {
+            if (_renderCancel !== myToken) return;
+            await _renderOnePage(p, scale, myToken);
+          }
+        }
+      }
+      if (_renderCancel === myToken) buildThumbs();
     }
 
-    // —— 缩略图（ONLYOFFICE 9.0 同款）——
+    // —— 懒渲染辅助：渲单页（canvas + text layer + overlay）——
+    async function _renderOnePage(p, scale, token) {
+      if (_pdfRenderedPages.has(p)) return;
+      const box = view.querySelector(`.pdf-page-box[data-p="${p}"]`);
+      if (!box) return;
+      const page = await pdfDoc.getPage(p);
+      if (_renderCancel !== token) return;
+      const vp = page.getViewport({ scale });
+      box.style.height = ""; // 渲完后清掉占位高度
+      const canvas = document.createElement("canvas");
+      canvas.className = "pdf-page"; canvas.dataset.p = p;
+      const ctx2d = canvas.getContext("2d");
+      canvas.height = vp.height; canvas.width = vp.width;
+      canvas.style.width = (vp.width / (window.devicePixelRatio || 1)) + "px";
+      canvas.style.height = (vp.height / (window.devicePixelRatio || 1)) + "px";
+      await page.render({ canvasContext: ctx2d, viewport: vp }).promise;
+      if (_renderCancel !== token) return;
+      box.appendChild(canvas);
+      const spans = await buildTextLayer(box, canvas, page, vp);
+      textIndex.pages[p - 1] = spans;
+      const ovl = buildOverlay(box, canvas, p);
+      renderAnnotations(box, canvas, p);
+      ovl.addEventListener("pointermove", e => onPointerMove(e, ovl, canvas, p));
+      ovl.addEventListener("pointerup", e => onPointerUp(e, ovl, canvas, p));
+      ovl.addEventListener("pointercancel", e => onPointerUp(e, ovl, canvas, p));
+      _pdfRenderedPages.add(p);
+    }
+
+    // —— 缩略图（ONLYOFFICE 9.0 同款 + 缓存）——
     async function buildThumbs() {
       const box = wrap.querySelector(".pdf-thumbs");
       const countEl = wrap.querySelector(".thumbs-count");
       if (!pdfDoc) return;
+      const numPages = pdfDoc.numPages;
+      countEl.textContent = `${numPages} 页`;
+      // 缓存 key：用 numPages + 第一页尺寸做指纹（同一个 PDF 基本相同）
+      const cacheKey = `${numPages}_${pageDims[1]?.w || 0}_${pageDims[1]?.h || 0}`;
+      if (_thumbCache.has(cacheKey)) {
+        // 命中缓存：直接 innerHTML，跳过所有 page.render
+        box.innerHTML = _thumbCache.get(cacheKey);
+        // 重新绑定 click（innerHTML 清除了事件监听器）
+        box.querySelectorAll(".pdf-thumb-item").forEach(item => {
+          item.addEventListener("click", () => {
+            const p = +item.dataset.p;
+            const target = view.querySelector(`.pdf-page-box[data-p="${p}"]`);
+            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+            box.querySelectorAll(".pdf-thumb-item").forEach(c => (c.style.borderColor = "transparent"));
+            item.style.borderColor = "var(--accent)";
+          });
+        });
+        return;
+      }
+      // 缓存未命中：正常渲染并缓存 HTML
       box.innerHTML = "";
-      countEl.textContent = `${pdfDoc.numPages} 页`;
       const thumbScale = 0.22;
-      for (let p = 1; p <= pdfDoc.numPages; p++) {
+      const htmlChunks = [];
+      for (let p = 1; p <= numPages; p++) {
         try {
           const page = await pdfDoc.getPage(p);
           const vp = page.getViewport({ scale: thumbScale });
-          const wrap2 = document.createElement("div");
-          wrap2.style.cssText = "position:relative;cursor:pointer;border:2px solid transparent;border-radius:4px;background:var(--bg2);overflow:hidden;";
-          wrap2.dataset.p = p;
-          wrap2.addEventListener("click", () => {
-            const target = view.querySelector(`.pdf-page-box[data-p="${p}"]`);
-            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-            [...box.children].forEach((c) => (c.style.borderColor = "transparent"));
-            wrap2.style.borderColor = "var(--accent)";
-          });
           const c = document.createElement("canvas");
           c.width = vp.width; c.height = vp.height;
-          c.style.cssText = "display:block;width:100%;height:auto;";
-          wrap2.appendChild(c);
-          const label = document.createElement("div");
-          label.textContent = p;
-          label.style.cssText = "position:absolute;bottom:2px;right:4px;font-size:10px;color:var(--muted);background:rgba(255,255,255,0.85);padding:0 3px;border-radius:2px;";
-          wrap2.appendChild(label);
-          box.appendChild(wrap2);
           await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+          // 把 canvas 转成 dataURL 嵌进 HTML（这样 innerHTML 后图像不丢）
+          const dataUrl = c.toDataURL("image/png");
+          htmlChunks.push(
+            `<div class="pdf-thumb-item" data-p="${p}" style="position:relative;cursor:pointer;border:2px solid transparent;border-radius:4px;background:var(--bg2);overflow:hidden;">` +
+            `<img src="${dataUrl}" style="display:block;width:100%;height:auto;" />` +
+            `<div style="position:absolute;bottom:2px;right:4px;font-size:10px;color:var(--muted);background:rgba(255,255,255,0.85);padding:0 3px;border-radius:2px;">${p}</div>` +
+            `</div>`
+          );
         } catch (e) { /* 单页缩略图失败不阻塞 */ }
       }
+      box.innerHTML = htmlChunks.join("");
+      _thumbCache.set(cacheKey, htmlChunks.join(""));
+      // 绑定 click
+      box.querySelectorAll(".pdf-thumb-item").forEach(item => {
+        item.addEventListener("click", () => {
+          const p = +item.dataset.p;
+          const target = view.querySelector(`.pdf-page-box[data-p="${p}"]`);
+          if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+          box.querySelectorAll(".pdf-thumb-item").forEach(c => (c.style.borderColor = "transparent"));
+          item.style.borderColor = "var(--accent)";
+        });
+      });
     }
 
     // —— 文本层（可选中/复制 + 供搜索）——
@@ -590,6 +684,49 @@
         }
         OS.toast("已拆分为 " + outs.filter(o => o && o.length).length + " 份", "ok");
       } catch (e) { OS.toast("拆分失败：" + e.message, "err"); }
+    });
+
+    // —— PDF 夜间模式（暗模式阅读器反色）——
+    let _pdfDark = localStorage.getItem("pdf-dark") || "auto"; // auto / on / off
+    function applyPdfDark() {
+      const root = document.documentElement;
+      const isDarkGlobal = root.getAttribute("data-theme") === "dark";
+      const on = _pdfDark === "on" || (_pdfDark === "auto" && isDarkGlobal);
+      root.setAttribute("data-pdf-dark", on ? "on" : "off");
+      const ind = wrap.querySelector(".pdf-dark-indicator");
+      if (ind) {
+        ind.style.background = on ? "var(--accent,#2563eb)" : "var(--rule,#e5e7eb)";
+        const dot = ind.querySelector("span");
+        if (dot) dot.style.left = on ? "14px" : "2px";
+      }
+    }
+    applyPdfDark();
+    // 监听全局主题变化 → auto 模式自动跟随
+    const _themeObs = new MutationObserver(() => applyPdfDark());
+    _themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    wrap.querySelector('[data-act="pdf-dark"]').addEventListener("click", () => {
+      // auto → on → off → auto 循环
+      _pdfDark = _pdfDark === "auto" ? "on" : _pdfDark === "on" ? "off" : "auto";
+      localStorage.setItem("pdf-dark", _pdfDark);
+      applyPdfDark();
+      const label = _pdfDark === "on" ? "强制开" : _pdfDark === "off" ? "强制关" : "跟随全局";
+      OS.toast("PDF 夜间模式：" + label, "info");
+    });
+
+    // —— 跳转 PDF 工具箱（预载当前 PDF）——
+    wrap.querySelector('[data-act="toolbox"]').addEventListener("click", () => {
+      if (!data.dataUrl) { OS.toast("请先打开一个 PDF 再跳转", "warn"); return; }
+      try {
+        const u8 = dataUrlToU8(data.dataUrl);
+        const blob = new Blob([u8], { type: "application/pdf" });
+        const file = new File([blob], data.name || "当前文档.pdf", { type: "application/pdf" });
+        if (OS.PDFToolbox && OS.PDFToolbox.open) {
+          OS.PDFToolbox.open({ file });
+          OS.toast("已跳转 PDF 工具箱，当前文件已预载", "ok");
+        } else {
+          OS.toast("PDF 工具箱未加载", "err");
+        }
+      } catch (e) { OS.toast("跳转失败：" + e.message, "err"); }
     });
 
     // —— 批注工具组 ——
@@ -1511,7 +1648,7 @@
     // —— 扁平化导出：把每页渲染画布 + 批注覆盖层绘制到离屏画布，再写为真实 PDF ——
     async function exportAnnotated() {
       if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
-      if (!global.pdfjsLib) { OS.toast("PDF 引擎未加载，请联网后重试", "err"); return; }
+      try { await OS.LazyLib.load("PDFJS"); } catch(e) { OS.toast("PDF 引擎加载失败："+e.message, "err"); return; }
       const boxes = view.querySelectorAll(".pdf-page-box");
       if (!boxes.length) { OS.toast("当前没有可导出页面", "warn"); return; }
       try {

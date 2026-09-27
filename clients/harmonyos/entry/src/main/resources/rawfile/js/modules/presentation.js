@@ -757,6 +757,7 @@
       serialize() { return data; }, exportAs, focus() {}, ribbon,
       pdfFileAPI: { download: downloadPdfFile, buildPageSvg: presBuildPageSvg, rasterizeSvg: presRasterizeSvg },
       setCur(i) { cur = i; renderAll(); },
+      undo, redo, canUndo, canRedo,
       search,
       replaceAll: replaceAllText,
       setNotes(t) { data.slides[cur].notes = t; notesInput.value = t; ctx.markDirty(); renderThumbs(); },
@@ -958,6 +959,146 @@
   }
 
   OS.modules = OS.modules || {};
-  OS.modules.presentation = { type: "presentation", blank, mount };
+  let _prFind = { overlay: null, hits: [], idx: -1 };
+  function openFindPanel(mode) {
+    const scope = document.querySelector(".pres-canvas");
+    if (!scope) { OS.toast("幻灯片未就绪", "err"); return; }
+    if (_prFind.overlay) { _prFind.overlay.hidden = false; _prFind.overlay.querySelector(".sf-find").focus(); _prFindRun(); return; }
+    _prFind.overlay = document.createElement("div");
+    _prFind.overlay.className = "sf-find-overlay";
+    _prFind.overlay.innerHTML = `
+      <div class="sf-find-panel">
+        <div class="sf-find-h">
+          <span>🔍 查找${mode === "replace" ? "和替换" : ""}</span>
+          <button class="icon-btn sf-find-close" title="关闭">✕</button>
+        </div>
+        <div class="sf-find-body">
+          <input class="sf-find sf-input" placeholder="查找（所有幻灯片）…" />
+          <input class="sf-repl sf-input" placeholder="替换为…（留空=删除）" />
+          <label class="sf-case"><input type="checkbox" /> 区分大小写</label>
+          <div class="sf-count"></div>
+          <div class="sf-find-btns">
+            <button class="btn" data-sf="prev">↑ 上一个</button>
+            <button class="btn" data-sf="next">↓ 下一个</button>
+            <button class="btn" data-sf="repl">替换当前</button>
+            <button class="btn primary" data-sf="replall">替换全部</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(_prFind.overlay);
+    const inp = _prFind.overlay.querySelector(".sf-find");
+    _prFind.overlay.querySelector(".sf-find-close").onclick = () => { _prFind.overlay.hidden = true; _prFindClear(); };
+    inp.addEventListener("input", _prFindRun);
+    inp.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); _prFindGoto(e.shiftKey ? -1 : 1); }
+      else if (e.key === "Escape") { _prFind.overlay.hidden = true; _prFindClear(); }
+    });
+    _prFind.overlay.querySelector(".sf-case input").addEventListener("change", _prFindRun);
+    _prFind.overlay.querySelectorAll("[data-sf]").forEach(b => b.onclick = () => {
+      const k = b.dataset.sf;
+      if (k === "prev") _prFindGoto(-1);
+      else if (k === "next") _prFindGoto(1);
+      else if (k === "repl") _prFindReplace();
+      else if (k === "replall") _prReplaceAll();
+    });
+    inp.focus();
+  }
+  function _prClear() {
+    document.querySelectorAll("mark.sf-find-hit").forEach(m => {
+      const p = m.parentNode; if (!p) return;
+      while (m.firstChild) p.insertBefore(m.firstChild, m);
+      p.removeChild(m); p.normalize();
+    });
+  }
+  function _prFindRun() {
+    _prClear();
+    if (!_prFind.overlay) return;
+    const q = _prFind.overlay.querySelector(".sf-find").value;
+    const matchCase = _prFind.overlay.querySelector(".sf-case input").checked;
+    const scope = document.querySelector(".pres-canvas");
+    const countEl = _prFind.overlay.querySelector(".sf-count");
+    if (!q || !scope) { countEl.textContent = ""; _prFind.hits = []; _prFind.idx = -1; return; }
+    const qc = matchCase ? q : q.toLowerCase();
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+      acceptNode(n) {
+        if (!n.nodeValue) return NodeFilter.FILTER_REJECT;
+        return n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+    const hits = []; let node;
+    while ((node = walker.nextNode())) {
+      const nv = node.nodeValue;
+      if (matchCase ? nv.includes(q) : nv.toLowerCase().includes(qc)) {
+        const parent = node.parentNode; if (!parent) continue;
+        const span = document.createElement("mark");
+        span.className = "sf-find-hit";
+        const idx = matchCase ? nv.indexOf(q) : nv.toLowerCase().indexOf(qc);
+        const frag = document.createDocumentFragment();
+        frag.appendChild(document.createTextNode(nv.slice(0, idx)));
+        span.textContent = nv.slice(idx, idx + q.length);
+        frag.appendChild(span);
+        frag.appendChild(document.createTextNode(nv.slice(idx + q.length)));
+        parent.replaceChild(frag, node);
+        hits.push(span);
+      }
+    }
+    _prFind.hits = hits; _prFind.idx = hits.length ? 0 : -1;
+    if (hits.length) { countEl.textContent = "1 / " + hits.length; hits[0].classList.add("active"); }
+    else countEl.textContent = "无匹配";
+  }
+  function _prFindGoto(dir) {
+    if (!_prFind.hits.length) return;
+    if (typeof dir === "number" && dir === 0) _prFind.idx = 0;
+    else _prFind.idx = (_prFind.idx + dir + _prFind.hits.length) % _prFind.hits.length;
+    _prFind.hits.forEach((h, i) => h.classList.toggle("active", i === _prFind.idx));
+    const cur = _prFind.hits[_prFind.idx];
+    if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (_prFind.overlay) _prFind.overlay.querySelector(".sf-count").textContent = (_prFind.idx + 1) + " / " + _prFind.hits.length;
+  }
+  function _prFindClear() { _prClear(); _prFind.hits = []; _prFind.idx = -1; }
+  // Presentation 替换面板：改数据模型 → snapshot + renderAll（Ctrl+Z 可撤销）
+  function _prFindReplace() {
+    if (!_prFind.hits.length) return OS.toast("无匹配可替换", "warn");
+    const cur = _prFind.hits[_prFind.idx];
+    if (!cur) return;
+    const q = _prFind.overlay.querySelector(".sf-find").value;
+    const rep = _prFind.overlay.querySelector(".sf-repl").value || "";
+    const matchCase = _prFind.overlay.querySelector(".sf-case input").checked;
+    // 反查当前 hit 对应的 element 数据对象
+    const elDiv = cur.closest(".el.text");
+    if (elDiv && elDiv.dataset.id) {
+      const targetId = elDiv.dataset.id;
+      // 遍历所有 slides 找这个 element（TreeWalker 可能扫到多页，虽然 renderMain 只渲染当前）
+      let targetEl = null;
+      data.slides.forEach(s => {
+        if (!targetEl && s.elements) targetEl = s.elements.find(e => e.id === targetId);
+      });
+      if (targetEl && typeof targetEl.text === "string") {
+        const tc = targetEl.text;
+        const qc = matchCase ? q : q.toLowerCase();
+        const idx = matchCase ? tc.indexOf(q) : tc.toLowerCase().indexOf(qc);
+        if (idx !== -1) {
+          snapshot();
+          targetEl.text = tc.slice(0, idx) + rep + tc.slice(idx + q.length);
+          renderAll(); ctx.markDirty();
+        } else { OS.toast("当前元素不含查询词", "warn"); return; }
+      } else { OS.toast("无法定位元素", "warn"); return; }
+    } else {
+      cur.textContent = rep; // fallback（非 element 文本，如 notes）
+    }
+    OS.toast("已替换 1 处", "ok");
+    _prFindRun(); _prFindGoto(_prFind.idx);
+  }
+  // 替换全部：直接复用已有的 replaceAllText 纯函数（自带 snapshot + renderAll + ctx.markDirty）
+  function _prReplaceAll() {
+    if (!_prFind.hits.length) return OS.toast("无匹配可替换", "warn");
+    const q = _prFind.overlay.querySelector(".sf-find").value;
+    const rep = _prFind.overlay.querySelector(".sf-repl").value || "";
+    const matchCase = _prFind.overlay.querySelector(".sf-case input").checked;
+    const n = replaceAllText(q, rep, { matchCase });
+    if (n) { OS.toast("已替换 " + n + " 处", "ok"); }
+    _prFindRun();
+  }
+  OS.modules.presentation = { type: "presentation", blank, mount, openFindPanel };
   OS.blankDoc = (function (orig) { return function (t) { if (t === "presentation") return blank(); return orig ? orig(t) : { type: t, data: {} }; }; })(OS.blankDoc);
 })(window);

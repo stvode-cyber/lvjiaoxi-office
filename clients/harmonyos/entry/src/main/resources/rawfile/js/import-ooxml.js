@@ -29,7 +29,8 @@
     });
   }
   const JSZip = _pickLib("JSZip");
-  const XLSX  = _pickLib("XLSX");
+  // ★ 懒加载：XLSX（SheetJS）不再顶层加载 — 改在 importFile() 的 .xls 分支按需 await OS.LazyLib.load("XLSX")
+  let XLSX = null;
 
   /* ---------- 通用 XML/DOM 工具 ---------- */
   function parseXML(str) {
@@ -146,7 +147,7 @@
         author: r.author || "我", text: r.text || "", createdAt: r.date ? (Date.parse(r.date) || Date.now()) : Date.now()
       }));
       comments.push({
-        id: String(wid), quote: quote || "", author: def.author || "我",
+        id: String(wid), quote: quote || "", text: def.firstLine || "", author: def.author || "我",
         createdAt: def.date ? (Date.parse(def.date) || Date.now()) : Date.now(),
         resolved: !!def.done, replies
       });
@@ -424,7 +425,46 @@
     const note = Object.keys(cells).length
       ? "XLSX 已导入（基本兼容：值与公式保留；仅导入首个工作表）"
       : "XLSX 已导入（空表）";
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles: {} }, compat: "B", note };
+
+    // ---------- 批注导入（xl/comments/commentN.xml，逐 sheet）----------
+    const comments = [];
+    // 收集所有 comment*.xml 并按序号排序
+    const commentFiles = {};
+    Object.keys(zip.files).forEach(f => {
+      const m = f.match(/^xl\/comments\/comment(\d+)\.xml$/);
+      if (m) commentFiles[+m[1]] = zip.file(f);
+    });
+    // comment1.xml 特殊兜底
+    if (!commentFiles[1]) { const f = zip.file("xl/comments/comment1.xml"); if (f) commentFiles[1] = f; }
+    for (const [nStr, cmtFile] of Object.entries(commentFiles)) {
+      const sheetIdx = +nStr - 1;  // comment1 -> sheet 0, comment2 -> sheet 1
+      if (!cmtFile) continue;
+      try {
+        const cd = parseXML(await cmtFile.async("string"));
+        const authorNames = [];
+        const authorsEl = first(cd.documentElement, "authors");
+        if (authorsEl) {
+          all(authorsEl, "author").forEach(a => authorNames.push((a.textContent || "").trim() || "作者"));
+        }
+        all(cd.documentElement, "comment").forEach(cc => {
+          const ref = attr(cc, "ref") || "";
+          if (!ref) return;
+          const authorId = +(attr(cc, "authorId") || "0");
+          const textEl = first(cc, "text");
+          const text = textEl ? all(textEl, "t").map(t => t.textContent || "").join("") : "";
+          const cid = "cmt" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+          comments.push({
+            id: cid, ref: ref, sheet: sheetIdx,
+            author: authorNames[authorId] || "作者",
+            createdAt: Date.now(), resolved: false,
+            text: text || "",
+            replies: []
+          });
+        });
+      } catch (e) { /* 批注解析失败不阻断导入 */ }
+    }
+
+    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles: {}, comments }, compat: "B", note };
   }
 
   /* ============================================================
@@ -720,7 +760,55 @@
       slides.push({ bg: bgColor, elements, notes });
     }
     if (!slides.length) slides.push({ bg: "#ffffff", elements: [] });
-    return { type: "presentation", data: { slides }, compat: "B", note: `PPTX 已导入 ${slides.length} 页（基础兼容：文本/图片/形状/位置/样式保留）` };
+
+    // ---------- PPTX 批注导入（ppt/comments/commentN.xml + ppt/commentAuthors.xml）----------
+    const comments = [];
+    // 作者表
+    const authorNames = [];
+    const authorsFile = zip.file("ppt/commentAuthors.xml");
+    if (authorsFile) {
+      try {
+        const ad = parseXML(await authorsFile.async("string"));
+        all(ad.documentElement, "cmAuthor").forEach(a => authorNames.push((a.getAttribute("name") || a.textContent || "").trim() || "作者"));
+      } catch (e) {}
+    }
+    // 每页的批注文件 commentN.xml（N 从 1 开始）
+    const commentFiles = {};
+    Object.keys(zip.files).forEach(f => {
+      const m = f.match(/^ppt\/comments\/comment(\d+)\.xml$/);
+      if (m) commentFiles[+m[1]] = zip.file(f);
+    });
+    for (const [nStr, file] of Object.entries(commentFiles)) {
+      const slideIdx = +nStr - 1;
+      if (!file) continue;
+      try {
+        const cd = parseXML(await file.async("string"));
+        all(cd.documentElement, "cm").forEach(cm => {
+          const authorId = +(cm.getAttribute("authorId") || "0");
+          // PPTX comment 文本存于 <p:text>（presentationml）
+          let text = "";
+          const textEl = cm.getElementsByTagNameNS ? cm.getElementsByTagNameNS("*", "text")[0] : null;
+          if (textEl) text = textEl.textContent || "";
+          else text = (cm.getElementsByTagName("text")[0]?.textContent) || "";
+          // PPTX 批注位置（可选）
+          let posX = 0, posY = 0;
+          const posEl = first(cm, "pos");
+          if (posEl) { posX = +(posEl.getAttribute("x") || "0"); posY = +(posEl.getAttribute("y") || "0"); }
+          comments.push({
+            id: "cmt" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+            slide: slideIdx,
+            author: authorNames[authorId] || "作者",
+            createdAt: Date.now(),
+            resolved: false,
+            text: text || "",
+            replies: [],
+            _pos: { x: posX, y: posY }
+          });
+        });
+      } catch (e) { /* 不阻断导入 */ }
+    }
+
+    return { type: "presentation", data: { slides, comments }, compat: "B", note: `PPTX 已导入 ${slides.length} 页（基础兼容：文本/图片/形状/位置/样式保留${comments.length ? "；批注 " + comments.length + " 条" : ""}）` };
   }
 
   function shapeText(sp) {
@@ -1162,7 +1250,7 @@
     if (onProgress) onProgress("读取文件字节", 0.2);
     // .xls 是 BIFF8 二进制，不走 JSZip，直接 SheetJS 解析
     if (ext === "xls") {
-      if (!XLSX) throw new Error("需加载 SheetJS 解析库");
+      if (!XLSX) { XLSX = await OS.LazyLib.load("XLSX"); }
       if (onProgress) onProgress("解析旧版 Excel (.xls)", 0.7);
       const r = parseXls(buf);
       if (onProgress) onProgress("构建文档模型", 0.95);
@@ -1193,6 +1281,6 @@
     return r;
   }
 
-  OS.Importer = { importFile, parseDocx, parseXmind };
+  OS.Importer = { importFile, parseDocx, parseXlsx, parsePptx, parseXmind };
   if (OS.util && OS.util.log) OS.util.log("Importer(OOML/ODF) ready");
 })(window);

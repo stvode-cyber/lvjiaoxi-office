@@ -230,6 +230,59 @@
     else console.log("[toast]", msg);
   };
 
+  // ---------- 懒加载大 vendor ----------
+  // 启动时不加载这些大库（合计 ~2575KB），首次用到时动态注入 <script>
+  // 所有模块统一通过 OS.LazyLib.load("XLSX") 调用，返回 Promise<global symbol>
+  OS.LazyLib = {
+    // name → { url, symbol }
+    _specs: {
+      XLSX:      { url: "vendor/xlsx.full.min.js",       symbol: "XLSX",      size: 861 },
+      PDFJS:     { url: "vendor/pdf.min.js",              symbol: "pdfjsLib",  size: 313 },
+      PDFLib:    { url: "vendor/pdf-lib.min.js",          symbol: "PDFLib",    size: 513 },
+      fontkit:   { url: "vendor/fontkit.min.js",          symbol: "fontkit",   size: 384 },
+      DOCX:      { url: "vendor/docx.umd.min.js",         symbol: "docx",      size: 378 },
+      Tesseract: { url: "vendor/tesseract/tesseract.min.js", symbol: "Tesseract", size: 66 }
+    },
+    _promises: {},
+    _instances: {},
+    /**
+     * 加载一个懒加载库（带缓存）。第二次调用直接 resolve 已加载的 symbol。
+     * @param {string} name 名称：XLSX | PDFJS | PDFLib | fontkit | DOCX | Tesseract
+     * @returns {Promise<*>} 库的全局 symbol（如 window.XLSX）
+     */
+    load(name) {
+      // 已在全局存在 → 直接 resolve（兼容已经加载的情况 / 单测环境）
+      if (globalThis[name]) { this._instances[name] = globalThis[name]; return Promise.resolve(globalThis[name]); }
+      // 已有进行中的加载 → 返回同一个 Promise（防止并发触发多次注入）
+      if (this._promises[name]) return this._promises[name];
+      const spec = this._specs[name];
+      if (!spec) return Promise.reject(new Error("LazyLib: unknown library '" + name + "'"));
+      // 同一 URL 只注入一次 — 多 name 共用同一个 vendor 文件
+      const self = this;
+      const p = new Promise((resolve, reject) => {
+        // 再次检查全局（specs 里可能有重复 url 的多个 name）
+        if (globalThis[spec.symbol]) { self._instances[name] = globalThis[spec.symbol]; resolve(globalThis[spec.symbol]); return; }
+        const s = document.createElement("script");
+        s.src = spec.url;
+        s.defer = true;
+        s.onload = () => {
+          const sym = globalThis[spec.symbol];
+          if (!sym) { reject(new Error("LazyLib: '" + name + "' loaded but window." + spec.symbol + " not found")); return; }
+          self._instances[name] = sym;
+          // 同步回写所有共享此 URL 的 name
+          for (const [n, sp] of Object.entries(self._specs)) { if (sp.url === spec.url && !globalThis[n]) { globalThis[n] = sym; self._instances[n] = sym; } }
+          resolve(sym);
+        };
+        s.onerror = () => reject(new Error("LazyLib: failed to load " + spec.url));
+        document.head.appendChild(s);
+      });
+      this._promises[name] = p;
+      return p;
+    },
+    // 一次性并行加载多个（如进 PDF 模式需要 PDFJS + PDFLib + fontkit）
+    loadAll(names) { return Promise.all(names.map(n => this.load(n))); }
+  };
+
   // 初始化主题
   OS.theme.set(OS.theme.get());
 })(window);

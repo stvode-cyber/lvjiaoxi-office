@@ -379,3 +379,44 @@
 - **首次踩坑**：2026-09-17
 - **复发次数**：1
 - **是否入 Skill**：否（项目外部路径，但每次换电脑/重装后要确认）
+
+---
+
+## [P2] [ledger-info-stale] 台账/拉手.md 里的功能状态可能过时
+
+- **问题**：AI交接_拉手.md 里标"PDF 批注写入 PDF 二进制"为 P2 未完成项，但实际上 pdf-engine.js 里的 addVectorAnnotation（L1206）和 addHighlight（L1185）**早就实现了**（2026-09-01 的 STATUS.md 有记录）。拉手.md 没及时更新，新 AI 接手会重复造轮子。
+- **解决**：每次完成一个任务后，**立即**更新 AI交接_拉手.md 的"下一步能推啥"章节，把已完成项划掉。同时 FEATURES.md 也要同步更新。
+- **根因**：项目台账体系（issues/decisions/index）很完善，但"任务导航类文件"（拉手.md / FEATURES.md / STATUS.md）的更新没有**自动触发**机制，靠 AI 自觉容易遗漏。
+- **预防规则**：
+  1. **Growth Logger Skill 的 P1 级触发**里加一条：完成 ≥1 个 P0/P1/P2 任务后，检查拉手.md 的对应章节是否过时
+  2. 新 AI 接手时，不要**完全信任**拉手.md 的"下一步能推啥"，先 Grep 确认功能是否真的未实现
+  3. FEATURES.md 的功能描述里，如果写了"🟡 部分实现"，后面必须补**具体哪部分是已实现的**（像 PDF 那行那样），不能模糊
+- **关联文件**：AI交接_拉手.md / FEATURES.md / STATUS.md / app/js/modules/pdf-engine.js#L1185-1206
+- **首次踩坑**：2026-09-23
+- **复发次数**：0
+
+---
+
+## [P2] [office-shortcuts-missing] Ctrl+N/O/W/P 四大基础快捷键全缺失
+
+- **问题**：shell.js 里只有 Ctrl+S/K/E/H/F/Z/Y 等快捷键，**Ctrl+N（新建）/Ctrl+O（打开）/Ctrl+W（关闭标签）/Ctrl+P（打印）/Ctrl+Tab（切标签）** 这五个任何办公软件都必须有的快捷键**一个都没拦截**。用户全靠鼠标点击。
+- **解决**：shell.js L201-L213 加 5 行 keydown handler，全部复用已有函数（newDoc / closeTab / exportAs / activate），零新代码。
+- **根因**：快捷键没有"基线审计"。shell.js 写完以后没人专门检查"办公软件必备快捷键覆盖度"。新功能迭代时只关注"加了啥"，不关注"基础功能有没有漏"。
+- **预防规则**：
+  1. 发版前加一个**快捷键审计清单**（在 release-check.js 里自动检查）
+  2. 所有模块都实现 openFindPanel 后，shell.js 的 Ctrl+F 拦截才能对所有模块生效——**跨模块快捷键必须配合模块 API 导出**，不是 shell.js 单独能搞定的
+- **关联文件**：app/js/shell.js#L201-L213 / _shell_shortcuts_test.js（29 断言覆盖）
+- **首次踩坑**：2026-09-23
+- **复发次数**：0
+
+---
+
+## [P3] [shortcut-test-fragile] 快捷键矩阵测试用字符串包含匹配，改一下函数名就全挂
+
+- **问题**：_shell_shortcuts_test.js 的 39 条断言全部用 src.includes("子串") 检查——shell.js 里的 handler 字符串稍微改个变量名（比如把 _tswOpen 改成 _tabSwitcherOpen），测试就红，但功能没坏。反过来也成立——如果有人故意写个假函数名叫 ake__tswOpen，测试过了但功能是空的。
+- **解决**：升级到 jsdom 真实派发 KeyboardEvent → 捕获 activate/closeTab/newDoc 等被调函数 → 验证参数。目前 shell.js 没引入 jsdom（浏览器跑），需要把测试 Node 化（用 node:test + jsdom）。
+- **根因**：快捷键矩阵测试从一开始就是"最低成本方案"——只验证字符串包含，不验证真实行为。短期够用，长期脆弱。
+- **预防规则**：P3 低优先级改进项，等有时间做 Node 化测试框架时一起升级。
+- **关联文件**：_shell_shortcuts_test.js / app/js/shell.js
+- **首次踩坑**：2026-09-23
+- **复发次数**：1（本轮 Ctrl+R 测试第一次就因为字符串不匹配挂了）

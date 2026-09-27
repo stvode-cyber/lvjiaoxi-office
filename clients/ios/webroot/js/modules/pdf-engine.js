@@ -9,8 +9,25 @@
 (function () {
   'use strict';
 
-  const { PDFDocument, degrees, rgb, StandardFonts, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown,
-          PDFName, PDFHexString, PDFBool, PDFDict, PDFArray, PDFNumber, PDFString, PDFRef, PDFNull } = PDFLib;
+  // ★ 懒加载：PDFLib 不在顶层同步加载 — 首次用到时 await OS.LazyLib.load("PDFLib") + 解构
+  let PDFLib = null, PDFDocument, degrees, rgb, StandardFonts, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown;
+  let PDFName, PDFHexString, PDFBool, PDFDict, PDFArray, PDFNumber, PDFString, PDFRef, PDFNull;
+  let fontkit = null;
+  let _engineReady = false;
+  async function _ensureEngine() {
+    if (_engineReady) return;
+    const all = await Promise.all([
+      // 并行加载：PDFLib + fontkit + PDFJS（本文件重度依赖）
+      window.OS.LazyLib.loadAll(['PDFLib', 'fontkit', 'PDFJS']).catch(e => console.warn('[PDFEngine] 并行加载部分失败:', e.message))
+    ]);
+    PDFLib = globalThis.PDFLib || all[0];
+    fontkit = globalThis.fontkit || globalThis.FontKit || null;
+    if (PDFLib) {
+      ({ PDFDocument, degrees, rgb, StandardFonts, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown,
+         PDFName, PDFHexString, PDFBool, PDFDict, PDFArray, PDFNumber, PDFString, PDFRef, PDFNull } = PDFLib);
+    }
+    _engineReady = true;
+  }
 
   // fontkit 用于嵌入自定义字体（TTF/OTF）。需在加载 engine.js 前于页面中引入 fontkit 并挂载到 window.fontkit。
   // 注意：本打包版 pdf-lib 的 registerFontkit 是「实例方法」(doc.registerFontkit)，需在每个 doc 上注册。
@@ -27,6 +44,7 @@
   /* ---------- 小工具 ---------- */
 
   async function loadDoc(bytes, password) {
+    await _ensureEngine();
     return PDFDocument.load(bytes, password ? { password } : {});
   }
 
@@ -146,6 +164,7 @@
 
   // 在单页指定位置叠加文字图片
   async function overlayText(doc, pages, text, pos, style) {
+    await _ensureEngine();
     const blob = await textToImage(text, {
       fontSize: style.fontSize || 11, color: style.color || '#333333',
       opacity: style.opacity == null ? 1 : style.opacity,
@@ -174,6 +193,7 @@
   /* ===================== 页面操作 ===================== */
 
   async function mergePDFs(files, onProgress) {
+    await _ensureEngine();
     const out = await PDFDocument.create();
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
@@ -187,6 +207,7 @@
   }
 
   async function splitPDF(file, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const src = await loadDoc(bytes, file.password);
     const n = src.getPageCount();
@@ -202,6 +223,7 @@
   }
 
   async function extractPages(file, pages, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const src = await loadDoc(bytes, file.password);
     const idx = pages.map((p) => p - 1).filter((i) => i >= 0 && i < src.getPageCount());
@@ -288,6 +310,7 @@
   // 采用贪心装箱：从某页起不断向后并入下一页，直到再加一页会超限为止；若单页本身已超限则单独成段（不强压）。
   // opts.maxSizeKB 为目标上限（>=1，非法/非正归 1024）；返回 { files:[{name,bytes,index,start,end,pages,sizeKB,overSingle}], count, totalPages }。
   async function splitBySize(file, opts, onProgress) {
+    await _ensureEngine();
     opts = opts || {};
     const password = opts.password || null;
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
@@ -452,6 +475,7 @@
   }
 
   async function deletePages(file, pages, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const src = await loadDoc(bytes, file.password);
     const remove = new Set(pages.map((p) => p - 1));
@@ -466,6 +490,7 @@
   // P7-① 去除空白页：扫描并移除完全空白的页面（无文本 / 无图像 / 无绘制 / 无批注）。
   // 判定采用「保守多信号」策略，宁可少删也不误删：任一信号命中即视为非空。
   async function detectBlankPages(file, opts, onProgress) {
+    await _ensureEngine();
     opts = opts || {};
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts.password);
@@ -520,6 +545,7 @@
   }
 
   async function removeBlankPages(file, opts, onProgress) {
+    await _ensureEngine();
     opts = opts || {};
     const det = await detectBlankPages(file, opts, onProgress);
     if (det.blank.length === 0) {
@@ -604,6 +630,7 @@
   }
 
   async function pageSignature(page, ctx) {
+    await _ensureEngine();
     const node = page.node;
     let h = 0x811c9dc5;
     // 1) 内容流：getContents() 取字节（本打包版仍带 Flate 头）→ 解压 → 归一资源名 → 哈希
@@ -697,6 +724,7 @@
   }
 
   async function removeDuplicatePages(file, opts, onProgress) {
+    await _ensureEngine();
     opts = opts || {};
     const det = await detectDuplicatePages(file, opts, onProgress);
     if (det.duplicate.length === 0) {
@@ -708,6 +736,7 @@
   }
 
   async function reorderPages(file, order, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const src = await loadDoc(bytes, file.password);
     const idx = order.map((p) => p - 1).filter((i) => i >= 0 && i < src.getPageCount());
@@ -900,6 +929,7 @@
   /* ===================== 压缩 / 转换 ===================== */
 
   async function compressPDF(file, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     if (onProgress) onProgress({ done: 0, total: 0, phase: '压缩中' });
     const doc = await loadDoc(bytes, file.password);
@@ -908,6 +938,7 @@
   }
 
   async function rasterizeCompress(file, scale, onProgress) {
+    await _ensureEngine();
     scale = scale || 1.4;
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const n = (await loadDoc(bytes, file.password)).getPageCount();
@@ -930,6 +961,7 @@
   }
 
   async function imagesToPDF(imageFiles, opts, onProgress) {
+    await _ensureEngine();
     opts = opts || {};
     const out = await PDFDocument.create();
     if (onProgress) onProgress({ done: 0, total: imageFiles.length, phase: '合成 PDF' });
@@ -965,6 +997,7 @@
   }
 
   async function pdfToImages(file, opts, onProgress) {
+    await _ensureEngine();
     opts = opts || {};
     const scale = opts.scale || 2;
     const format = opts.format || 'image/png';
@@ -988,6 +1021,7 @@
   }
 
   async function extractText(file, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const pdfjs = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
     const n = pdfjs.numPages;
@@ -1050,6 +1084,7 @@
   }
 
   async function cropPages(file, opts, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts.password);
     const pages = doc.getPages();
@@ -1068,6 +1103,7 @@
   }
 
   async function resizePages(file, opts, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const src = await loadDoc(bytes, opts.password);
     const n = src.getPageCount();
@@ -1246,6 +1282,7 @@
   }
 
   async function setOutline(file, opts, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts.password);
     const tree = Array.isArray(opts.tree) ? opts.tree : [];
@@ -1305,6 +1342,7 @@
   }
 
   async function getOutline(file, opts) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts && opts.password);
     const ctx = doc.context;
@@ -1366,6 +1404,7 @@
   // 返回一个对象：{ title, author, subject, keywords, creator, producer }（均为字符串，缺失字段为 ''）。
   // 标题等可能以 PDFHexString (UTF-16BE) 或 PDFString 存储，统一用 decodeText() 解码，中文不乱码。
   async function getMetadata(file, password) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, password);
     const info = doc.getInfoDict();
@@ -1388,6 +1427,7 @@
   // opts.clearAll === true 时忽略其余字段，将全部六项置空。
   // 注：pdf-lib 在保存时会强制把 Producer 写为自身标识，故 Producer 字段不受自定义控制（仅可读取）。
   async function setMetadata(file, opts, onProgress) {
+    await _ensureEngine();
     if (onProgress) onProgress({ done: 0, total: 1, phase: '写入元数据' });
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts.password);
@@ -1440,6 +1480,7 @@
 
   // 读取 PDF 的页面标签，返回可读区间数组（按起始页升序）
   async function getPageLabels(file, password) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, password);
     const ctx = doc.context;
@@ -1463,6 +1504,7 @@
 
   // 写入 PDF 页面标签。opts.ranges 为区间数组；opts.clearAll=true 时清除全部标签。
   async function setPageLabels(file, opts, onProgress) {
+    await _ensureEngine();
     if (onProgress) onProgress({ done: 0, total: 1, phase: '写入页面标签' });
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts.password);
@@ -1504,6 +1546,7 @@
   // 在指定页矩形区域添加链接注解（内部跳转 / 外部网址），并可选绘制可见标记（下划线 / 边框）
   // 坐标约定：mm，左上原点（与矢量注释一致），引擎内换算为 PDF 用户空间（左下原点）
   async function addLink(file, opts, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts.password);
     const pages = doc.getPages();
@@ -1560,6 +1603,7 @@
   //  - Form Widget 注释（Subtype: Widget）由 getFormFields 处理，此处跳过。
   //  - 坐标：PDF 用户空间 pt（左下原点），返回原始坐标不变换。
   async function getAnnotations(file, opts = {}) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts.password);
     const pages = doc.getPages();
@@ -1751,6 +1795,7 @@
   // P4-③ 导出表单域结构：复用 getFormFields 的字段分类，附加「所在页码」归属。
   // 返回 { fields:[{name,type,value,options,page}], count }；无名称/按钮类被跳过。
   async function exportFormFields(file, opts, onProgress) {
+    await _ensureEngine();
     opts = opts || {};
     const password = opts.password || null;
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
@@ -2258,6 +2303,7 @@
   }
 
   async function flattenForms(file, opts, onProgress) {
+    await _ensureEngine();
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts && opts.password);
     let form;
@@ -2395,6 +2441,7 @@
   }
 
   async function signPDF(file, opts) {
+    await _ensureEngine();
     if (!subtle) throw new Error('当前环境不支持 WebCrypto，无法签名');
     opts = opts || {};
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
@@ -2551,6 +2598,7 @@
   let _ocrLangs = null;
 
   async function getOcrWorker(langs, onProgress) {
+    await _ensureEngine();
     if (!globalThis.Tesseract) throw new Error('Tesseract 未加载（缺少 assets/vendor/tesseract/tesseract.min.js）');
     if (!_ocrWorker || _ocrLangs !== langs) {
       if (_ocrWorker) { try { await _ocrWorker.terminate(); } catch (e) { console.error("[PdfEngine] 操作失败:", e); OS.toast("操作失败: " + (e && e.message || e), "err"); } _ocrWorker = null; }
@@ -2612,6 +2660,7 @@
   // 把 OCR 结果烤成「可检索文本层」：原扫描图作为可见内容，文字以透明层叠加上去（可选中/可复制/可搜索）。
   // 坐标换算：pdf.js 以 scale=S 渲染，1 PDF 点 = S 像素；故像素坐标 / S 即得 PDF 用户空间坐标（点）。
   async function makeSearchablePDF(fileOpts, ocrResult, opts = {}, onProgress) {
+    await _ensureEngine();
     const { file } = fileOpts;
     const bytes = new Uint8Array(await file.arrayBuffer());
     const doc = await PDFDocument.load(bytes, { password: opts.password || '' });
@@ -2660,6 +2709,7 @@
 
   // 用 pdf.js 提取每页文本（含坐标/字号/粗斜体信息），供 Word/Excel 复用。
   async function extractPdfText(file, opts, onProgress) {
+    await _ensureEngine();
     const buf = await resolveBytes(file);   // 兼容 {file}/ {bytes}/裸Uint8Array（调用方均传 {file} 包装，此前取 file.arrayBuffer() 会在浏览器报错）
     const pdf = await pdfjsLib.getDocument({ data: buf, password: opts.password || '' }).promise;
     const pages = [];
@@ -2711,105 +2761,509 @@
     });
   }
 
-  // 把提取结果构建成 docx.Document（纯函数，便于单测）。布局以「流式段落」还原，保留粗体/斜体/字号。
+  // 把提取结果构建成 docx.Document（纯函数，便于单测）。
+  // 版面还原：表格块 → docx.Table（带 columnSpan 合并），prose → docx.Paragraph。
+  // 复用 detectTables 的精细表格识别管线，同时保留粗体/斜体/字号。
   function buildDocxDocument(extracted, opts) {
     const D = globalThis.docx || window.docx;
     if (!D) throw new Error('docx 运行时未加载');
+    opts = opts || {};
     const rowTol = opts.rowTol || 6;
-    const paraTol = opts.paraTol || 14;
+    const gapThresh = opts.gapThresh || 30;
+
+    // 复用刚写的 detectTables 管线拿版面结构
+    const detected = detectTables(extracted, { rowTol, gapThresh });
+
     const children = [];
-    (extracted.pages || []).forEach((pg, pi) => {
-      if (pi > 0) children.push(new D.Paragraph({ children: [new D.TextRun('')], pageBreakBefore: true }));
-      const lines = groupLines(pg.items, rowTol);
-      let para = null;
-      const paras = [];
-      for (let li = 0; li < lines.length; li++) {
-        const ln = lines[li];
-        const prev = lines[li - 1];
-        const gap = prev ? (prev.y - ln.y) : 0; // 向下为正
-        if (!para || gap > paraTol) { para = []; paras.push(para); }
-        para.push(ln);
+    (detected.sheets || []).forEach((sh, si) => {
+      // 每页开头加分页符（第一页不加）
+      if (si > 0) {
+        children.push(new D.Paragraph({ children: [new D.TextRun({ text: '', break: 1 })] }));
       }
-      paras.forEach((paraLines) => {
-        const runs = [];
-        paraLines.forEach((ln, idx) => {
-          ln.items.forEach((it, ii) => {
-            if (!it.str) return;
-            if (ii > 0) {
-              const prev = ln.items[ii - 1];
-              const gap = it.x - (prev.x + (prev.w || 0));
-              if (gap > it.size * 0.25) runs.push(new D.TextRun({ text: ' ' }));
+
+      const rows = sh.rows || [];
+      const merges = sh.merges || [];
+      const nCols = sh._maxCols || 1;
+
+      // 把 merges 做成 {absoluteRowIndex: {startCol: span}} 的快速查找表
+      const mergeMap = Object.create(null);
+      for (const m of merges) {
+        const r = m.s.r;
+        const span = m.e.c - m.s.c + 1;
+        if (!mergeMap[r]) mergeMap[r] = Object.create(null);
+        mergeMap[r][m.s.c] = span;
+      }
+
+      // 用绝对 index 遍历 rows，聚成 Paragraph / Table
+      let i = 0;
+      while (i < rows.length) {
+        const row = rows[i];
+        // 行内非 null cell ≥ 2 个 → 表格行；否则 prose
+        const nonNullCount = row.filter(c => c != null).length;
+        const isTableRow = nonNullCount >= 2;
+
+        if (!isTableRow) {
+          // prose：收集连续 prose 行（多行合并为一个 Paragraph 带软换行）
+          const proseRows = [row];
+          let j = i + 1;
+          while (j < rows.length && rows[j].filter(c => c != null).length < 2) {
+            proseRows.push(rows[j]);
+            j++;
+          }
+          const paraRuns = [];
+          proseRows.forEach((pr, pi) => {
+            const cell = pr[0];
+            const text = (cell && cell.text) || '';
+            const size = (cell && cell.size) || 11;
+            const bold = !!(cell && cell.bold);
+            const italic = !!(cell && cell.italic);
+            if (pi > 0) paraRuns.push(new D.TextRun({ text: '', break: 1 }));
+            if (text) {
+              paraRuns.push(new D.TextRun({
+                text,
+                bold,
+                italics: italic,
+                size: Math.max(16, Math.round(size * 2)), // docx 半磅单位
+              }));
             }
-            runs.push(new D.TextRun({
-              text: it.str,
-              bold: it.bold,
-              italics: it.italic,
-              size: Math.max(10, Math.round(it.size * 2)), // docx 字号单位=半磅
-            }));
           });
-          if (idx < paraLines.length - 1) runs.push(new D.TextRun({ text: '', break: 1 }));
+          children.push(new D.Paragraph({ children: paraRuns.length ? paraRuns : [new D.TextRun('')] }));
+          i = j;
+          continue;
+        }
+
+        // 表格行：收集连续表格行（含可能的 merge header）
+        const tableAbsRows = [i];
+        let j = i + 1;
+        while (j < rows.length && rows[j].filter(c => c != null).length >= 2) {
+          tableAbsRows.push(j);
+          j++;
+        }
+
+        // 构建 docx.Table
+        const docxRows = tableAbsRows.map(absRi => {
+          const tr = rows[absRi];
+          const colSpans = mergeMap[absRi] || Object.create(null);
+          const cells = [];
+          let ci = 0;
+          while (ci < nCols) {
+            const span = colSpans[ci] || 1;
+            const cell = tr[ci];
+            const paraChildren = [];
+            if (cell && cell.text) {
+              paraChildren.push(new D.TextRun({
+                text: cell.text,
+                bold: !!(cell.bold) || absRi === tableAbsRows[0], // 首行默认表头加粗
+                italics: !!(cell.italic),
+                size: Math.max(16, Math.round((cell.size || 11) * 2)),
+              }));
+            } else {
+              paraChildren.push(new D.TextRun(''));
+            }
+            const alignment = (cell && cell.bold) || absRi === tableAbsRows[0]
+              ? D.AlignmentType.CENTER : D.AlignmentType.LEFT;
+            const tcOpts = {
+              children: [new D.Paragraph({ alignment, children: paraChildren })],
+            };
+            if (span > 1) tcOpts.columnSpan = span;
+            cells.push(new D.TableCell(tcOpts));
+            ci += span;
+          }
+          return new D.TableRow({ children: cells });
         });
-        children.push(new D.Paragraph({ children: runs.length ? runs : [new D.TextRun('')] }));
-      });
+
+        const table = new D.Table({
+          rows: docxRows,
+          width: { size: 100, type: 'percent' },
+        });
+        children.push(table);
+        i = j;
+      }
     });
+
     return new D.Document({ sections: [{ children }] });
   }
 
-  // 把一页词条按 x/y 聚类成网格（启发式表格识别）。desc=true 表示按值降序排列中心（行：顶部在前）。
-  function cluster(values, tol, desc) {
-    const s = values.slice().sort((a, b) => desc ? (b - a) : (a - b));
-    const centers = [];
-    let cur = [s[0]];
-    for (let i = 1; i < s.length; i++) {
-      if (Math.abs(s[i] - cur[0]) <= tol) cur.push(s[i]);
-      else { centers.push(avg(cur)); cur = [s[i]]; }
+  // ========== 增强版 PDF→Excel 表格识别 + 样式还原 ==========
+  // 核心思路：groupLines 先聚行 → 列边界 gap 检测列分隔符 → 跨行共享分隔符 →
+  // 合并单元格（item 宽度跨多个分隔符）→ 输出带 {text,size,bold} 的 cell + merges 范围
+
+  // PDF pt 坐标下估算文本宽度（中英混合）
+  function _pdfTextWidth(text, size) {
+    if (!text) return 0;
+    let w = 0;
+    for (const ch of String(text)) {
+      w += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? size : size * 0.55;
     }
-    centers.push(avg(cur));
-    return centers;
+    return w;
   }
-  function avg(a) { return a.reduce((x, y) => x + y, 0) / a.length; }
-  function nearest(centers, v) {
-    let bi = 0, bd = Infinity;
-    centers.forEach((c, i) => { const d = Math.abs(c - v); if (d < bd) { bd = d; bi = i; } });
-    return bi;
+  function _itemRight(it) { return it.x + (it.w || _pdfTextWidth(it.str || '', it.size || 11)); }
+
+  // 行内检测：是否有大 gap（候选表格行）
+  function _isTableRow(lineItems, gapThresh) {
+    if (!lineItems || lineItems.length < 2) return false;
+    const sorted = lineItems.slice().sort((a, b) => a.x - b.x);
+    let maxGap = 0;
+    for (let i = 1; i < sorted.length; i++) {
+      const gap = sorted[i].x - _itemRight(sorted[i - 1]);
+      if (gap > maxGap) maxGap = gap;
+    }
+    return maxGap > gapThresh;
+  }
+
+  // 行内检测大 gap 的中心位置 → 候选列分隔符
+  function _gapsOf(lineItems, gapThresh) {
+    const sorted = lineItems.slice().sort((a, b) => a.x - b.x);
+    const out = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const leftRight = _itemRight(sorted[i - 1]);
+      const gap = sorted[i].x - leftRight;
+      if (gap > gapThresh) out.push((leftRight + sorted[i].x) / 2);
+    }
+    return out;
+  }
+
+  // 表格块内检测共享列分隔符：以列数最多行为基准，其他行在容差内对齐
+  function _detectColumnSeparators(tableBlockLines, gapThresh) {
+    if (!tableBlockLines || !tableBlockLines.length) return [];
+    let primary = tableBlockLines[0];
+    for (const l of tableBlockLines) if (l.items.length > primary.items.length) primary = l;
+    const seps = _gapsOf(primary.items, gapThresh);
+    const tol = Math.max(36, gapThresh * 1.5);
+    for (const l of tableBlockLines) {
+      if (l === primary) continue;
+      for (const g of _gapsOf(l.items, gapThresh)) {
+        for (let i = 0; i < seps.length; i++) {
+          if (Math.abs(seps[i] - g) <= tol) { seps[i] = (seps[i] + g) / 2; break; }
+        }
+      }
+    }
+    return seps.slice().sort((a, b) => a - b);
+  }
+
+  // 表格块内把 items 分配到对齐的列，同时检测合并
+  // 返回 { cells: [{text,size,bold,italic,fontName}|null, ...], rowMerges: [{s:{r,c},e:{r,c}}, ...] }
+  function _assignCells(lineItems, seps, rowIndex) {
+    const nCols = seps.length + 1;
+    const colBuckets = new Array(nCols).fill(null).map(() => []);
+    const sorted = lineItems.slice().sort((a, b) => a.x - b.x);
+    const rowMerges = [];
+
+    for (const it of sorted) {
+      const size = it.size || 11;
+      const width = it.w || _pdfTextWidth(it.str, size);
+      const rightX = it.x + width;
+
+      // 用 item 左边缘 x 判断起始列（跨列大标题的中心 cx 可能落在中间列）
+      let ci = 0;
+      for (let i = 0; i < seps.length; i++) { if (it.x >= seps[i]) ci = i + 1; else break; }
+
+      // 合并检测：右端超过哪些分隔符 → 跨了多少列
+      let endCi = ci;
+      for (let i = ci; i < seps.length; i++) {
+        // 右端超过分隔符 → 跨到下一列；加一点容差（半个字号）防抖动
+        if (rightX > seps[i] - size * 0.2) endCi = i + 1;
+        else break;
+      }
+
+      if (endCi > ci) {
+        rowMerges.push({ s: { r: rowIndex, c: ci }, e: { r: rowIndex, c: endCi } });
+      }
+      colBuckets[ci].push(it);
+      for (let c = ci + 1; c <= endCi; c++) {
+        // 占位列：如果后面还有 item 被误分配到这列，会和 spacers 一起进入
+        colBuckets[c].push({ _spacer: true });
+      }
+    }
+
+    const cells = colBuckets.map(bucket => {
+      const contentItems = bucket.filter(a => !a._spacer && a.str && a.str.trim());
+      if (!contentItems.length) return null;
+      const styleItem = contentItems.reduce((best, cur) => {
+        if (!best) return cur;
+        if (cur.bold && !best.bold) return cur;
+        if (Math.abs((cur.size || 0) - (best.size || 0)) > 2 && (cur.size || 0) > (best.size || 0)) return cur;
+        return best;
+      }, null);
+      return {
+        text: contentItems.map(a => a.str).join(' ').trim(),
+        size: styleItem?.size || 11,
+        bold: !!(styleItem?.bold),
+        italic: !!(styleItem?.italic),
+        fontName: styleItem?.fontName || '',
+      };
+    });
+    return { cells, rowMerges };
+  }
+
+  // 相邻表格型行聚成表格块（行间 y gap 不超过 breakGap）
+  function _clusterTableBlocks(tableLines, gapThresh) {
+    if (!tableLines || !tableLines.length) return [];
+    const sorted = tableLines.slice().sort((a, b) => a.baseY - b.baseY);
+    const breakGap = Math.max(48, gapThresh * 3);
+    const blocks = [], cur = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      const prevBottom = cur[cur.length - 1].baseY - (cur[cur.length - 1].maxH || 0);
+      const curTop = sorted[i].baseY;
+      // PDF 坐标 y 向上 → 顶部行 y 大，底部行 y 小；间距 = 上一行 y - 下一行 y
+      const gap = cur[cur.length - 1].baseY - sorted[i].baseY;
+      if (gap > breakGap) { blocks.push(cur.slice()); cur.length = 0; cur.push(sorted[i]); }
+      else cur.push(sorted[i]);
+    }
+    blocks.push(cur.slice());
+    return blocks;
   }
 
   function detectTables(extracted, opts) {
-    const colTol = opts.colTol || 12;
-    const rowTol = opts.rowTol || 6;
+    opts = opts || {};
+    const rowTol = opts.rowTol || 6;          // PDF pt：同行容差
+    const gapThresh = opts.gapThresh || 30;   // PDF pt：列间距阈值（≥此值判为表格列）
     const sheets = [];
+
     (extracted.pages || []).forEach((pg, pi) => {
-      const items = pg.items.filter((it) => it.str && it.str.trim());
+      const items = pg.items.filter(it => it.str && it.str.trim());
       if (!items.length) return;
-      const rowCs = cluster(items.map((i) => i.y), rowTol, true);     // 降序（顶部在前）
-      const colCs = cluster(items.map((i) => i.x), colTol, false);    // 升序（左→右）
-      const grid = rowCs.map(() => new Array(colCs.length).fill(''));
-      items.forEach((it) => {
-        const ri = nearest(rowCs, it.y);
-        const ci = nearest(colCs, it.x);
-        grid[ri][ci] = (grid[ri][ci] ? grid[ri][ci] + ' ' : '') + it.str.trim();
+
+      // 1. 先按 y 聚成行（复用 groupLines：降序 → 顶部在前）
+      const lineGroups = groupLines(items, rowTol);
+
+      // 2. 标注每行是否为表格型
+      const marked = lineGroups.map(ln => ({
+        baseY: ln.y,
+        maxH: ln.height,
+        items: ln.items,
+        isTable: _isTableRow(ln.items, gapThresh),
+        isMergeHeader: false,   // 稍后预标注：跨列表头（单 item 大宽度行）
+      }));
+
+      // 3. 表格型行聚成表格块
+      const tableLines = marked.filter(m => m.isTable);
+      const tableBlocks = _clusterTableBlocks(tableLines, gapThresh);
+
+      // 3.5 预标注跨列表头：表格块上方紧邻的「大字号 + 大宽度」单 item 行
+      // 先算每个表格块的 seps → 得到列总跨度，用来判断上方的非表格行是否够宽
+      const tableBlockInfo = tableBlocks.map(block => {
+        const seps = _detectColumnSeparators(block, gapThresh);
+        const nCols = seps.length + 1;
+        // 列总跨度 ≈ seps 最大值 - seps 最小值（或第一个 item 起点到最后一个 item 终点）
+        let colSpan = 0;
+        if (seps.length >= 2) colSpan = seps[seps.length - 1] - seps[0];
+        else if (seps.length === 1) {
+          // 单列边界，取 block 内最大 x - 最小 x
+          const xs = block.flatMap(bl => bl.items.map(it => it.x));
+          const maxX = Math.max(...xs);
+          const minX = Math.min(...xs);
+          colSpan = maxX - minX;
+        } else {
+          const xs = block.flatMap(bl => bl.items.map(it => it.x));
+          colSpan = Math.max(...xs) - Math.min(...xs);
+        }
+        return { block, seps, nCols, colSpan };
       });
-      sheets.push({ name: 'Page' + (pi + 1), rows: grid });
+
+      // 遍历 marked 行，找到紧邻表格块上方的非表格行，判断是否为跨列表头
+      for (const tbi of tableBlockInfo) {
+        // 表格块最上面一行的 baseY（y 大的是上面）
+        const blockTopY = Math.max(...tbi.block.map(b => b.baseY));
+        // 找 marked 里 y 紧邻 blockTopY 上方（更大的 y）且非表格型的行
+        // PDF y 向上 → 上方行 y 值更大；间距 gap = 上一行 y - blockTopY
+        const headerCandidate = marked.find(m => {
+          if (m.isTable || m.isMergeHeader) return false;
+          if (m.baseY <= blockTopY) return false;  // 必须在上方
+          const gap = m.baseY - blockTopY;
+          if (gap > Math.max(48, gapThresh * 3)) return false;  // 间距不能太大
+          // 单 item 行
+          if (m.items.length !== 1) return false;
+          // item 宽度够大（≥ 表格列跨度的 60%）
+          const it = m.items[0];
+          const w = it.w || _pdfTextWidth(it.str, it.size || 11);
+          return w >= tbi.colSpan * 0.6;
+        });
+        if (headerCandidate) {
+          headerCandidate.isMergeHeader = true;
+          headerCandidate._mergeCols = tbi.nCols;  // 记录要跨多少列
+        }
+      }
+
+      // 4. 每页的全局 grid + merges
+      let gridRow = 0;
+      const grid = [];
+      const allMerges = [];
+
+      // 5. 先处理表格块，确定全局最大列数
+      let maxCols = 0;
+      for (const info of tableBlockInfo) {
+        if (info.nCols > maxCols) maxCols = info.nCols;
+      }
+
+      // 6. 每页处理：非表格行 → 单格；跨列表头 → 单格 + merge；表格行 → 按分隔符分配
+      let tableResultIdx = 0;
+      let tableRowIdx = 0;
+      let currentTableResult = null;
+
+      for (const ln of marked) {
+        if (ln.isMergeHeader) {
+          // 跨列表头行：单格占 col0，标记 merge 到最后一列
+          const item = ln.items[0];
+          const text = (item.str || '').trim();
+          const row = new Array(maxCols || 1).fill(null);
+          row[0] = { text, size: item.size || 11, bold: !!item.bold, italic: !!item.italic, fontName: item.fontName || '' };
+          grid.push(row);
+          const mergeEnd = Math.min((ln._mergeCols || maxCols || 1) - 1, (maxCols || 1) - 1);
+          if (mergeEnd > 0) allMerges.push({ s: { r: gridRow, c: 0 }, e: { r: gridRow, c: mergeEnd } });
+          gridRow++;
+          continue;
+        }
+
+        if (!ln.isTable) {
+          // 普通非表格行：整行文本合入单格
+          const text = ln.items.map(it => it.str).join(' ').trim();
+          const styleItem = ln.items.reduce((best, cur) => {
+            if (!best) return cur;
+            if (cur.bold && !best.bold) return cur;
+            if ((cur.size || 0) > (best.size || 0)) return cur;
+            return best;
+          }, null);
+          const row = new Array(maxCols || 1).fill(null);
+          row[0] = text ? { text, size: styleItem?.size || 11, bold: !!styleItem?.bold, italic: !!styleItem?.italic } : null;
+          grid.push(row);
+          gridRow++;
+          continue;
+        }
+
+        // 表格行
+        if (!currentTableResult || tableRowIdx >= currentTableResult.block.length) {
+          if (tableResultIdx >= tableBlockInfo.length) break;
+          currentTableResult = tableBlockInfo[tableResultIdx++];
+          tableRowIdx = 0;
+        }
+
+        const blockLine = currentTableResult.block.find(bl => Math.abs(bl.baseY - ln.baseY) < 2);
+        if (!blockLine) { tableRowIdx++; continue; }
+
+        const assignRow = _assignCells(blockLine.items, currentTableResult.seps, gridRow);
+        const cells = assignRow.cells.slice();
+        while (cells.length < (maxCols || 1)) cells.push(null);
+        grid.push(cells);
+        for (const m of assignRow.rowMerges) allMerges.push(m);
+        gridRow++;
+        tableRowIdx++;
+      }
+
+      // 兜底：如果没有任何内容，放个占位
+      if (!grid.length) grid.push([{ text: '（无内容）', size: 11, bold: false }]);
+
+      sheets.push({ name: 'Page' + (pi + 1), rows: grid, merges: allMerges, _maxCols: maxCols });
     });
     return { sheets };
+  }
+
+  // ========== SheetJS 样式生成 ==========
+
+  // PDF pt → Excel 半磅（Excel size 单位 = 半磅；PDF pt ≈ 半磅 × 2）
+  function _pdfSizeToExcelSize(pt) {
+    const s = Math.round((pt || 11) * 2);
+    return Math.max(10, Math.min(72, s));
+  }
+
+  // 生成单元格样式：表头检测 + 粗体/斜体/字号 + 居中 + 边框
+  function _buildCellStyle(cell, isHeader) {
+    if (!cell || typeof cell === 'string') return null;
+    const size = _pdfSizeToExcelSize(cell.size);
+    const fontBase = { sz: size, name: '微软雅黑' };
+    if (cell.bold || isHeader) fontBase.bold = true;
+    if (cell.italic) fontBase.italic = true;
+
+    // 对齐：表头或字号大 → 居中；否则左对齐
+    const align = { horizontal: (isHeader || cell.bold) ? 'center' : 'left', vertical: 'center', wrapText: true };
+
+    // 边框：四边细线
+    const thinBorder = { style: 'thin', color: { rgb: 'BFBFBF' } };
+    const border = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
+
+    return { font: fontBase, alignment: align, border };
   }
 
   function buildXlsx(detected, opts) {
     const XLSX = globalThis.XLSX || window.XLSX;
     if (!XLSX) throw new Error('SheetJS 运行时未加载');
     const wb = XLSX.utils.book_new();
+
     if (!(detected.sheets || []).length) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['（无可提取文本）']]), 'Sheet1');
     } else {
       detected.sheets.forEach((sh, i) => {
-        const rows = sh.rows && sh.rows.length ? sh.rows : [['']];
-        const ws = XLSX.utils.aoa_to_sheet(rows);
+        // 1. 构造纯值二维数组（aoa_to_sheet 需要）
+        const rawRows = (sh.rows || []).length ? sh.rows : [['']];
+        const isEnhanced = rawRows.some(row => row.some(c => c && typeof c === 'object' && 'text' in c));
+
+        let ws;
+        if (isEnhanced) {
+          // 增强格式：row 里是 {text,size,bold} 对象
+          const maxCols = rawRows.reduce((m, r) => Math.max(m, r.length), 0);
+          const headerRow = rawRows[0] || [];
+          // 表头检测：第一行全部 bold → 认为是表头
+          const allBold = headerRow.length > 0 && headerRow.every(c => !c || (c && c.bold));
+          const headerThresholdSize = Math.round((headerRow.reduce((s, c) => s + (c?.size || 0), 0) / (headerRow.filter(Boolean).length || 1)) * 1.1);
+
+          // 构造纯值行 + 同时给每个 cell 加 s 样式
+          const valueRows = rawRows.map((row, ri) => {
+            return row.map(cell => {
+              if (!cell) return '';
+              if (typeof cell === 'string') return cell;
+              return cell.text || '';
+            });
+          });
+          // 补齐每行到相同列数
+          valueRows.forEach(r => { while (r.length < maxCols) r.push(''); });
+
+          ws = XLSX.utils.aoa_to_sheet(valueRows);
+
+          // 给每个 cell 写样式
+          rawRows.forEach((row, ri) => {
+            row.forEach((cell, ci) => {
+              if (!cell || typeof cell !== 'object') return;
+              const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+              if (!ws[addr]) return;
+              const isHeader = (ri === 0 && (allBold || (cell.size || 0) >= headerThresholdSize));
+              const s = _buildCellStyle(cell, isHeader);
+              if (s) ws[addr].s = s;
+            });
+          });
+
+          // 写合并范围
+          if (sh.merges && sh.merges.length) {
+            ws['!merges'] = sh.merges.map(m => ({
+              s: { r: m.s.r, c: m.s.c },
+              e: { r: m.e.r, c: m.e.c },
+            }));
+          }
+
+          // 列宽自适应（粗略）
+          if (maxCols) {
+            ws['!cols'] = new Array(maxCols).fill(null).map((_, ci) => {
+              let maxLen = 8;
+              rawRows.forEach(row => {
+                const cell = row[ci];
+                if (cell && typeof cell === 'object' && cell.text) {
+                  const w = [...cell.text].reduce((s, ch) => s + (/[\u4e00-\u9fff\u3000-\u303f]/.test(ch) ? 2 : 1), 0);
+                  if (w > maxLen) maxLen = w;
+                }
+              });
+              return { wch: Math.min(50, Math.max(8, maxLen + 2)) };
+            });
+          }
+        } else {
+          // 老格式：纯字符串数组（向后兼容）
+          ws = XLSX.utils.aoa_to_sheet(rawRows);
+        }
+
         let name = (sh.name || ('Sheet' + (i + 1))).slice(0, 31);
         if (!name) name = 'Sheet' + (i + 1);
         XLSX.utils.book_append_sheet(wb, ws, name);
       });
     }
-    const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
     return out instanceof Uint8Array ? out : new Uint8Array(out);
   }
 
@@ -2829,9 +3283,131 @@
     return { bytes, pageCount: extracted.pageCount, sheets: detected.sheets.length };
   }
 
+  // ===== PDF→PPTX：每页一张 PNG，最小 PPTX 骨架 =====
+  async function buildPptx(doc, opts) {
+    const JSZip = globalThis.JSZip || window.JSZip;
+    if (!JSZip) throw new Error("JSZip not available");
+    opts = opts || {};
+    const scale = opts.scale || 2;
+    const pages = doc.getPages();
+    const zip = new JSZip();
+    const slideW = 12192000, slideH = 6858000; // 宽屏 16:9 EMU
+    const _ns = "http://schemas.openxmlformats.org";
+
+    // 每页 render → PNG → 入 zip
+    for (let i = 0; i < pages.length; i++) {
+      const pg = pages[i];
+      const vp = pg.getViewport({ scale });
+      const cv = document.createElement("canvas");
+      cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+      await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+      const blob = await new Promise((r) => cv.toBlob(r, "image/png"));
+      const ab = await blob.arrayBuffer();
+      zip.file(`ppt/media/image${i + 1}.png`, ab);
+    }
+
+    // [Content_Types].xml
+    zip.file("[Content_Types].xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="${_ns}/package/2006/content-types">
+  <Default Extension="rels" ContentType="${_ns}/package/2006/rels+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
+  <Override PartName="/ppt/presentation.xml" ContentType="${_ns}/officedocument/2006/presentationml/presentation.main+xml"/>
+  <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="${_ns}/officedocument/2006/presentationml/slideLayout+xml"/>
+  <Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="${_ns}/officedocument/2006/presentationml/slideMaster+xml"/>
+  ${pages.map((_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="${_ns}/officedocument/2006/presentationml/slide+xml"/>`).join("\n")}
+</Types>`);
+
+    // _rels/.rels
+    zip.file("_rels/.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${_ns}/package/2006/rels">
+  <Relationship Id="rId1" Type="${_ns}/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>`);
+
+    // ppt/presentation.xml
+    const slideIds = pages.map((_, i) => `      <p:sldId id="${256 + i}" r:id="rId${i + 1}"/>`).join("\n");
+    zip.file("ppt/presentation.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:p="${_ns}/officedocument/2006/presentationml" xmlns:r="${_ns}/officeDocument/2006/relationships">
+  <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId${pages.length + 1}"/></p:sldMasterIdLst>
+  <p:sldIdLst>\n${slideIds}\n  </p:sldIdLst>
+  <p:sldSz cx="${slideW}" cy="${slideH}"/>
+  <p:notesSz cx="6858000" cy="9144000"/>
+</p:presentation>`);
+
+    // ppt/_rels/presentation.xml.rels
+    const presRels = pages.map((_, i) =>
+      `  <Relationship Id="rId${i + 1}" Type="${_ns}/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>`
+    ).join("\n") + `\n  <Relationship Id="rId${pages.length + 1}" Type="${_ns}/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>`;
+    zip.file("ppt/_rels/presentation.xml.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${_ns}/package/2006/rels">\n${presRels}\n</Relationships>`);
+
+    // slideMaster1.xml + rels
+    zip.file("ppt/slideMasters/slideMaster1.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMaster xmlns:p="${_ns}/officedocument/2006/presentationml"><p:cSld><p:bg><p:bgPr><a:solidFill xmlns:a="${_ns}/drawingml/2006/main"><a:srgbClr val="FFFFFF"/></a:solidFill></p:bgPr></p:bg><p:spTree/></p:cSld><p:clrMap tx1="lt1" tx2="dk1" bg1="dk1" bg2="lt1" accent1="dk1" accent2="lt1" accent3="dk1" accent4="lt1" accent5="dk1" accent6="lt1" hlink="dk1" folHlink="lt1"/></p:sldMaster>`);
+    zip.file("ppt/slideMasters/_rels/slideMaster1.xml.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${_ns}/package/2006/rels">
+  <Relationship Id="rId1" Type="${_ns}/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>`);
+
+    // slideLayout1.xml + rels
+    zip.file("ppt/slideLayouts/slideLayout1.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldLayout xmlns:p="${_ns}/officedocument/2006/presentationml" type="blank"><p:cSld><p:bg><p:bgPr><a:solidFill xmlns:a="${_ns}/drawingml/2006/main"><a:srgbClr val="FFFFFF"/></a:solidFill></p:bgPr></p:bg><p:spTree/></p:cSld></p:sldLayout>`);
+    zip.file("ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${_ns}/package/2006/rels">
+  <Relationship Id="rId1" Type="${_ns}/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
+</Relationships>`);
+
+    // 每页 slide.xml + rels
+    for (let i = 0; i < pages.length; i++) {
+      const n = i + 1;
+      zip.file(`ppt/slides/slide${n}.xml`,
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="${_ns}/officedocument/2006/presentationml" xmlns:r="${_ns}/officeDocument/2006/relationships" xmlns:a="${_ns}/drawingml/2006/main">
+  <p:cSld>
+    <p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></p:bgPr></p:bg>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1"/><p:cNvGrpSpPr/></p:nvGrpSpPr>
+      <p:grpSpPr/>
+      <p:pic>
+        <p:nvPicPr><p:cNvPr id="2" name="PDF Page ${n}"/><p:cNvPicPr/></p:nvPicPr>
+        <p:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${slideW}" cy="${slideH}"/></a:xfrm></p:spPr>
+      </p:pic>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`);
+      zip.file(`ppt/slides/_rels/slide${n}.xml.rels`,
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${_ns}/package/2006/rels">
+  <Relationship Id="rId1" Type="${_ns}/officeDocument/2006/relationships/image" Target="../media/image${n}.png"/>
+  <Relationship Id="rId2" Type="${_ns}/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>`);
+    }
+
+    const buf = await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+    return new Uint8Array(buf);
+  }
+
+  async function exportToPptx(file, opts = {}, onProgress) {
+    await _ensureEngine();
+    const loadingTask = pdfjsLib.getDocument({ data: file instanceof Blob ? await file.arrayBuffer() : file });
+    const doc = await loadingTask.promise;
+    const bytes = await buildPptx(doc, opts);
+    return { bytes, pageCount: doc.numPages };
+  }
+
   // 表格结构识别：与「导出 Excel」共享同一套提取+聚类管线，但只返回每页网格结构（不生成 xlsx）。
   // 供 UI「表格识别」工具做纯本地结构预览/核对，无需可视化布局。
   async function detectTableStructure(file, opts = {}, onProgress) {
+    await _ensureEngine();
     const extracted = await extractPdfText(file, opts, onProgress);
     const res = detectTables(extracted, opts);
     return { sheets: res.sheets, pageCount: extracted.pageCount };
@@ -2852,6 +3428,7 @@
 
   // 把关键词定位成 PDF 用户坐标的包围盒 [{page, x, y, w, h}]（x,y=左下角，h=向上，原点左下）。
   async function locateKeywords(file, keywords, opts, onProgress) {
+    await _ensureEngine();
     const buf = new Uint8Array(await file.arrayBuffer());
     const pdf = await pdfjsLib.getDocument({ data: buf, password: (opts && opts.password) || '' }).promise;
     const kws = (keywords || []).map((k) => ('' + k).trim()).filter(Boolean);
@@ -2900,6 +3477,7 @@
 
   // cover：在不修改底层内容的前提下，于每页内容之上绘制不透明条。
   async function applyCoverRedaction(doc, boxesByPage, color, opts, onProgress) {
+    await _ensureEngine();
     const pages = doc.getPages();
     let pagesRedacted = 0, boxesCovered = 0;
     for (let i = 0; i < pages.length; i++) {
@@ -2918,6 +3496,7 @@
 
   // burn：含脱敏框的页栅格化（色条 baked 进像素），其余页保留矢量。真正不可逆。
   async function applyBurnRedaction(bytes, boxesByPage, opts, onProgress) {
+    await _ensureEngine();
     const scale = (opts && opts.scale) || 2;
     const srcDoc = await loadDoc(bytes, opts.password);
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), password: opts.password || '' }).promise;
@@ -3005,6 +3584,7 @@
   // 在 PDF 中搜索文本，返回匹配项（含页码与词条包围盒）与每页全文（用于上下文）。
   // 依赖 pdf.js（window.pdfjsLib）。
   async function searchText(file, query, opts, onProgress) {
+    await _ensureEngine();
     if (!query) throw new Error('请输入要搜索的文本');
     opts = opts || {};
     const ci = !(opts.caseInsensitive === false);
@@ -3041,6 +3621,7 @@
   // boxesByPage: Map<页码(1起), [{x,y,w,h}]>（PDF 用户坐标，原点左下）。
   // 覆盖用白底矩形；重绘用 textToImagePng 烤成图片（兼容中文等任意语言）。
   async function applyReplace(doc, boxesByPage, replacement, opts, onProgress) {
+    await _ensureEngine();
     const pages = doc.getPages();
     const repl = replacement || '';
     let replaced = 0, drawnImg = 0, drawnText = 0;
@@ -3077,6 +3658,7 @@
 
   // 搜索并把命中的词条（覆盖原词）替换为 replacement。返回修改后的 PDF 字节。
   async function replaceText(file, query, replacement, opts, onProgress) {
+    await _ensureEngine();
     if (!query) throw new Error('请输入要替换的文本');
     opts = opts || {};
     const ci = !(opts.caseInsensitive === false);
@@ -3127,6 +3709,7 @@
   //   format: pagenum 模板，含 {n}=当前页(1-based) {count}=总页数
   //   tile: { stepX, stepY } mm（平铺间距，默认按字号自适应）
   async function addTextWithFont(file, opts, onProgress) {
+    await _ensureEngine();
     if (!opts || !opts.fontBytes) throw new Error('缺少字体数据（fontBytes）');
     const bytes = file.bytes || new Uint8Array(await file.file.arrayBuffer());
     const doc = await loadDoc(bytes, opts.password);
@@ -3355,6 +3938,7 @@
 
   // 浏览器端：把每页栅格化为 PNG 重排成全新文档（彻底自包含归档）
   async function rasterizeAllToDoc(bytes, password, scale) {
+    await _ensureEngine();
     const srcDoc = await loadDoc(bytes, password);
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), password: password || '' }).promise;
     const n = srcDoc.getPageCount();
@@ -3379,6 +3963,7 @@
   }
 
   async function toPDFA(file, opts, onProgress) {
+    await _ensureEngine();
     opts = opts || {};
     const conformance = opts.conformance || '2B';
     const mode = opts.mode || 'standard';
@@ -3426,6 +4011,7 @@
   /* ---------- P2-③ 附件增删（文档级嵌入式文件 / EmbeddedFiles 名称树） ---------- */
 
   async function resolveBytes(x) {
+    await _ensureEngine();
     if (!x) throw new Error('缺少输入文件');
     if (x.bytes) return x.bytes;
     if (x.file) return new Uint8Array(await x.file.arrayBuffer());
@@ -3675,6 +4261,7 @@
 
   // 尝试加载；返回 { ok, doc, error }
   async function attemptLoad(bytes, opts) {
+    await _ensureEngine();
     const loadOpts = { throwOnInvalidObject: opts.lenient ? false : true };
     if (opts.password) loadOpts.password = opts.password;
     else loadOpts.ignoreEncryption = true; // 未给密码时别因加密直接抛错，交由调用方判断
@@ -3832,6 +4419,7 @@
 
   // 浏览器端用 pdf.js 抽文本；非浏览器（如 Node 测试）返回 null，由调用方跳过文本对比
   async function safeExtractText(bytes, pw) {
+    await _ensureEngine();
     if (typeof pdfjsLib === 'undefined' || !pdfjsLib.getDocument) return null;
     try {
       const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -4359,6 +4947,7 @@
     return data;
   }
   async function encodePNG(w, h, channels, data) {
+    await _ensureEngine();
     const colorType = channels === 1 ? 0 : (channels === 3 ? 2 : 6);
     const ihdr = new Uint8Array(13); const dv = new DataView(ihdr.buffer); dv.setUint32(0, w); dv.setUint32(4, h); ihdr[8] = 8; ihdr[9] = colorType;
     const stride = w * channels; const raw = new Uint8Array((stride + 1) * h);
@@ -4368,6 +4957,7 @@
     return concatBytes([sig, pngChunk('IHDR', ihdr), pngChunk('IDAT', idat), pngChunk('IEND', new Uint8Array(0))]);
   }
   async function decodeToPlanar(node, ctx) {
+    await _ensureEngine();
     const d = node.dict || node;
     const w = numOf(d.lookup(PDFName.of('Width'))) || 1; const h = numOf(d.lookup(PDFName.of('Height'))) || 1;
     const bpc = numOf(d.lookup(PDFName.of('BitsPerComponent'))) || 8;
@@ -4394,6 +4984,7 @@
     return { status: 'unsupported', note: '不支持的压缩：' + (fn || '无') };
   }
   async function processImage(node, ctx, pageLabel) {
+    await _ensureEngine();
     const d = node.dict || node;
     const w = numOf(d.lookup(PDFName.of('Width'))) || 0; const h = numOf(d.lookup(PDFName.of('Height'))) || 0;
     const bpc = numOf(d.lookup(PDFName.of('BitsPerComponent'))) || 8;
@@ -4411,6 +5002,7 @@
     return { format: '-', ext: null, page: pageLabel, w, h, bpc, color, filter: filterName, bytes: null, status: 'skip', note: dec.note || '不支持的格式' };
   }
   async function collectImages(resDict, ctx, out, seen, pageLabel) {
+    await _ensureEngine();
     if (!resDict) return; const xobj = resDict.lookup(PDFName.of('XObject')); if (!xobj) return;
     for (const [key, val] of xobj.entries()) {
       const refKey = (val && val instanceof PDFRef) ? (val.objectNumber + ':' + val.generationNumber) : null;
@@ -4446,7 +5038,7 @@
     getMetadata, setMetadata, getPageLabels, setPageLabels,
     signPDF, verifyPDFSignature,
     ocrPDF, makeSearchablePDF,
-    exportToWord, exportToExcel, detectTableStructure, detectTables, buildDocxDocument, buildXlsx,
+    exportToWord, exportToExcel, exportToPptx, detectTableStructure, detectTables, buildDocxDocument, buildXlsx, buildPptx,
     redactPDF, locateKeywords,
     searchText, replaceText, applyReplace,
     addTextWithFont,

@@ -1525,8 +1525,158 @@
     };
   }
 
+  // ============ 查找替换面板（Writer 通用） ============
+  let _wrFind = { overlay: null, hits: [], idx: -1 };
+  function openFindPanel(mode) {
+    const scope = document.querySelector(".doc-surface .writer-page[contenteditable='true']");
+    if (!scope) { OS.toast("编辑器未就绪", "err"); return; }
+    if (_wrFind.overlay) { _wrFind.overlay.hidden = false; _wrFind.overlay.querySelector(".sf-find").focus(); _wrFindRun(); return; }
+    _wrFind.overlay = document.createElement("div");
+    _wrFind.overlay.className = "sf-find-overlay";
+    _wrFind.overlay.innerHTML = `
+      <div class="sf-find-panel">
+        <div class="sf-find-h">
+          <span>${OS.icons.svg(mode === "replace" ? "replace" : "search", 14)} 查找${mode === "replace" ? "和替换" : ""}</span>
+          <button class="icon-btn sf-find-close" title="关闭">✕</button>
+        </div>
+        <div class="sf-find-body">
+          <input class="sf-find sf-input" placeholder="查找内容…" />
+          ${mode === "replace" ? '<input class="sf-repl sf-input" placeholder="替换为（留空=删除）…" />' : ""}
+          <label class="sf-case"><input type="checkbox" /> 区分大小写</label>
+          <div class="sf-count"></div>
+          <div class="sf-find-btns">
+            <button class="btn" data-sf="prev">↑ 上一个</button>
+            <button class="btn" data-sf="next">↓ 下一个</button>
+            ${mode === "replace" ? '<button class="btn primary" data-sf="repl1">替换当前</button>' : ""}
+            ${mode === "replace" ? '<button class="btn" data-sf="replall">替换全部</button>' : ""}
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(_wrFind.overlay);
+    const inp = _wrFind.overlay.querySelector(".sf-find");
+    const repl = _wrFind.overlay.querySelector(".sf-repl");
+    _wrFind.overlay.querySelector(".sf-find-close").onclick = () => { _wrFind.overlay.hidden = true; _wrFindClear(); };
+    inp.addEventListener("input", _wrFindRun);
+    inp.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); _wrFindGoto(e.shiftKey ? -1 : 1); }
+      else if (e.key === "Escape") { _wrFind.overlay.hidden = true; _wrFindClear(); }
+    });
+    if (repl) repl.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); _wrFindRepl1(); } });
+    _wrFind.overlay.querySelector(".sf-case input").addEventListener("change", _wrFindRun);
+    _wrFind.overlay.querySelectorAll("[data-sf]").forEach(b => b.onclick = () => {
+      const a = b.dataset.sf;
+      if (a === "prev") _wrFindGoto(-1);
+      else if (a === "next") _wrFindGoto(1);
+      else if (a === "repl1") _wrFindRepl1();
+      else if (a === "replall") _wrFindReplAll();
+    });
+    if (mode === "replace" && repl) repl.focus(); else inp.focus();
+  }
+  function _wrClearHighlights() {
+    document.querySelectorAll("mark.sf-find-hit").forEach(m => {
+      const p = m.parentNode; if (!p) return;
+      while (m.firstChild) p.insertBefore(m.firstChild, m);
+      p.removeChild(m); p.normalize();
+    });
+  }
+  function _wrFindRun() {
+    _wrClearHighlights();
+    if (!_wrFind.overlay) return;
+    const q = _wrFind.overlay.querySelector(".sf-find").value;
+    const matchCase = _wrFind.overlay.querySelector(".sf-case input").checked;
+    const scope = document.querySelector(".doc-surface .writer-page[contenteditable='true']");
+    const countEl = _wrFind.overlay.querySelector(".sf-count");
+    if (!q || !scope) { countEl.textContent = ""; _wrFind.hits = []; _wrFind.idx = -1; return; }
+    const qc = matchCase ? q : q.toLowerCase();
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+      acceptNode(n) {
+        if (!n.nodeValue) return NodeFilter.FILTER_REJECT;
+        if (n.parentElement && n.parentElement.closest("[contenteditable='false']")) return NodeFilter.FILTER_REJECT;
+        return n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+    const hits = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      const s = node.nodeValue;
+      const t = matchCase ? s : s.toLowerCase();
+      let idx = t.indexOf(qc);
+      while (idx !== -1) {
+        hits.push({ node, start: idx, end: idx + q.length, text: s.slice(idx, idx + q.length) });
+        idx = t.indexOf(qc, idx + 1);
+      }
+    }
+    _wrFind.hits = hits;
+    _wrFind.idx = hits.length ? 0 : -1;
+    if (hits.length) {
+      _wrFindMarkAll();
+      countEl.textContent = "1 / " + hits.length;
+      _wrFindGoto(0);
+    } else countEl.textContent = "无匹配";
+  }
+  function _wrFindMarkAll() {
+    _wrFind.hits.forEach(h => {
+      try {
+        const r = document.createRange();
+        r.setStart(h.node, h.start);
+        r.setEnd(h.node, h.end);
+        const m = document.createElement("mark");
+        m.className = "sf-find-hit";
+        m.style.background = "#fde047";
+        m.style.color = "#000";
+        r.surroundContents(m);
+        h.node = m.firstChild; h.start = 0; h.end = h.text.length;
+      } catch(e) {}
+    });
+  }
+  function _wrFindGoto(dir) {
+    if (!_wrFind.hits.length) return;
+    if (typeof dir === "number" && dir === 0) _wrFind.idx = 0;
+    else _wrFind.idx = (_wrFind.idx + dir + _wrFind.hits.length) % _wrFind.hits.length;
+    document.querySelectorAll("mark.sf-find-hit").forEach((m, i) => {
+      m.style.outline = i === _wrFind.idx ? "2px solid #f59e0b" : "none";
+    });
+    const cur = document.querySelectorAll("mark.sf-find-hit")[_wrFind.idx];
+    if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (_wrFind.overlay) _wrFind.overlay.querySelector(".sf-count").textContent = (_wrFind.idx + 1) + " / " + _wrFind.hits.length;
+  }
+  function _wrFindRepl1() {
+    if (_wrFind.idx < 0 || !_wrFind.hits[_wrFind.idx]) return;
+    const r = _wrFind.hits[_wrFind.idx];
+    const repl = _wrFind.overlay.querySelector(".sf-repl").value;
+    try {
+      const range = document.createRange();
+      range.setStart(r.node, r.start);
+      range.setEnd(r.node, r.end);
+      range.deleteContents();
+      if (repl) range.insertNode(document.createTextNode(repl));
+      _wrClearHighlights();
+      _wrFindRun();
+    } catch(e) { OS.toast("替换失败", "err"); }
+  }
+  function _wrFindReplAll() {
+    if (!_wrFind.hits.length) return;
+    const repl = _wrFind.overlay.querySelector(".sf-repl").value;
+    // 从后往前替换，避免 node 被破坏
+    const q = _wrFind.overlay.querySelector(".sf-find").value;
+    const matchCase = _wrFind.overlay.querySelector(".sf-case input").checked;
+    _wrFind.hits.slice().reverse().forEach(h => {
+      try {
+        const range = document.createRange();
+        range.setStart(h.node, h.start);
+        range.setEnd(h.node, h.end);
+        range.deleteContents();
+        if (repl) range.insertNode(document.createTextNode(repl));
+      } catch(e) {}
+    });
+    _wrClearHighlights();
+    OS.toast("已替换 " + _wrFind.hits.length + " 处", "ok");
+    _wrFindRun();
+  }
+  function _wrFindClear() { _wrClearHighlights(); _wrFind.hits = []; _wrFind.idx = -1; }
+
   OS.modules = OS.modules || {};
-  OS.modules.writer = { type: "writer", blank, mount };
+  OS.modules.writer = { type: "writer", blank, mount, openFindPanel };
   OS.blankDoc = (function (orig) {
     return function (t) { if (t === "writer") return blank(); return orig ? orig(t) : { type: t, data: {} }; };
   })(OS.blankDoc);

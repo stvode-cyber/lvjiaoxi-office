@@ -41,6 +41,8 @@
   let activeId = null;
   let saveTimer = null;
   let zoom = 100;
+  let _tabSwitcher = null; // Ctrl+Tab 可视化弹窗状态
+  let _recentlyClosed = []; // Ctrl+Shift+T 重开最近关闭（最多 20 条）
 
   // TODO: [坑-shell-on-scope] 预防：_on 必须在 IIFE 顶层声明，所有函数共享；禁止只在某个函数内部声明后被其他函数调用
   let _Listeners = [];
@@ -198,12 +200,39 @@
     // 不拦截 input/textarea 原生输入快捷键
     const tag = (e.target && e.target.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if ((e.ctrlKey || e.metaKey) && k === "k") { e.preventDefault(); openCmd(); }
+      // Ctrl+Tab / Ctrl+Shift+Tab — 可视化切标签弹窗（按住不放选择，松开切换）
+      if (e.ctrlKey && !e.altKey && !e.metaKey && k === "tab") {
+        e.preventDefault();
+        if (tabs.length < 2) return;
+        if (!_tabSwitcher) _tswOpen();
+        else _tswMove(e.shiftKey ? -1 : 1);
+      }
+      // Ctrl+N — 新建（Writer 优先，因为最常用）
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === "n") { e.preventDefault(); newDoc("writer"); }
+      // Ctrl+O — 打开文件
+      else if ((e.ctrlKey || e.metaKey) && k === "o") { e.preventDefault(); $("#file-input").click(); }
+      // Ctrl+W — 关闭当前标签
+      else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === "w") { e.preventDefault(); const t = activeTab(); if (t) closeTab(t.id); else closeBackstage && closeBackstage(); }
+      // Ctrl+P — 打印
+      else if ((e.ctrlKey || e.metaKey) && k === "p") { e.preventDefault(); const t = activeTab(); if (t && t.instance && t.instance.exportAs) t.instance.exportAs("pdf"); else window.print(); }
+      else if ((e.ctrlKey || e.metaKey) && k === "k") { e.preventDefault(); openCmd(); }
       else if ((e.ctrlKey || e.metaKey) && k === "s") { e.preventDefault(); saveNow(); }
       else if ((e.ctrlKey || e.metaKey) && k === "e") { e.preventDefault(); showExportMenu(); }
       else if ((e.ctrlKey || e.metaKey) && k === "h" && e.shiftKey) { e.preventDefault(); goHome(); }
       else if ((e.ctrlKey || e.metaKey) && k === "h" && !e.shiftKey) { e.preventDefault(); openReplace(); }
+      else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === "f") { e.preventDefault(); const t = activeTab(); if (t && t.instance && typeof t.instance.openFindPanel === "function") t.instance.openFindPanel("find"); else openSearch(); }
+      else if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === "m") { e.preventDefault(); const t = activeTab(); if (t && t.instance && typeof t.instance.addComment === "function") t.instance.addComment(); else OS.toast("批注仅在表格中可用", "warn"); }
       else if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === "f") { e.preventDefault(); openSearch(); }
+      // Ctrl+Q — 退出应用（Electron）
+      else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === "q") { e.preventDefault(); if (global.electronAPI && global.electronAPI.invoke) { global.electronAPI.invoke("app:quit"); } else { window.close(); } }
+      // Ctrl+Shift+T — 重开最近关闭标签
+      else if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === "t") { e.preventDefault(); reopenRecentlyClosed(); }
+      // F5 — 刷新开发者模式（重载窗口）
+      else if (!e.ctrlKey && !e.altKey && k === "f5") { e.preventDefault(); if (global.electronAPI && global.electronAPI.invoke) { global.electronAPI.invoke("app:reload"); } else { location.reload(); } }
+      // Ctrl+R — 刷新（同 F5）
+      else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && k === "r") { e.preventDefault(); if (global.electronAPI && global.electronAPI.invoke) { global.electronAPI.invoke("app:reload"); } else { location.reload(); } }
+      // F1 — 帮助（打开文档 / 关于弹窗）
+      else if (!e.ctrlKey && !e.altKey && k === "f1") { e.preventDefault(); showAbout(); }
       else if (e.altKey && k === "t") { e.preventDefault(); OS.Tasks && OS.Tasks.togglePanel(); }
       else if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === "a") { e.preventDefault(); openAI(); }
       else if (e.key === "Escape") closeOverlays();
@@ -347,9 +376,8 @@
   }
 
   async function openDoc(doc) {
-    console.time("[OPEN-DOC]");
     const existing = tabs.find(t => t.id === doc.id);
-    if (existing) { console.timeLog("[OPEN-DOC]", "activate-existing"); activate(existing); return; }
+    if (existing) { activate(existing); return; }
     _toWorkbenchNav();
     $("#dashboard").hidden = true;
     $("#editor").hidden = false;
@@ -358,7 +386,6 @@
 
     const hostEl = $("#module-host");
     $("#ribbon-host").innerHTML = "";
-    console.timeLog("[OPEN-DOC]", "before mount");
 
     // **分帧渲染**：大节点数（>500）mindmap 的 mount 会堵主线程 500ms+
     // 用 rAF 让事件循环先处理完 UI 更新（任务面板 100% 消失、toast 出现），再渲染
@@ -373,18 +400,14 @@
       // 给 mount 传一个 _split: true 让它内部 layoutMap 和 render 之间也 rAF
       _split: needSplit
     });
-    console.timeLog("[OPEN-DOC]", "after mount");
 
     const t = { id: doc.id, doc, instance: inst, dirty: false };
     t.wrap = hostEl.lastElementChild;
     tabs.push(t);
     renderTabbar();                   // 🔥 重建 tabbar DOM — 用户才能看到 tab！
     OS.Undo.bindModule(doc.id, inst);
-    console.timeLog("[OPEN-DOC]", "before activate");
     activate(t);
-    console.timeLog("[OPEN-DOC]", "after activate");
     OS.toast(`已打开：${doc.name}`, "ok");
-    console.timeEnd("[OPEN-DOC]");
   }
 
   function activate(t) {
@@ -424,6 +447,9 @@
     const i = tabs.findIndex(t => t.id === id); if (i < 0) return;
     const t = tabs[i];
     if (t.dirty && !confirm(`「${t.doc.name}」有未保存改动，仍要关闭？`)) return;
+    // 存到最近关闭历史（Ctrl+Shift+T 用）
+    _recentlyClosed.push({ doc: JSON.parse(JSON.stringify(t.doc)), timestamp: Date.now() });
+    if (_recentlyClosed.length > 20) _recentlyClosed.shift();
     if (t.instance.destroy) t.instance.destroy();
     OS.Undo.unbindModule(id); // 从 Undo 调度器解绑
     tabs.splice(i, 1);
@@ -433,6 +459,12 @@
       else goHome();
     }
     renderTabbar();
+  }
+  // Ctrl+Shift+T 重开最近关闭
+  function reopenRecentlyClosed() {
+    if (!_recentlyClosed.length) { OS.toast("没有可恢复的最近关闭标签", "info"); return; }
+    const entry = _recentlyClosed.pop();
+    openDoc(entry.doc);
   }
 
   function renderTabbar() {
@@ -922,21 +954,94 @@
   function closeBackstage() { const r = $("#backstage-root"); if (r) r.innerHTML = ""; }
 
   /* ---------------- 命令面板 ---------------- */
+  // 模糊搜索：子序列匹配（支持跳过字符）+ 中文前缀 + 英文前缀 + 权重
+  function _fuzzyScore(label, q) {
+    if (!q) return 100;
+    const lo = label.toLowerCase(), qo = q.toLowerCase();
+    if (lo.includes(qo)) return 100 - lo.indexOf(qo) * 2; // includes 优先
+    // 子序列：q 的每个字符必须按序出现在 label 里
+    let li = 0, qi = 0, gap = 0;
+    while (li < lo.length && qi < qo.length) {
+      if (lo[li] === qo[qi]) { qi++; } else { gap++; }
+      li++;
+    }
+    if (qi < qo.length) return -1; // 没匹配完
+    return 50 - gap * 2; // gap 越小分数越高
+  }
   const COMMANDS = [
-    { id: "new-writer", label: "新建文档", hint: "Writer", run: () => newDoc("writer") },
-    { id: "new-sheet", label: "新建表格", hint: "Spreadsheet", run: () => newDoc("spreadsheet") },
-    { id: "new-pres", label: "新建演示", hint: "Presentation", run: () => newDoc("presentation") },
-    { id: "new-mindmap", label: "新建脑图/图示", hint: "MindMap", run: () => newDoc("mindmap") },
-    { id: "new-pdf", label: "新建 PDF 视图", hint: "PDF", run: () => newDoc("pdf") },
-    { id: "open", label: "打开文件", hint: "导入", run: () => $("#file-input").click() },
-    { id: "save", label: "保存", hint: "Ctrl/Cmd+S", run: saveNow },
-    { id: "search", label: "全局搜索文档", hint: "Ctrl/Cmd+Shift+F", run: openSearch },
-    { id: "replace", label: "查找替换", hint: "Ctrl/Cmd+H", run: openReplace },
-    { id: "export", label: "导出", hint: "Ctrl/Cmd+E", run: showExportMenu },
-    { id: "home", label: "返回首页", hint: "Ctrl/Cmd+Shift+H", run: goHome },
-    { id: "ai", label: "打开 AI 助手", hint: "Ctrl/Cmd+Shift+A", run: openAI },
-    { id: "theme", label: "切换深色/浅色主题", hint: "", run: () => OS.theme.toggle() }
+    // —— 新建 / 打开 ——
+    { id: "new-writer", label: "新建 Writer 文档", hint: "Ctrl/Cmd+N", run: () => newDoc("writer"), group: "新建" },
+    { id: "new-sheet", label: "新建 Spreadsheet 表格", hint: "", run: () => newDoc("spreadsheet"), group: "新建" },
+    { id: "new-pres", label: "新建 Presentation 演示", hint: "", run: () => newDoc("presentation"), group: "新建" },
+    { id: "new-mindmap", label: "新建 MindMap 脑图", hint: "", run: () => newDoc("mindmap"), group: "新建" },
+    { id: "new-pdf", label: "新建 PDF 视图", hint: "", run: () => newDoc("pdf"), group: "新建" },
+    { id: "open", label: "打开文件", hint: "Ctrl/Cmd+O", run: () => $("#file-input").click(), group: "文件" },
+    { id: "save", label: "保存当前文档", hint: "Ctrl/Cmd+S", run: saveNow, group: "文件" },
+    { id: "export", label: "导出当前文档", hint: "Ctrl/Cmd+E", run: showExportMenu, group: "文件" },
+    { id: "close-tab", label: "关闭当前标签", hint: "Ctrl/Cmd+W", run: () => { const t = activeTab(); if (t) closeTab(t.id); else closeBackstage && closeBackstage(); }, group: "文件" },
+    { id: "reopen-tab", label: "重开最近关闭标签", hint: "Ctrl/Cmd+Shift+T", run: reopenRecentlyClosed, group: "文件" },
+    { id: "quit", label: "退出应用", hint: "Ctrl/Cmd+Q", run: () => { if (global.electronAPI && global.electronAPI.invoke) global.electronAPI.invoke("app:quit"); else window.close(); }, group: "文件" },
+    // —— 导航 ——
+    { id: "home", label: "返回首页", hint: "Ctrl/Cmd+Shift+H", run: goHome, group: "导航" },
+    { id: "search", label: "全局搜索文档", hint: "Ctrl/Cmd+Shift+F", run: openSearch, group: "导航" },
+    { id: "prev-tab", label: "上一个标签", hint: "Ctrl+Shift+Tab", run: () => { if (tabs.length >= 2) { const curIdx = tabs.findIndex(t => t.id === activeId); activate(tabs[(curIdx - 1 + tabs.length) % tabs.length]); } }, group: "导航" },
+    { id: "next-tab", label: "下一个标签", hint: "Ctrl+Tab", run: () => { if (tabs.length >= 2) { const curIdx = tabs.findIndex(t => t.id === activeId); activate(tabs[(curIdx + 1) % tabs.length]); } }, group: "导航" },
+    { id: "jump-tab", label: "跳转到第 N 个标签", hint: "输数字 1-99", run: () => {}, group: "导航", dynamic: true },
+    { id: "about", label: "关于 / 帮助", hint: "F1", run: showAbout, group: "帮助" },
+    { id: "check-update", label: "检查更新", hint: "", run: () => { if (OS.updater) OS.updater.checkNow({ toast: true }); }, group: "帮助" },
+    // —— 编辑 ——
+    { id: "replace", label: "查找替换", hint: "Ctrl/Cmd+H", run: openReplace, group: "编辑" },
+    // —— 视图 ——
+    { id: "theme", label: "切换深色/浅色主题", hint: "", run: () => OS.theme.toggle(), group: "视图" },
+    { id: "refresh", label: "刷新窗口", hint: "F5 / Ctrl+R", run: () => { if (global.electronAPI && global.electronAPI.invoke) global.electronAPI.invoke("app:reload"); else location.reload(); }, group: "视图" },
+    // —— AI / 工具 ——
+    { id: "ai", label: "打开 AI 助手", hint: "Ctrl/Cmd+Shift+A", run: openAI, group: "工具" },
+    { id: "tasks", label: "任务面板", hint: "Alt+T", run: () => OS.Tasks && OS.Tasks.togglePanel(), group: "工具" },
+    { id: "shortcuts", label: "快捷键速查表", hint: "", run: showShortcuts, group: "帮助" },
   ];
+  // F1 — 帮助 / 关于弹窗
+  function showAbout() {
+    const v = (global.APP_VERSION) || "dev";
+    const html = `<div class="overlay show" id="about-overlay" style="z-index:9999"><div class="modal" style="min-width:360px;text-align:center;padding:24px"><h2 style="margin:0 0 4px">绿角犀 Office</h2><p class="muted" style="margin:0 0 16px">v${v} · 本地优先的办公套件</p><p style="font-size:13px;color:#6b7280;margin:0 0 16px">Writer · Spreadsheet · Presentation · PDF · MindMap</p><div style="display:flex;gap:8px;justify-content:center;margin-top:8px"><button class="btn" onclick="(function(){document.getElementById('about-overlay').remove();showShortcuts()})()">⌨️ 快捷键</button><button class="btn" onclick="(function(){document.getElementById('about-overlay').remove();if(window.OS&&OS.updater){OS.updater.checkNow({toast:true})}})()">🔄 检查更新</button><button class="btn primary" onclick="document.getElementById('about-overlay').remove()">知道了</button></div></div></div>`;
+    const old = document.getElementById("about-overlay"); if (old) old.remove();
+    document.body.insertAdjacentHTML("beforeend", html);
+  }
+  function showShortcuts() {
+    const groups = [
+      { title: "文件", rows: [
+        ["Ctrl/Cmd+N", "新建 Writer 文档"], ["Ctrl/Cmd+O", "打开文件"],
+        ["Ctrl/Cmd+S", "保存当前文档"], ["Ctrl/Cmd+E", "导出"],
+        ["Ctrl/Cmd+W", "关闭当前标签"], ["Ctrl/Cmd+Shift+T", "重开最近关闭"],
+        ["Ctrl/Cmd+Q", "退出应用"],
+      ]},
+      { title: "标签 / 导航", rows: [
+        ["Ctrl+Tab", "下一个标签（可视化弹窗）"], ["Ctrl+Shift+Tab", "上一个标签"],
+        ["Ctrl/Cmd+Shift+H", "返回首页"], ["Ctrl/Cmd+Shift+F", "全局搜索"],
+      ]},
+      { title: "编辑", rows: [
+        ["Ctrl/Cmd+Z", "撤销"], ["Ctrl/Cmd+Y / Ctrl+Shift+Z", "重做"],
+        ["Ctrl/Cmd+F", "模块内查找"], ["Ctrl/Cmd+H", "查找替换"],
+      ]},
+      { title: "视图", rows: [
+        ["F5 / Ctrl/Cmd+R", "刷新窗口"], ["Ctrl+K", "命令面板"],
+        ["Esc", "关闭所有覆盖层"],
+      ]},
+      { title: "AI / 工具", rows: [
+        ["Ctrl/Cmd+Shift+A", "打开 AI 助手"], ["Alt+T", "任务面板"],
+        ["Ctrl/Cmd+Shift+M", "插入批注（Spreadsheet）"],
+      ]},
+      { title: "帮助", rows: [["F1", "关于 / 快捷键"]] },
+    ];
+    let rowsHtml = groups.map(g => {
+      const rows = g.rows.map(([k, v]) =>
+        `<tr><td style="padding:6px 8px;border-bottom:1px solid var(--border,#e5e7eb);font-family:monospace;font-size:12px;color:var(--accent,#2563eb);white-space:nowrap">${k}</td><td style="padding:6px 8px;border-bottom:1px solid var(--border,#e5e7eb);font-size:13px;color:var(--text,#111827)">${v}</td></tr>`
+      ).join("");
+      return `<div style="margin:12px 0 4px;font-size:11px;color:var(--muted,#6b7280);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">${g.title}</div><table style="width:100%;border-collapse:collapse">${rows}</table>`;
+    }).join("");
+    const html = `<div class="overlay show" id="shortcuts-overlay" style="z-index:9999"><div class="modal" style="min-width:520px;max-width:640px;max-height:80vh;overflow-y:auto;padding:20px 24px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h2 style="margin:0">⌨️ 快捷键速查表</h2><button class="btn" onclick="document.getElementById('shortcuts-overlay').remove()">关闭</button></div><p class="muted" style="margin:0 0 12px;font-size:12px">${groups.reduce((s,g)=>s+g.rows.length,0)} 组快捷键 · 按 Ctrl+K 输入"快捷键"可随时调出</p>${rowsHtml}</div></div>`;
+    const old = document.getElementById("shortcuts-overlay"); if (old) old.remove();
+    document.body.insertAdjacentHTML("beforeend", html);
+  }
   function openCmd() {
     const ov = $("#cmd-overlay"); ov.hidden = false;
     const input = $("#cmd-input"); input.value = ""; input.focus();
@@ -944,18 +1049,85 @@
     input.oninput = () => renderCmd(input.value);
     ov.onclick = e => { if (e.target === ov) closeOverlays(); };
   }
+  let _cmdHighlight = 0;
+  let _cmdListEl = null;
+  let _cmdGroupEl = null;
   function renderCmd(q) {
     const list = $("#cmd-list"); list.innerHTML = "";
-    const ql = q.trim().toLowerCase();
-    const matched = COMMANDS.filter(c => !ql || c.label.toLowerCase().includes(ql) || (c.hint || "").toLowerCase().includes(ql));
-    matched.forEach((c, i) => {
-      const li = document.createElement("li"); li.className = i === 0 ? "active" : "";
-      li.innerHTML = `<span>${c.label}</span><span class="cmd-hint">${c.hint || ""}</span>`;
-      li.onclick = () => { c.run(); closeOverlays(); };
-      list.appendChild(li);
-    });
+    const ql = q.trim();
+    // 动态项：纯数字 → 跳转到第 N 个标签
+    const numMatch = ql.match(/^(\d{1,2})$/);
+    if (numMatch) {
+      const n = parseInt(numMatch[1], 10);
+      if (tabs.length && n >= 1 && n <= tabs.length) {
+        const target = tabs[n - 1];
+        list.innerHTML = `<li class="active" style="cursor:pointer;padding:8px 12px;background:var(--accent,#2563eb);color:#fff"><span>快速跳转：打开第 ${n} 个标签 → ${target.doc ? (target.doc.title || target.doc.type || "") : "工作台"}</span><span class="cmd-hint" style="color:rgba(255,255,255,0.7)">Enter</span></li>`;
+        _cmdListEl = list; _cmdHighlight = 0;
+        list.querySelector("li").onclick = () => { activate(target); closeOverlays(); };
+        // 改 keydown handler（覆盖 renderCmd 里默认的）
+        input.onkeydown = e => {
+          if (e.key === "Enter") { e.preventDefault(); activate(target); closeOverlays(); }
+          else if (e.key === "Escape") { closeOverlays(); }
+        };
+        return;
+      } else if (tabs.length && n > tabs.length) {
+        list.innerHTML = `<li style="color:var(--muted);padding:12px;text-align:center">只有 ${tabs.length} 个标签</li>`;
+        _cmdListEl = list; _cmdHighlight = -1; return;
+      }
+    }
+    let scored = COMMANDS.map(c => ({ c, score: _fuzzyScore(c.label + " " + (c.hint || "") + " " + (c.group || ""), ql) }))
+      .filter(x => x.score >= 0)
+      .sort((a, b) => b.score - a.score);
+    if (!scored.length) {
+      list.innerHTML = `<li style="color:var(--muted);padding:12px;text-align:center">未找到匹配命令</li>`;
+      _cmdListEl = list; _cmdHighlight = -1; return;
+    }
+    // 按 group 分组
+    const groups = {};
+    for (const { c } of scored) { const g = c.group || "其他"; (groups[g] = groups[g] || []).push(c); }
+    const frag = document.createDocumentFragment();
+    _cmdListEl = list;
+    _cmdHighlight = 0;
+    let idx = 0;
+    for (const [group, cmds] of Object.entries(groups)) {
+      const hd = document.createElement("div"); hd.className = "cmd-group"; hd.textContent = group;
+      Object.assign(hd.style, { fontSize: "11px", color: "var(--muted,#6b7280)", padding: "4px 12px 2px", textTransform: "uppercase", letterSpacing: "0.5px" });
+      frag.appendChild(hd);
+      for (const c of cmds) {
+        const li = document.createElement("li");
+        li.innerHTML = `<span>${c.label}</span><span class="cmd-hint">${c.hint || ""}</span>`;
+        if (idx === 0) li.className = "active";
+        li.dataset.idx = idx;
+        li.onclick = () => { c.run(); closeOverlays(); };
+        frag.appendChild(li);
+        idx++;
+      }
+    }
+    list.appendChild(frag);
+    // 上下键选 + Enter 执行 + Esc 关闭
     input.onkeydown = e => {
-      if (e.key === "Enter") { const first = list.querySelector("li"); if (first) first.click(); }
+      const items = list.querySelectorAll("li[data-idx]");
+      if (!items.length) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        items[_cmdHighlight].classList.remove("active");
+        _cmdHighlight = (_cmdHighlight + 1) % items.length;
+        items[_cmdHighlight].classList.add("active");
+        items[_cmdHighlight].scrollIntoView({ block: "nearest" });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        items[_cmdHighlight].classList.remove("active");
+        _cmdHighlight = (_cmdHighlight - 1 + items.length) % items.length;
+        items[_cmdHighlight].classList.add("active");
+        items[_cmdHighlight].scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const sel = items[_cmdHighlight];
+        if (sel) sel.click();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closeOverlays();
+      }
     };
   }
   function closeOverlays() {
@@ -965,6 +1137,69 @@
     $("#ai-drawer").hidden = true;
     closeSearch();
     closeBackstage();
+    _tswClose(true); // 关 tab-switcher（不切换）
+  }
+
+  // ---- Tab Switcher（Ctrl+Tab 可视化弹窗） ----
+  function _tswOpen() {
+    const curIdx = tabs.findIndex(t => t.id === activeId);
+    const ov = document.createElement("div");
+    ov.className = "tab-switcher-overlay";
+    ov.innerHTML = `
+      <div class="tab-switcher-panel">
+        <div class="tab-switcher-title">按住 Ctrl + Tab 切换标签（松开 Ctrl 确认）</div>
+        <div class="tab-switcher-list">${tabs.map((t, i) => {
+          const mod = t.doc && t.doc.data && t.doc.data.modules ? t.doc.data.modules[0] : (t.doc && t.doc.type ? t.doc.type : "doc");
+          const labels = { writer: "Writer", spreadsheet: "Sheet", presentation: "Slide", pdf: "PDF", mindmap: "MindMap" };
+          const name = (t.doc && t.doc.name) || (t.doc && t.doc.title) || (t.doc && t.doc.type) || "未命名";
+          return `<div class="tab-switcher-item ${i === (curIdx + 1) % tabs.length ? "active" : ""}" data-idx="${i}">
+            <div class="tab-switcher-icon">${OS.icons.svg(mod === "writer" ? "doc" : mod === "spreadsheet" ? "grid" : mod === "pdf" ? "file" : mod === "presentation" ? "slides" : "mindmap", 18)}</div>
+            <div class="tab-switcher-info">
+              <div class="tab-switcher-name">${name}${t.dirty ? " ●" : ""}</div>
+              <div class="tab-switcher-type">${labels[mod] || mod}</div>
+            </div>
+          </div>`;
+        }).join("")}</div>
+      </div>`;
+    ov.addEventListener("click", e => {
+      const item = e.target.closest(".tab-switcher-item");
+      if (item) { _tswCommit(Number(item.dataset.idx)); _tswClose(true); }
+    });
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add("show"));
+    _tabSwitcher = { overlay: ov, curIdx: (curIdx + 1) % tabs.length, originalIdx: curIdx };
+    // Ctrl 松开 → 确认切换
+    window.addEventListener("keyup", _tswKeyup);
+  }
+  function _tswMove(dir) {
+    if (!_tabSwitcher) return;
+    const list = _tabSwitcher.overlay.querySelector(".tab-switcher-list");
+    const items = list.querySelectorAll(".tab-switcher-item");
+    items.forEach(i => i.classList.remove("active"));
+    _tabSwitcher.curIdx = (_tabSwitcher.curIdx + dir + tabs.length) % tabs.length;
+    items[_tabSwitcher.curIdx].classList.add("active");
+    // 确保可见
+    const el = items[_tabSwitcher.curIdx];
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }
+  function _tswKeyup(e) {
+    if (!_tabSwitcher) return;
+    if (!e.ctrlKey && !e.metaKey) { // Ctrl 已经松开 → 确认切换
+      _tswCommit(_tabSwitcher.curIdx);
+      _tswClose(false);
+    }
+  }
+  function _tswCommit(idx) {
+    if (idx >= 0 && idx < tabs.length) activate(tabs[idx]);
+  }
+  function _tswClose(silent) {
+    if (!_tabSwitcher) return;
+    window.removeEventListener("keyup", _tswKeyup);
+    const ov = _tabSwitcher.overlay;
+    _tabSwitcher = null;
+    if (!ov) return;
+    ov.classList.remove("show");
+    setTimeout(() => { if (ov.parentNode) ov.parentNode.removeChild(ov); }, 120);
   }
 
   /* ---------------- AI 助手（Copilot 风格） ---------------- */

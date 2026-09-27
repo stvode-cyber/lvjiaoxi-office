@@ -188,32 +188,46 @@
       const sx = a.x, sy = a.y, ex = b.x, ey = b.y, mx = (sx + ex) / 2, my = (sy + ey) / 2;
       return `M${sx},${sy} C${mx},${sy} ${mx},${ey} ${ex},${ey}`;
     }
-    function render() { console.time("[MINDMAP-RENDER]");
-      view.setAttribute("transform", `translate(${tx},${ty}) scale(${k})`);
-      view.innerHTML = "";
-      const eg = document.createElementNS(SVGNS, "g");
-      console.time("[MM-RENDER-EDGES]");
-      const edgeList = edgesForRender();
-      for (let i = 0; i < edgeList.length; i++) {
-        const e = edgeList[i];
-        const a = getNode(e.from), b = getNode(e.to);
-        if (!a || !b) continue;
-        const d = edgePath(a, b);
-        if (!d) continue;
-        const p = document.createElementNS(SVGNS, "path");
-        p.setAttribute("class", "mm-edge");
-        p.setAttribute("d", d);
-        eg.appendChild(p);
+    let _renderRaf = null;
+    function render() {
+      // rAF debounce：同帧多次调用合并成一次渲染（用户快速改文字/批量操作时不爆）
+      if (_renderRaf) return;
+      _renderRaf = requestAnimationFrame(() => {
+        _renderRaf = null;
+        view.setAttribute("transform", `translate(${tx},${ty}) scale(${k})`);
+        view.innerHTML = "";
+        const eg = document.createElementNS(SVGNS, "g");
+        const edgeList = edgesForRender();
+        for (let i = 0; i < edgeList.length; i++) {
+          const e = edgeList[i];
+          const a = getNode(e.from), b = getNode(e.to);
+          if (!a || !b) continue;
+          const d = edgePath(a, b);
+          if (!d) continue;
+          const p = document.createElementNS(SVGNS, "path");
+          p.setAttribute("class", "mm-edge");
+          p.setAttribute("d", d);
+          eg.appendChild(p);
+        }
+        view.appendChild(eg);
+        const ng = document.createElementNS(SVGNS, "g");
+        for (let i = 0; i < data.nodes.length; i++) { fitNode(data.nodes[i]); ng.appendChild(renderNode(data.nodes[i])); }
+        view.appendChild(ng);
+        zoomLabel.textContent = Math.round(k * 100) + "%";
+      });
+    }
+    // 轻量：只改选中高亮（不重渲整棵树）
+    function selectNodeHighlight(newId) {
+      if (newId === selId) return;
+      if (selId) {
+        const prev = view.querySelector(`.mm-node[data-id="${CSS.escape(selId)}"]`);
+        if (prev) prev.classList.remove("selected");
       }
-      console.timeEnd("[MM-RENDER-EDGES]");
-      view.appendChild(eg);
-      console.time("[MM-RENDER-NODES]");
-      const ng = document.createElementNS(SVGNS, "g");
-      for (let i = 0; i < data.nodes.length; i++) { fitNode(data.nodes[i]); ng.appendChild(renderNode(data.nodes[i])); }
-      console.timeEnd("[MM-RENDER-NODES]");
-      view.appendChild(ng);
-      zoomLabel.textContent = Math.round(k * 100) + "%";
-      console.timeEnd("[MINDMAP-RENDER]");
+      selId = newId;
+      if (newId) {
+        const cur = view.querySelector(`.mm-node[data-id="${CSS.escape(newId)}"]`);
+        if (cur) cur.classList.add("selected");
+      }
     }
     function renderNode(n) {
       // 🔥 坐标兜底：任何非 finite 坐标都强制归零（布局 bug 时不会炸）
@@ -756,12 +770,12 @@
       if (g) {
         const id = g.dataset.id;
         if (connectMode) { handleConnect(id); return; }
-        selId = id; render(); syncSide();
+        selId = id; selectNodeHighlight(id); syncSide();
         const w = toWorld(e.clientX, e.clientY);
         const n = getNode(id);
         dragNode = { id, dx: w.x - n.x, dy: w.y - n.y };
       } else {
-        selId = null; render(); syncSide();
+        selId = null; selectNodeHighlight(null); syncSide();
         panning = { sx: e.clientX, sy: e.clientY, tx, ty };
         area.classList.add("panning");
       }
@@ -912,11 +926,54 @@
       onApplied() {}
     });
 
+    // —— 查找/替换 纯函数（给 shell globalReplace 用）——
+    function search(query) {
+      const q = (query || "").trim(); const out = [];
+      if (!q) return out;
+      const ql = q.toLowerCase();
+      (data.nodes || []).forEach(n => {
+        if (!n || typeof n.text !== "string") return;
+        const hits = [];
+        const tc = n.text;
+        let i = 0;
+        while (true) {
+          const idx = tc.toLowerCase().indexOf(ql, i);
+          if (idx === -1) break;
+          hits.push({ idx, len: q.length });
+          i = idx + q.length;
+        }
+        if (hits.length) out.push({ id: n.id, text: tc, hits });
+      });
+      return out;
+    }
+    function replaceAllText(query, replacement, opts) {
+      const q = (query || "").trim();
+      if (!q) return 0;
+      const mc = opts && opts.matchCase;
+      const rep = String(replacement == null ? "" : replacement);
+      const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(esc, mc ? "g" : "gi");
+      _snapshot();
+      let count = 0;
+      (data.nodes || []).forEach(n => {
+        if (!n || typeof n.text !== "string") return;
+        if (regex.test(n.text)) {
+          count += (n.text.match(regex) || []).length;
+          n.text = n.text.replace(regex, rep);
+          fitNode(n);
+        }
+      });
+      if (count) { layoutMap(); render(); syncSide(); ctx.markDirty(); }
+      return count;
+    }
+
     return {
       serialize, exportAs,
       focus() { wrap.focus(); },
       ribbon,
       destroy() { if (mmSelbar) mmSelbar.destroy(); closeEditor(); if (ribbon.el) ribbon.el.remove(); wrap.remove(); },
+      search,
+      replaceAll: replaceAllText,
       // ↓↓ UndoManager 接入
       undo: _undo,
       redo: _redo,
@@ -1013,8 +1070,138 @@
     function commitSnap() { /* 已无 pending，空操作 */ }
 
     return { snapshot, markDirty, commitSnap, undo, redo, canUndo, canRedo, stackSize };
-  }OS.modules = OS.modules || {};
-  OS.modules.mindmap = { type: "mindmap", blank, mount, toMarkdown, toDocxHtml, toOfdXml, _buildTree, _undoCore };
+  }
+
+  // ============ 查找面板（MindMap 简化版：节点级高亮） ============
+  let _mmFind = { overlay: null, hits: [], idx: -1 };
+  function openFindPanel(mode) {
+    const scope = document.querySelector(".mindmap-wrap svg") || document.querySelector("svg");
+    if (!scope) { OS.toast("思维导图未就绪", "err"); return; }
+    if (_mmFind.overlay) { _mmFind.overlay.hidden = false; _mmFind.overlay.querySelector(".sf-find").focus(); _mmFindRun(); return; }
+    _mmFind.overlay = document.createElement("div");
+    _mmFind.overlay.className = "sf-find-overlay";
+    _mmFind.overlay.innerHTML = `
+      <div class="sf-find-panel">
+        <div class="sf-find-h">
+          <span>${OS.icons.svg("search", 14)} 查找</span>
+          <button class="icon-btn sf-find-close" title="关闭">✕</button>
+        </div>
+        <div class="sf-find-body">
+          <input class="sf-find sf-input" placeholder="查找节点文本…" />
+          <input class="sf-repl sf-input" placeholder="替换为…（留空=删除）" />
+          <label class="sf-case"><input type="checkbox" /> 区分大小写</label>
+          <div class="sf-count"></div>
+          <div class="sf-find-btns">
+            <button class="btn" data-sf="prev">↑ 上一个</button>
+            <button class="btn" data-sf="next">↓ 下一个</button>
+            <button class="btn" data-sf="repl">替换当前</button>
+            <button class="btn primary" data-sf="replall">替换全部</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(_mmFind.overlay);
+    const inp = _mmFind.overlay.querySelector(".sf-find");
+    _mmFind.overlay.querySelector(".sf-find-close").onclick = () => { _mmFind.overlay.hidden = true; _mmFindClear(); };
+    inp.addEventListener("input", _mmFindRun);
+    inp.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); _mmFindGoto(e.shiftKey ? -1 : 1); }
+      else if (e.key === "Escape") { _mmFind.overlay.hidden = true; _mmFindClear(); }
+    });
+    _mmFind.overlay.querySelector(".sf-case input").addEventListener("change", _mmFindRun);
+    _mmFind.overlay.querySelectorAll("[data-sf]").forEach(b => b.onclick = () => {
+      const k = b.dataset.sf;
+      if (k === "prev") _mmFindGoto(-1);
+      else if (k === "next") _mmFindGoto(1);
+      else if (k === "repl") _mmFindReplace();
+      else if (k === "replall") _mmReplaceAll();
+    });
+    inp.focus();
+  }
+  function _mmClear() {
+    document.querySelectorAll("text.mm-find-hit").forEach(t => { t.classList.remove("mm-find-hit", "mm-find-cur"); t.style.fill = ""; t.style.stroke = ""; t.style.strokeWidth = ""; });
+  }
+  function _mmFindRun() {
+    _mmClear();
+    if (!_mmFind.overlay) return;
+    const q = _mmFind.overlay.querySelector(".sf-find").value;
+    const matchCase = _mmFind.overlay.querySelector(".sf-case input").checked;
+    const countEl = _mmFind.overlay.querySelector(".sf-count");
+    const svg = document.querySelector(".mindmap-wrap svg") || document.querySelector("svg");
+    if (!q || !svg) { countEl.textContent = ""; _mmFind.hits = []; _mmFind.idx = -1; return; }
+    const qc = matchCase ? q : q.toLowerCase();
+    const hits = [];
+    svg.querySelectorAll("text").forEach(t => {
+      const tc = t.textContent || "";
+      if (!matchCase && tc.toLowerCase().indexOf(qc) !== -1) hits.push(t);
+      else if (matchCase && tc.indexOf(q) !== -1) hits.push(t);
+    });
+    _mmFind.hits = hits; _mmFind.idx = hits.length ? 0 : -1;
+    hits.forEach(t => { t.classList.add("mm-find-hit"); t.style.fill = "#dc2626"; t.style.stroke = "#fde047"; t.style.strokeWidth = "2px"; });
+    if (hits.length) { countEl.textContent = "1 / " + hits.length; _mmFindGoto(0); }
+    else countEl.textContent = "无匹配";
+  }
+  function _mmFindGoto(dir) {
+    if (!_mmFind.hits.length) return;
+    if (typeof dir === "number" && dir === 0) _mmFind.idx = 0;
+    else _mmFind.idx = (_mmFind.idx + dir + _mmFind.hits.length) % _mmFind.hits.length;
+    document.querySelectorAll("text.mm-find-hit").forEach((t, i) => {
+      t.classList.toggle("mm-find-cur", i === _mmFind.idx);
+    });
+    const cur = _mmFind.hits[_mmFind.idx];
+    if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (_mmFind.overlay) _mmFind.overlay.querySelector(".sf-count").textContent = (_mmFind.idx + 1) + " / " + _mmFind.hits.length;
+  }
+  function _mmFindClear() { _mmClear(); _mmFind.hits = []; _mmFind.idx = -1; }
+  // MindMap 替换面板：反查 data.nodes → _snapshot + render（Ctrl+Z 可撤销）
+  function _mmFindReplace() {
+    if (!_mmFind.hits.length) return OS.toast("无匹配可替换", "warn");
+    const cur = _mmFind.hits[_mmFind.idx]; if (!cur) return;
+    const q = _mmFind.overlay.querySelector(".sf-find").value;
+    const rep = _mmFind.overlay.querySelector(".sf-repl").value;
+    const matchCase = _mmFind.overlay.querySelector(".sf-case input").checked;
+    // 反查 node 数据对象
+    const nodeG = cur.closest(".mm-node");
+    const nodeId = nodeG ? nodeG.dataset.id : null;
+    const node = nodeId ? getNode(nodeId) : null;
+    if (!node) { OS.toast("无法定位节点", "warn"); return; }
+    const tc = node.text || "";
+    const qc = matchCase ? q : q.toLowerCase();
+    const idx = matchCase ? tc.indexOf(q) : tc.toLowerCase().indexOf(qc);
+    if (idx === -1) return OS.toast("当前节点不含查询词", "warn");
+    _snapshot();
+    node.text = tc.slice(0, idx) + rep + tc.slice(idx + q.length);
+    fitNode(node); render(); ctx.markDirty();
+    OS.toast("已替换 1 处", "ok");
+    _mmFindRun(); _mmFindGoto(_mmFind.idx);
+  }
+  function _mmReplaceAll() {
+    if (!_mmFind.hits.length) return OS.toast("无匹配可替换", "warn");
+    const q = _mmFind.overlay.querySelector(".sf-find").value;
+    const rep = _mmFind.overlay.querySelector(".sf-repl").value;
+    const matchCase = _mmFind.overlay.querySelector(".sf-case input").checked;
+    const qc = matchCase ? q : q.toLowerCase();
+    let n = 0;
+    const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(esc, matchCase ? "g" : "gi");
+    _snapshot();
+    _mmFind.hits.forEach(t => {
+      const nodeG = t.closest(".mm-node");
+      const nodeId = nodeG ? nodeG.dataset.id : null;
+      const node = nodeId ? getNode(nodeId) : null;
+      if (!node) return;
+      const tc = node.text || "";
+      if (matchCase ? tc.includes(q) : tc.toLowerCase().includes(qc)) {
+        node.text = tc.replace(regex, rep); n++;
+        fitNode(node);
+      }
+    });
+    if (n) { render(); ctx.markDirty(); OS.toast("已替换 " + n + " 处", "ok"); }
+    else OS.toast("没有可替换的内容", "warn");
+    _mmFindRun();
+  }
+
+  OS.modules = OS.modules || {};
+  OS.modules.mindmap = { type: "mindmap", blank, mount, openFindPanel, toMarkdown, toDocxHtml, toOfdXml, _buildTree, _undoCore };
   OS.blankDoc = (function (orig) {
     return function (t) { if (t === "mindmap") return blank(); return orig ? orig(t) : { type: t, data: {} }; };
   })(OS.blankDoc);

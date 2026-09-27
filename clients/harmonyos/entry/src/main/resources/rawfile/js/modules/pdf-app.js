@@ -4,9 +4,9 @@
 (function () {
 
   'use strict';
-
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
-
+  // ★ 懒加载：pdfjsLib 不在顶层设置 workerSrc — 首次 init 时才加载
+  let _pdfjsReady=false;
+  async function _ensurePdfjs(){ if(globalThis.pdfjsLib){if(!_pdfjsReady){globalThis.pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js';_pdfjsReady=true;}return;} await window.OS.LazyLib.load('PDFJS'); globalThis.pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js'; _pdfjsReady=true; } 
   const E = window.PDFEngine;
   const PDFStore = window.OS && window.OS.PDFStore;
   const PDF$ = (s) => document.querySelector(s);
@@ -2734,9 +2734,16 @@
     async function init(file) {
       if (!file) return;
       hint.textContent = '渲染预览中…';
+      await _ensurePdfjs();
       try {
+        // ★ 懒加载：首次调用时才加载 pdf.js
+        if (!globalThis.pdfjsLib) await window.OS.LazyLib.load("PDFJS");
+        if (!init._workerSet && globalThis.pdfjsLib) {
+          globalThis.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+          init._workerSet = true;
+        }
         const buf = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        const pdf = await globalThis.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
         const page = await pdf.getPage(1);
         const vp1 = page.getViewport({ scale: 1 });
         pagePtW = vp1.width; pagePtH = vp1.height;
@@ -2906,9 +2913,10 @@
       if (!file) return;
       const pn = pageInput(); if (pn && pn.value) curPageNo = Math.max(1, Number(pn.value) || 1);
       setHint('渲染预览中…');
+      await _ensurePdfjs();
       try {
         const buf = await file.arrayBuffer();
-        pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        pdfDoc = await globalThis.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
         scale = Math.min(1.4, 360 / (await pdfDoc.getPage(1)).getViewport({ scale: 1 }).width);
         await renderPage(Math.min(curPageNo, pdfDoc.numPages));
         ready = true;
@@ -2970,9 +2978,10 @@
     async function init(file) {
       if (!file) return;
       hint.textContent = '渲染缩略图中…'; grid.innerHTML = '';
+      await _ensurePdfjs();
       try {
         const buf = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        const pdf = await globalThis.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
         total = pdf.numPages;
         selected = new Set();
         if (purpose === 'keep') for (let p = 1; p <= total; p++) selected.add(p); // 提取默认全选
@@ -3191,7 +3200,7 @@
     if (!file) { previewPanel.hidden = true; state.pdfDoc = null; return; }
     try {
       const buf = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+      const pdf = await globalThis.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
       state.pdfDoc = pdf;
       state.currentPage = 1;
       renderPreviewPage(1);
@@ -3222,9 +3231,10 @@
 
   /* 渲染结果 PDF 首页缩略图（确认输出正确） */
   async function renderResultThumb(blob, canvas) {
-    try {
+    await _ensurePdfjs();
+      try {
       const buf = await blob.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+      const pdf = await globalThis.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
       if (pdf.numPages < 1) return;
       const page = await pdf.getPage(1);
       const vp = page.getViewport({ scale: 1.0 });
@@ -3314,7 +3324,7 @@
 
   OS = window.OS || {}; OS.PDFToolbox = {
     _initialized: false,
-    open: function() {
+    open: function(opts) {
       var root = document.getElementById('pdfToolboxRoot');
       if (!root) return;
       var dash = document.getElementById('dashboard');
@@ -3328,6 +3338,18 @@
         try { buildHome(); } catch(_e) { console.warn('[PDF] buildHome:', _e.message); }
         try { showHome(); } catch(_e) { console.warn('[PDF] showHome:', _e.message); }
         this._initialized = true;
+      }
+      // 预载文件：把调用方传入的 File 直接塞到 state.files.file 并展示预览
+      if (opts && opts.file) {
+        try {
+          state.files = {};
+          state.files.file = Array.isArray(opts.file) ? opts.file : [opts.file];
+          // 如果当前在某个工具页（fileRefreshers 已注册），刷新表单文件列表
+          if (typeof fileRefreshers !== 'undefined' && fileRefreshers.file) fileRefreshers.file();
+          // 首页也直接展示预览（previewAfterSelect 是全局函数）
+          if (typeof previewAfterSelect === 'function') previewAfterSelect();
+          toast('已载入：' + (opts.file.name || 'PDF 文件'));
+        } catch(_e) { console.warn('[PDF] 预载文件失败:', _e.message); }
       }
       setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 100);
     },

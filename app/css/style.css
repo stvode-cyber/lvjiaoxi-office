@@ -174,6 +174,7 @@ a{color:var(--accent)}
 .gs-scope button.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .gs-count{padding:0 16px 4px;font-size:12px;color:var(--muted);min-height:16px}
 .gs-results{overflow-y:auto;padding:0 10px 10px;display:flex;flex-direction:column;gap:6px}
+.gs-results>*{flex-shrink:0}
 .gs-empty{padding:24px;text-align:center;color:var(--muted);font-size:13px}
 .gs-item{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--bg);color:var(--ink);cursor:pointer}
 .gs-item:hover{border-color:var(--accent);background:var(--accent-soft)}
@@ -552,6 +553,102 @@ table.sheet td.frozen,table.sheet th.frozen{background:var(--frozen-bg, rgba(125
 .chart-svg{display:block;line-height:0}
 .chart-svg .chart-svg-el{max-width:100%;height:auto}
 
+/* —— 表格批注（Excel 风格） —— */
+.sheet-wrap .sheet-body{flex:1;min-height:0;display:flex;overflow:hidden}
+.sheet-wrap .sheet-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.sheet-wrap .sheet-cmt-panel{
+  width:280px;flex-shrink:0;border-left:1px solid var(--rule);background:var(--bg);
+  display:flex;flex-direction:column;min-height:0;overflow:hidden;
+}
+.sheet-wrap .sheet-cmt-panel.hidden{display:none}
+.sheet-wrap .cmt-panel-head{
+  display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--rule);
+}
+.sheet-wrap .cmt-panel-head #cmt-close{
+  border:none;background:transparent;color:var(--muted);font-size:14px;cursor:pointer;padding:2px 6px;border-radius:4px;
+}
+.sheet-wrap .cmt-panel-head #cmt-close:hover{background:var(--hover);color:var(--ink)}
+.sheet-wrap .cmt-panel-body{flex:1;min-height:0;overflow-y:auto}
+.sheet-wrap .cmt-list{padding:10px;display:flex;flex-direction:column;gap:10px}
+.sheet-wrap .cmt-empty{color:var(--faint);font-size:13px;line-height:1.6;text-align:center;padding:24px 12px}
+.sheet-wrap .cmt-card{
+  background:var(--bg2);border:1px solid var(--rule);border-radius:8px;padding:10px;
+  display:flex;flex-direction:column;gap:6px;transition:border-color .15s,box-shadow .15s;
+}
+.sheet-wrap .cmt-card.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.sheet-wrap .cmt-card.resolved{opacity:.65}
+.sheet-wrap .cmt-card-head{display:flex;align-items:center;gap:6px}
+.sheet-wrap .cmt-avatar{
+  width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;
+}
+.sheet-wrap .cmt-author{font-size:13px;font-weight:600;color:var(--ink)}
+.sheet-wrap .cmt-time{font-size:11px;color:var(--muted);margin-left:auto}
+.sheet-wrap .cmt-badge-text{font-size:11px;color:var(--ok);background:var(--ok-soft);border-radius:10px;padding:1px 7px}
+.sheet-wrap .cmt-ref{
+  font-size:12px;color:var(--accent);cursor:pointer;font-weight:600;padding:2px 6px;
+  background:var(--accent-soft);border-radius:4px;display:inline-block;width:fit-content;
+}
+.sheet-wrap .cmt-ref:hover{filter:brightness(.95)}
+.sheet-wrap .cmt-quote{
+  font-size:13px;color:var(--ink);line-height:1.5;background:rgba(240,192,0,.08);
+  border-left:3px solid rgba(240,192,0,.6);padding:6px 8px;border-radius:0 4px 4px 0;
+  white-space:pre-wrap;word-break:break-word;
+}
+.sheet-wrap .cmt-quote.cmt-empty-quote{color:var(--faint);border-left-color:var(--rule);background:transparent;font-style:italic}
+.sheet-wrap .cmt-replies{display:flex;flex-direction:column;gap:4px}
+.sheet-wrap .cmt-reply{border-top:1px solid var(--rule);padding-top:4px}
+.sheet-wrap .cmt-reply-head{display:flex;justify-content:space-between;font-size:11px}
+.sheet-wrap .cmt-reply-head b{color:var(--ink)}
+.sheet-wrap .cmt-reply-head span{color:var(--muted);font-size:10px}
+.sheet-wrap .cmt-reply-text{font-size:12px;color:var(--ink);white-space:pre-wrap;word-break:break-word;margin-top:2px}
+.sheet-wrap .cmt-add{display:flex;gap:4px}
+.sheet-wrap .cmt-input{
+  flex:1;border:1px solid var(--rule);border-radius:6px;padding:5px 8px;
+  font-size:13px;background:var(--bg);color:var(--ink);min-width:0;
+}
+.sheet-wrap .cmt-input:focus{outline:none;border-color:var(--accent)}
+.sheet-wrap .cmt-send{
+  border:none;background:var(--accent);color:#fff;border-radius:6px;padding:0 8px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+}
+.sheet-wrap .cmt-send:hover{filter:brightness(1.05)}
+.sheet-wrap .cmt-actions{display:flex;align-items:center;justify-content:space-between;margin-top:2px}
+.sheet-wrap .cmt-btn{
+  border:1px solid var(--rule);background:var(--bg);color:var(--ink);border-radius:5px;
+  padding:3px 10px;cursor:pointer;font-size:12px;
+}
+.sheet-wrap .cmt-btn:hover{background:var(--hover)}
+.sheet-wrap .cmt-del{color:var(--danger);padding:3px 7px}
+.sheet-wrap .cmt-del:hover{background:var(--danger-soft);border-color:var(--danger)}
+/* 单元格红色三角徽章 */
+table.sheet td .cmt-badge{
+  position:absolute;top:0;right:0;width:0;height:0;
+  border-left:7px solid transparent;border-top:7px solid #d13438;pointer-events:none;z-index:1;
+}
+/* 单元格悬停气泡 */
+.cmt-bubble{
+  position:absolute;z-index:80;background:var(--bg);border:1px solid var(--rule);
+  border-radius:8px;box-shadow:0 4px 18px var(--shadow);padding:8px 10px;
+  max-width:260px;font-size:12px;line-height:1.5;
+}
+.cmt-bubble .cmt-bubble-item{padding:2px 0}
+.cmt-bubble .cmt-bubble-item b{color:var(--ink);font-size:12px}
+.cmt-bubble .cmt-time-sm{font-size:10px;color:var(--muted);margin-left:4px}
+.cmt-bubble .cmt-bubble-text{color:var(--ink);margin-top:3px;white-space:pre-wrap;word-break:break-word}
+.cmt-bubble hr{border:none;border-top:1px solid var(--rule);margin:6px 0}
+.cmt-toggle{
+  position:fixed;right:8px;bottom:12px;width:38px;height:38px;border-radius:50%;
+  background:var(--bg);border:1px solid var(--rule);box-shadow:0 2px 10px var(--shadow);
+  font-size:18px;cursor:pointer;z-index:70;display:flex;align-items:center;justify-content:center;
+  transition:background .15s,transform .15s;
+}
+.cmt-toggle:hover{background:var(--accent-soft);transform:scale(1.06)}
+.cmt-toggle.off{opacity:.55}
+/* 深色模式覆盖（scoped 到 .sheet-wrap） */
+:root[data-theme="dark"] .sheet-wrap .cmt-quote.cmt-empty-quote{color:#6a7382}
+:root[data-theme="dark"] table.sheet td .cmt-badge{border-top-color:#ff6b6b}
+
 /* —— 条件格式（数据条 / 色阶 / 高亮） —— */
 table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left center}
 /* —— 条件格式：规则弹窗 —— */
@@ -584,28 +681,105 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
 /* ============================================================
    演示 (Presentation)
    ============================================================ */
-.pres-wrap{flex:1;min-height:0;display:flex}
-.pres-thumbs{width:160px;flex-shrink:0;border-right:1px solid var(--rule);overflow-y:auto;padding:10px;background:var(--bg2);display:flex;flex-direction:column;gap:10px}
-.pres-thumb{border:1px solid var(--rule);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--chrome);position:relative}
+.pres-wrap{flex:1;min-height:0;display:flex;align-items:stretch;box-sizing:border-box}
+.pres-thumbs{width:160px;flex-shrink:0;border-right:1px solid var(--rule);overflow-y:auto;padding:10px;background:var(--bg2);display:flex;flex-direction:column;gap:10px;box-sizing:border-box}
+.pres-thumb{flex-shrink:0;border:1px solid var(--rule);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--chrome);position:relative;box-sizing:border-box}
 .pres-thumb.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 .pres-thumb .tnum{position:absolute;top:4px;left:6px;font-size:11px;color:var(--muted);font-weight:700}
-.pres-canvas-area{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--bg)}
+.pres-canvas-area{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--bg);box-sizing:border-box}
 .pres-canvas{width:760px;height:427px;background:#fff;color:#111;box-shadow:var(--shadow);border-radius:2px;position:absolute;left:0;top:0;transform-origin:top left;font-family:var(--font);overflow:hidden}
 .pres-canvas .el{position:absolute;border:1px dashed transparent}
 .pres-canvas .el.selected{border-color:var(--accent)}
 .pres-canvas .el.text{padding:6px 8px;font-size:18px;line-height:1.4}
 .pres-canvas .el.shape{display:flex;align-items:center;justify-content:center}
-.pres-side{width:240px;flex-shrink:0;border-left:1px solid var(--rule);padding:12px;background:var(--bg2);overflow-y:auto}
+.pres-side{width:240px;flex-shrink:0;border-left:1px solid var(--rule);padding:12px;background:var(--bg2);overflow-y:auto;box-sizing:border-box}
 .field{margin-bottom:10px}
 .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
 .field input,.field select,.field textarea{width:100%;border:1px solid var(--rule);border-radius:var(--radius);padding:6px 8px;background:var(--bg2);color:var(--ink);font-family:inherit;font-size:13px}
 .field textarea{resize:vertical;min-height:60px}
+
+/* —— PPT 批注（右侧属性面板内嵌） —— */
+.pres-side .pres-cmt-panel{
+  margin-top:8px;border-top:1px solid var(--rule);padding-top:8px;
+  display:flex;flex-direction:column;gap:6px;
+}
+.pres-side .pres-cmt-panel.hidden{display:none}
+.pres-side .cmt-panel-head{display:flex;align-items:center;gap:6px}
+.pres-side .cmt-panel-head #ppt-cmt-close{
+  border:none;background:transparent;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 5px;border-radius:4px;margin-left:auto;
+}
+.pres-side .cmt-panel-head #ppt-cmt-close:hover{background:var(--hover);color:var(--ink)}
+.pres-side .cmt-panel-body{max-height:340px;overflow-y:auto}
+.pres-side .cmt-list{display:flex;flex-direction:column;gap:6px}
+.pres-side .cmt-empty{color:var(--faint);font-size:12px;line-height:1.5;text-align:center;padding:14px 8px}
+.pres-side .cmt-card{
+  background:var(--bg);border:1px solid var(--rule);border-radius:6px;padding:8px;
+  display:flex;flex-direction:column;gap:4px;font-size:12px;transition:border-color .15s;
+}
+.pres-side .cmt-card.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.pres-side .cmt-card.resolved{opacity:.6}
+.pres-side .cmt-card-head{display:flex;align-items:center;gap:5px}
+.pres-side .cmt-avatar{
+  width:18px;height:18px;border-radius:50%;background:var(--accent);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;flex-shrink:0;
+}
+.pres-side .cmt-author{font-size:12px;font-weight:600;color:var(--ink)}
+.pres-side .cmt-time{font-size:10px;color:var(--muted);margin-left:auto}
+.pres-side .cmt-badge-text{font-size:10px;color:var(--ok);background:var(--ok-soft);border-radius:8px;padding:0 6px}
+.pres-side .cmt-ref{
+  font-size:11px;color:var(--accent);cursor:pointer;font-weight:600;padding:1px 5px;
+  background:var(--accent-soft);border-radius:3px;display:inline-block;width:fit-content;
+}
+.pres-side .cmt-quote{
+  font-size:12px;color:var(--ink);line-height:1.5;background:rgba(240,192,0,.08);
+  border-left:3px solid rgba(240,192,0,.6);padding:4px 6px;border-radius:0 3px 3px 0;
+  white-space:pre-wrap;word-break:break-word;
+}
+.pres-side .cmt-quote.cmt-empty-quote{color:var(--faint);border-left-color:var(--rule);background:transparent;font-style:italic}
+.pres-side .cmt-replies{display:flex;flex-direction:column;gap:2px}
+.pres-side .cmt-reply{border-top:1px solid var(--rule);padding-top:2px}
+.pres-side .cmt-reply-head{display:flex;justify-content:space-between;font-size:10px}
+.pres-side .cmt-reply-head b{color:var(--ink)}
+.pres-side .cmt-reply-head span{color:var(--muted)}
+.pres-side .cmt-reply-text{font-size:11px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+.pres-side .cmt-add{display:flex;gap:3px}
+.pres-side .cmt-input{
+  flex:1;border:1px solid var(--rule);border-radius:4px;padding:3px 5px;
+  font-size:12px;background:var(--bg);color:var(--ink);min-width:0;
+}
+.pres-side .cmt-input:focus{outline:none;border-color:var(--accent)}
+.pres-side .cmt-send{
+  border:none;background:var(--accent);color:#fff;border-radius:4px;padding:0 5px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;
+}
+.pres-side .cmt-send:hover{filter:brightness(1.05)}
+.pres-side .cmt-actions{display:flex;align-items:center;justify-content:space-between;margin-top:2px}
+.pres-side .cmt-btn{
+  border:1px solid var(--rule);background:var(--bg);color:var(--ink);border-radius:3px;
+  padding:2px 7px;cursor:pointer;font-size:11px;
+}
+.pres-side .cmt-btn:hover{background:var(--hover)}
+.pres-side .cmt-del{color:var(--danger);padding:2px 5px}
+.pres-side .cmt-del:hover{background:var(--danger-soft);border-color:var(--danger)}
+/* 缩略图批注徽章 */
+.pres-thumbs .pres-thumb{position:relative}
+.pres-thumbs .pt-cmt-badge{
+  position:absolute;top:4px;right:4px;min-width:16px;height:16px;
+  background:#d13438;color:#fff;font-size:10px;font-weight:700;
+  border-radius:8px;display:flex;align-items:center;justify-content:center;
+  padding:0 4px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.2);z-index:2;
+}
+:root[data-theme="dark"] .pres-thumbs .pt-cmt-badge{background:#ff6b6b}
+/* PPT 模块-wrap 布局：pres-wrap 需要 box-sizing */
+.pres-wrap-mod .pres-wrap{box-sizing:border-box}
+.pres-wrap-mod .pres-side .cmt-list .cmt-empty-quote{color:#6a7382}
 
 /* ============================================================
    PDF
    ============================================================ */
 .pdf-wrap{flex:1;min-height:0;display:flex}
 .pdf-side{width:220px;flex-shrink:0;border-right:1px solid var(--rule);padding:12px;background:var(--bg2);overflow-y:auto}
+.pdf-thumbs>*{flex-shrink:0}
 .pdf-view{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;align-items:center;gap:12px}
 .pdf-page canvas{max-width:100%;box-shadow:var(--shadow);border-radius:2px}
 .pdf-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--muted);gap:12px}
@@ -726,6 +900,7 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
 .task-panel-title{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;color:var(--ink)}
 .task-panel-title .ic{width:18px;height:18px;color:var(--accent)}
 .task-list{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+.task-list>*{flex-shrink:0}
 .task-empty{
   flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:10px;color:var(--faint);font-size:13px;
@@ -925,6 +1100,7 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
 
 /* 备档列表 */
 .bk-list{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto}
+.bk-list>*{flex-shrink:0}
 .bk-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--rule);border-radius:8px;background:var(--bg)}
 .bk-item .bk-meta{display:flex;flex-direction:column;min-width:0}
 .bk-item .bk-meta b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1039,3 +1215,51 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
   display: flex; flex-direction: column;
   font-family: inherit;
 }
+/* ===== Excel 查找替换浮层 ===== */
+.sf-find-overlay{position:fixed;top:60px;right:20px;z-index:9999;width:300px}
+.sf-find-overlay[hidden]{display:none}
+.sf-find-panel{
+  background:var(--bg2);border:1px solid var(--rule);border-radius:10px;
+  box-shadow:0 10px 30px rgba(0,0,0,.15);padding:10px;display:flex;flex-direction:column;gap:8px;
+}
+.sf-find-h{display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--muted);gap:8px}
+.sf-find-h span{display:flex;align-items:center;gap:4px}
+.sf-find-close{border:none;background:none;cursor:pointer;color:var(--muted);font-size:14px;padding:2px 6px;border-radius:4px}
+.sf-find-close:hover{background:var(--hover);color:var(--ink)}
+.sf-find-body{display:flex;flex-direction:column;gap:6px}
+.sf-input{
+  width:100%;height:30px;padding:0 10px;border:1px solid var(--rule);border-radius:6px;
+  background:var(--bg);color:var(--ink);font-size:13px;box-sizing:border-box;
+}
+.sf-input:focus{outline:none;border-color:var(--accent)}
+.sf-case{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer}
+.sf-count{font-size:12px;color:var(--muted);text-align:center}
+.sf-find-btns{display:flex;flex-wrap:wrap;gap:6px}
+.sf-find-btns .btn{flex:1;min-width:70px;height:30px;font-size:12px;padding:0 8px;border-radius:6px}
+
+/* ===== Ctrl+Tab 切标签弹窗 ===== */
+.tab-switcher-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:10000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.1s ease}
+.tab-switcher-overlay.show{opacity:1;pointer-events:auto}
+.tab-switcher-panel{background:var(--surface,white);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.3);min-width:320px;max-width:480px;max-height:60vh;overflow:hidden;border:1px solid var(--border,#e5e7eb)}
+.tab-switcher-title{padding:10px 16px;font-size:12px;color:var(--muted,#6b7280);border-bottom:1px solid var(--border,#e5e7eb);text-align:center}
+.tab-switcher-list{padding:6px;max-height:calc(60vh - 40px);overflow-y:auto}
+.tab-switcher-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;transition:background 0.08s}
+.tab-switcher-item:hover{background:var(--hover,#f3f4f6)}
+.tab-switcher-item.active{background:var(--accent-bg,#dbeafe);outline:2px solid var(--accent,#2563eb);outline-offset:-2px}
+.tab-switcher-icon{width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tab-switcher-info{flex:1;min-width:0}
+.tab-switcher-name{font-size:14px;font-weight:500;color:var(--text,#111827);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tab-switcher-type{font-size:11px;color:var(--muted,#6b7280);text-transform:uppercase;letter-spacing:0.5px}
+.tab-switcher-item.active .tab-switcher-name{font-weight:700}
+
+/* ===== PDF 暗模式（阅读器反色） ===== */
+html[data-pdf-dark="on"] .pdf-view{filter:invert(0.88) hue-rotate(180deg);background:#0f172a}
+html[data-pdf-dark="on"] .pdf-view canvas{box-shadow:0 4px 24px rgba(0,0,0,0.6)}
+/* 批注层不反色（因为是 DOM overlay，在 filter 容器内需要再反回来） */
+html[data-pdf-dark="on"] .pdf-view [data-anno],
+html[data-pdf-dark="on"] .pdf-view .pdf-anno-layer,
+html[data-pdf-dark="on"] .pdf-view .anno-item,
+html[data-pdf-dark="on"] .pdf-view .pdf-highlight{filter:invert(1) hue-rotate(180deg)}
+/* 批注面板在 pdf-side 里，不在 .pdf-view filter 范围内 → 正常显示 */
+/* 搜索高亮在 filter 内 → 反回来 */
+html[data-pdf-dark="on"] .pdf-view ::selection{background:#3b82f6;color:#fff}

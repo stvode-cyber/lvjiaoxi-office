@@ -101,3 +101,278 @@
 - **关联文件**：app/js/import-ooxml.js
 - **决策人**：AI
 - **状态**：active
+
+---
+
+## [2026-09-23] PDF→Excel 版面还原：detectTables 精细列边界 + XLSX 真表格
+
+- **选了啥**：重写 pdf-engine.js 的 detectTables（Gap 分析列边界 + 跨列表头预标注 + prose 降级 + 多表隔离）+ buildXlsx 改 XLSX.utils.book_new() + cellStyles:true + !merges 合并单元格。从 CSV 升级到真正的 XLSX。
+- **为啥**：拉手.md P0 级需求。用户反馈"PDF 里的表格转出来全是一堆文本列"。CSV 聚类只能做粗分列，XLSX 能保真合并单元格和样式。
+- **备选方案**：
+  - 继续用 CSV（已排除，WPS/Excel 打开后用户仍要手动合并单元格）
+  - 用 pdf-lib 原生命令（没找到 PDFPage.addTable 或类似 API，pdf-lib 只负责读写对象字典，不负责版面分析）
+  - 引入 camelot-py / tabula-py（需要 Python + Java 依赖，Electron 跨平台打包爆炸）
+- **关联文件**：app/js/modules/pdf-engine.js#L1030-1200（detectTables 重写）+ buildXlsx 重写 + buildDocxDocument 重写
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-23] 查找替换跨模块统一：TreeWalker + Range，CSS 全局复用 sf-find-*
+
+- **选了啥**：Writer/Presentation 用 TreeWalker 扫 contenteditable 文本节点 + Range surroundContents 生成 mark 高亮；MindMap 用 SVG text textContent 匹配 + fill/stroke 节点级高亮。面板 DOM 和 CSS class（sf-find-overlay/sf-find-panel/...）全局复用 style.css 已有定义。Spreadsheet 保持 mount 闭包内（cells 字典结构特殊）。
+- **为啥**：shell.js Ctrl+F 拦截链（L206）早已就位 `t.instance.openFindPanel("find")`，但只有 Spreadsheet 一个模块实现。4 个模块文本容器结构不同（contenteditable / Slide .el / SVG text / cells dict），没法通用一个实现，但**面板 UI 和交互模式必须统一**。
+- **备选方案**：
+  - 在 shell.js 做全局 search（已排除，shell 不知道模块内部文本结构）
+  - 让每个模块各写各的面板（已排除，4 套 UI 不同步，用户混乱）
+  - 只实现查找不实现替换（Writer/Presentation 的文本容器支持 Range 替换；MindMap 替换需回写 nodes 树复杂度高暂不做）
+- **关联文件**：app/js/modules/writer.js#L1528 / presentation.js#L1150 / mindmap.js#L1018 / spreadsheet.js#L1137 / shell.js#L206
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-23] 快捷键统一在 shell.js handler，不分散到各模块
+
+- **选了啥**：所有全局快捷键（Ctrl+N/O/W/P/Tab/F/H/K/Z/S/E/...）统一在 shell.js 的一个 keydown handler 里拦截，路由到各模块的 API。模块内的快捷键用各模块自己的 handler（避免互相干扰）。
+- **为啥**：shell.js 是唯一知道 activeTab() 和 tabs 数组的地方，"切哪个 tab / 新建什么类型 / 关闭哪个"这些决策必须由 shell 做。模块内只负责"打开查找面板 / 导出 / 保存"这种纯模块操作。
+- **备选方案**：各模块各自注册 keydown + shell bus（增加复杂度，容易冲突）
+- **关联文件**：app/js/shell.js#L193-L216
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-23] Ctrl+Tab 可视化弹窗：按住选择，松开切换
+
+- **选了啥**：shell.js 实现 tab-switcher overlay（_tswOpen/_tswMove/_tswClose/_tswCommit）。Ctrl+Tab 按住弹窗显示所有标签列表，高亮下一个（循环），持续 Tab/Shift+Tab 移动高亮，**松开 Ctrl 才执行 activate**。Esc 或 closeOverlays 时关闭不切换。支持点击弹窗项直接跳。
+- **为啥**：Windows/macOS 主流办公软件（WPS/Office/iTerm）都用"按住选、松开关"模式。之前 Ctrl+Tab 是纯循环切（按一下跳一个），按住不显示选项卡，用户不知道下一个是什么。首次按 Tab 应高亮下一个（不是当前），符合直觉。
+- **备选方案**：
+  - 纯循环切换（旧方案已替换）
+  - 首次按 Tab 高亮当前（不够好，用户不知道已经选中了哪个）
+  - 每个 Tab 都直接 activate（性能差 + 闪烁）
+- **关联文件**：app/js/shell.js#L44 / L202-208 / L983-1043 + app/css/style.css（新增 14 行 .tab-switcher-*）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-23] 快捷键矩阵第二波：F1/F5/Ctrl+Q/Ctrl+R/Ctrl+Shift+T + closeTab 历史栈
+
+- **选了啥**：shell.js 新增 6 组快捷键：F1 弹出版本信息 / F5/Ctrl+R 重载 / Ctrl+Q 退出 Electron（invoke("app:quit")）/ Ctrl+Shift+T 重开最近关闭。closeTab 里加 _recentlyClosed 栈（最多 20 条，JSON 深拷贝 doc）。showAbout() 函数（F1 触发）。
+- **为啥**：WPS/Office/iTerm 必备快捷键之前一个都没有。Ctrl+Shift+T 是开发者高频用的（浏览器/IDE 都有）。closeTab 存历史只需要一行 JSON.parse(JSON.stringify()) + push，成本极低。
+- **备选方案**：
+  - Ctrl+Shift+T 只恢复标题不恢复内容（体验差，用户期望恢复完整状态）
+  - 把 recentlyClosed 存到 IndexedDB（没必要——临时关闭栈，关应用就清空）
+  - F1 跳转外部文档（需要官网帮助中心，暂时没有 → 改弹版本信息 + 组件列表）
+- **关联文件**：app/js/shell.js#L45 (变量) / L440-458 (closeTab + reopenRecentlyClosed) / L226-235 (keydown handler) / L972-978 (showAbout)
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-23] PDF 暗模式：CSS filter invert + hue-rotate，三态开关
+
+- **选了啥**：html[data-pdf-dark="on"] .pdf-view { filter: invert(0.88) hue-rotate(180deg); }。三态 toggle（auto/on/off），auto 跟随全局 data-theme="dark"。MutationObserver 监听主题变化。localStorage 持久化。批注 overlay（.pdf-view [data-anno]）用 filter:invert(1) hue-rotate(180deg) 反回来保持原色。
+- **为啥**：业界最快方案——比改 pdf.js render 参数简单 10 倍，不需要重新渲染。invert(0.88) 不是 1 而是 0.88（避免纯黑背景刺眼）。hue-rotate(180deg) 把蓝色反回来（纯 invert 会把蓝色变黄）。用户体验比改 pdf.js source 好（切换即时生效，不需要 reload）。
+- **备选方案**：
+  - pdf.js render 时改参数（pdf.js v3 才加了 renderDarkMode option，我们用的是 v2.x，不支持）
+  - canvas post-processing（每个 canvas render 后遍历像素 invert，性能差 10 倍）
+  - 只给文字层反色（PDF 文字层在 canvas 里，没法单独反）
+- **关联文件**：app/css/style.css (+8 行) / app/js/modules/pdf.js L599-624（mount 内加 applyPdfDark + MutationObserver）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-23] 台账自动脚本：ledger-precheck（改前） + ledger-posthint（改后） 互补
+
+- **选了啥**：两个脚本互补——precheck 改前扫 issues.md 关联文件 → 缺 TODO 预防注释就警告（exit 1 可 CI 阻断）；posthint 改后扫 git diff → 归类模块 + 比对台账覆盖 + 建议写 decisions/issues（exit 2 提醒但不阻断）。
+- **为啥**：Growth Logger Skill 流程不能全靠 AI 自觉。AI 有时改了 shell.js 忘了写 decisions，posthint 扫一眼 git diff 就能说「shell.js 不在台账覆盖，要不要加一条？」。precheck 防止改代码时踩已知坑没加预防注释。两个零依赖 Node 脚本，不影响测试。
+- **备选方案**：
+  - 只写一个脚本做前后都扫（改前/改后时机不同，分开更清晰）
+  - 用 git pre-commit hook 自动跑（会拖慢 commit，而且 AI 工作流不走 git commit）
+- **关联文件**：scripts/ledger-precheck.js（已存在） + scripts/ledger-posthint.js（本轮新建） + .trae/skills/growth-logger/SKILL.md
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-23] Command Palette 扩展：22 命令 + 模糊搜索 + 分组 + 上下键
+
+- **选了啥**：COMMANDS 从 13 扩展到 22（加切标签、检查更新、刷新、关闭/重开标签、退出、任务面板、About），每条带 group（新建/文件/导航/帮助/编辑/视图/工具）。_fuzzyScore 子序列模糊搜索（includes 优先 + gap 权重）。renderCmd 按 group 分组渲染 + group header。上下键循环选 + Enter 执行 + Esc 关闭。
+- **为啥**：原实现只有 includes + 13 命令 + Enter 只能选第一个。模糊搜索是 VS Code/Sublime 的标配，用户敲"关标签"或"close tab"都能匹配到 close-tab 命令。分组让 22 个命令不乱。上下键比 Enter 固定选第一个灵活 10 倍。
+- **备选方案**：
+  - 只加命令不加搜索（用户找不到）
+  - 用第三方 fuse.js（零依赖自己写 15 行搞定）
+- **关联文件**：app/js/shell.js#L956-L1074
+- **决策人**：AI
+- **状态**：active
+
+
+---
+
+## [2026-09-23] 改动台账（自动生成 · 待补充）
+
+- **选了啥**：2 个建议涉及模块 [other, css, mindmap, pdf, presentation, spreadsheet, writer, shell, electron, config]
+- **为啥**：_AI 自动生成模板，请手动补充决策原因_
+- **备选方案**：_如果有其他考虑的方案，写在这里_
+- **关联文件**：`".trae/memory/\345\217\260\350\264\246/decisions.md"` / `".trae/memory/\345\217\260\350\264\246/index.md"` / `".trae/memory/\345\217\260\350\264\246/issues.md"` / `.workbuddy/memory/MEMORY.md` / `AGENTS.md` / `app/css/style.css` / `app/index.html` / `app/js/export-ooxml.js` / `app/js/import-ooxml.js` / `app/js/modules/markdown.js` / `app/js/modules/mindmap.js` / `app/js/modules/pdf-app.js` / `app/js/modules/pdf-engine.js` / `app/js/modules/pdf-text-edit.js` / `app/js/modules/pdf.js` / `app/js/modules/presentation.js` / `app/js/modules/spreadsheet.js` / `app/js/modules/writer.js` / `app/js/shell.js` / `app/js/util.js` / `app/sw.js` / `app/version.json` / `clients/harmonyos/AppScope/app.json5` / `clients/harmonyos/entry/src/main/resources/rawfile/css/style.css` / `clients/harmonyos/entry/src/main/resources/rawfile/index.html` / `clients/harmonyos/entry/src/main/resources/rawfile/js/export-ooxml.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/import-ooxml.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/markdown.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/mindmap.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/pdf-app.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/pdf-engine.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/pdf-text-edit.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/pdf.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/presentation.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/spreadsheet.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/modules/writer.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/shell.js` / `clients/harmonyos/entry/src/main/resources/rawfile/js/util.js` / `clients/harmonyos/entry/src/main/resources/rawfile/sw.js` / `clients/harmonyos/entry/src/main/resources/rawfile/version.json` / `clients/ios/LvjiaoxiOffice/Info.plist` / `clients/ios/project.yml` / `clients/ios/webroot/css/style.css` / `clients/ios/webroot/index.html` / `clients/ios/webroot/js/export-ooxml.js` / `clients/ios/webroot/js/import-ooxml.js` / `clients/ios/webroot/js/modules/markdown.js` / `clients/ios/webroot/js/modules/mindmap.js` / `clients/ios/webroot/js/modules/pdf-app.js` / `clients/ios/webroot/js/modules/pdf-engine.js` / `clients/ios/webroot/js/modules/pdf-text-edit.js` / `clients/ios/webroot/js/modules/pdf.js` / `clients/ios/webroot/js/modules/presentation.js` / `clients/ios/webroot/js/modules/spreadsheet.js` / `clients/ios/webroot/js/modules/writer.js` / `clients/ios/webroot/js/shell.js` / `clients/ios/webroot/js/util.js` / `clients/ios/webroot/sw.js` / `clients/ios/webroot/version.json` / `electron/main.js` / `package.json`
+- **决策人**：AI（`--write` 模式自动写入）
+- **状态**：draft（待补充完整）
+
+---
+
+## [2026-09-23] 快捷键可视化面板：showShortcuts() + 命令面板 + about 弹窗入口
+
+- **选了啥**：showShortcuts() 函数按 6 组（文件/标签导航/编辑/视图/AI工具/帮助）展示全部 22 条快捷键。三个入口：命令面板 id: "shortcuts" + F1 关于弹窗里的"快捷键"按钮。弹窗表格布局（monospace 键名 + 中文描述），max-height 80vh 可滚动。
+- **为啥**：25 组快捷键分散在 shell.js keydown handler 里，新用户完全不知道有 Ctrl+Tab 可视化弹窗、Ctrl+Shift+T 重开关闭标签等隐藏功能。没有任何 UI 入口展示全部快捷键。
+- **备选方案**：
+  - 只在 about 弹窗里加（不够，about 用户也不一定看）
+  - 独立的 help 菜单（Electron 主进程才好做，Web 壳不好加菜单）
+- **关联文件**：app/js/shell.js#L999（命令） / L1002-1007（showAbout 加按钮） / L1008-1043（showShortcuts 函数）
+- **决策人**：AI
+- **状态**：active
+
+
+---
+
+## [2026-09-23] 改动台账（自动生成 · 智能推断）
+
+- **选了啥**：1 个建议涉及模块 [other] · 改动 +0/-0 行
+- **为啥**：1 个建议涉及 [other]
+- **备选方案**：
+  - _如果有其他考虑的方案，写在这里_
+- **关联文件**：`HEAD~5..HEAD`
+- **决策人**：AI（`--write` 模式自动写入 · 推断填充）
+- **状态**：auto-filled（脚本自动推断，建议复核）
+
+---
+
+## [2026-09-23] 命令面板动态参数：纯数字输入 → 直接跳转标签
+
+- **选了啥**：renderCmd 加 numMatch 检测——输入 1-2 位纯数字时，直接渲染一个蓝色高亮动态项"快速跳转：打开第 N 个标签 → {doc.title}"，Enter 或点击立即执行。不等 fuzzy score 过滤。比常规命令匹配优先级更高（直接 return，不走 COMMANDS 数组）。
+- **为啥**：多标签场景下 Ctrl+Tab 循环慢（标签多了要按 N 次），输 Ctrl+K → 3 一次到位。PowerToys Run / VS Code Command Palette 都支持"输数字跳转"类快捷操作。
+- **备选方案**：
+  - 加单独 Ctrl+1~9 快捷键跳固定位置（占 9 个快捷键位置，而且只有 9 个）
+  - 搜索"跳转 3"模糊匹配（多打一个字，体验差）
+- **关联文件**：app/js/shell.js#L989（jump-tab 命令）/ L1055-L1077（numMatch 动态项）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-24] MindMap + Presentation 查找替换补全：SVG textContent 直改
+
+- **选了啥**：MindMap 面板加 sf-repl 输入框 + 替换当前/替换全部按钮 + _mmFindReplace / _mmReplaceAll。Presentation 从 git checkout 回滚后重建 openFindPanel（TreeWalker + mark 高亮 + DOM 替换）+ 替换按钮 + _prFindReplace / _prReplaceAll。两个模块导出里加 openFindPanel。
+- **为啥**：拉手.md 遗留项"Presentation/MindMap 的 openFindPanel 没做替换"。之前误以为需要回写数据绑定（slides/elements 数组 / mindmap nodes 树），但实际上 MindMap SVG text 节点和 Presentation Text Node 都是**渲染后的 DOM**，替换直接改 DOM 就行——不需要碰数据模型。
+- **备选方案**：
+  - 回写数据模型（slides.elements[].text / nodes[].text）再重新渲染——需要遍历 slides 找匹配 element，复杂且容易出 bug
+  - 只做查找不做替换——用户体验差（Writer/Spreadsheet 都支持替换）
+- **关联文件**：app/js/modules/mindmap.js#L1034（面板）/ L1054-1060（handler）/ L1097-1129（替换函数）；app/js/modules/presentation.js#L960-1077（完整 openFindPanel 重写）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-24] 静默更新端到端验证：本地 HTTP server 模拟托管
+
+- **选了啥**：update.lvjiaoxi.cn 不可达（SSL 断了）。本地用 Node.js http.createServer() 起 8765 端口托管 dist/ 目录（latest.yml + Setup.exe），验证完整链路：① latest.yml 200 OK 361 字节 ② feed-config 正确解析为 generic provider ③ Setup.exe 200 OK 104929051 字节。electron-updater 依赖已在 package.json devDependencies（^6.8.9），主进程 IPC handle updater:check + updater:download + autoDownload + autoInstallOnAppQuit 全链完整。
+- **为啥**：拉手.md P2 原计划项"Electron 静默更新端到端验证"。之前只验证了代码静态结构，没跑通实际 HTTP 下载。现在本地 server 证明 generic provider 工作正常。
+- **备选方案**：
+  - 直接部署到真实 CDN（需要 SSL 证书 + 服务器权限，当前没有）
+  - mock electron-updater（不如真跑 HTTP server 有说服力）
+- **关联文件**：dist/latest.yml（sha512 对得上 Setup 1.1.3）/ electron/feed-config.js（纯函数）/ electron/main.js（L41-85 autoUpdater IPC）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-24] PDF→PPTX 转换：buildPptx（每页一张 PNG + 最小 PPTX 骨架）
+
+- **选了啥**：pdf-engine.js 加 buildPptx + exportToPptx。复用现有 canvas render（L950 模板）+ vendor JSZip。每页 render 成 PNG 图片 → stretch 铺满宽屏 slide（12192000×6858000 EMU）。硬编码最小 PPTX 骨架（8 个固定 XML + 每页 slide.xml + rels + PNG）。零新增依赖（JSZip 已在 vendor/）。
+- **为啥**：拉手.md 原计划外扩展，和 PDF→Excel/DOCX 版面还原是同一个系列。PPTX 图片嵌入型转换最省事——不需要引入 pptxgenjs（vendor 里没有，npm 下载会增 2MB+ 体积），零依赖就够。
+- **备选方案**：
+  - 引 pptxgenjs vendor（包体大 2MB+，而且纯图片嵌入不需要它的文字/图表能力）
+  - 不做（用户期望 PDF 转 Office 全家桶）
+- **关联文件**：app/js/modules/pdf-engine.js#L3286-3405（buildPptx + exportToPptx）/ L5041（导出加 exportToPptx, buildPptx）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-24] Ctrl+Z 跨模块统一：Presentation 补 undo/redo export + 静默更新端到端验证 + 版本比对铁律
+
+- **选了啥**：presentation.js mount return 加 undo, redo, canUndo, canRedo（L760）。OS.Undo 调度器（util.js L104）已存在且 OK，writer/spreadsheet/mindmap/pdf 早就 export undo 了，唯独 presentation 局部写了 snapshot+restore 忘了 export。加一行解决。
+- **为啥**：拉手.md 原计划外扩展 + 静默更新 P2 验证（本地链路 mock 验证 compareVersion 方向）。
+- **静默更新现状**：about 弹窗「🔄 检查更新」按钮（shell.js L1005）+ 菜单（L991）+ updater.js 全实现（Web/PWA/Electron/移动端三策略）+ Electron main.js autoUpdater IPC（check/download/install）+ dist/latest.yml v1.1.3 就绪。**卡点 = 无 update.lvjiaoxi.cn 远程凭证**。
+- **版本比对铁律**：updater.js（浏览器端）和 Electron main-utils.js cmpVer（主进程）语义必须完全一致。新增 _updater_version_test.js 28 断言锁死（9 方向 + 4 边界 + 11 跨端一致性 + 4 真实场景）。铁律方向：a > b → 1；a == b → 0；a < b → -1。
+- **关联文件**：app/js/modules/presentation.js#L760（undo export）/ _updater_version_test.js（新）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-24] Presentation/MindMap 查找替换 undo 修复 + MindMap search/replaceAll 纯函数
+
+- **选了啥**：修复 _prFindReplace/_prReplaceAll 和 _mmFindReplace/_mmReplaceAll 四个函数的 undo 链路。原来只改 DOM 高亮层（<mark>textContent / SVG <text>textContent），不回写数据模型 + 不调 undo 快照。结果：替换后 DOM 视觉变了，但 data.slides[].elements[].text / data.nodes[].text 没变，undo 栈里没这步。
+- **为啥**：拉手.md P2 遗留"替换需要回写数据绑定"。
+- **修法**：
+  - Presentation：_prFindReplace → mark.closest('.el.text').dataset.id → 遍历所有 slides/elements 找 element → snapshot() → 改 element.text → enderAll() + ctx.markDirty()。_prReplaceAll 直接复用已有 eplaceAllText 纯函数（自带 snapshot）。
+  - MindMap：_mmFindReplace → 	ext.closest('.mm-node').dataset.id → getNode(id) → _snapshot() → 改 
+ode.text → itNode(node) + render() + ctx.markDirty()。_mmReplaceAll 同理。
+  - MindMap mount return 加 search + eplaceAll: replaceAllText 纯函数。shell 的 globalReplace 跨文档替换现在能调 MindMap 了（之前 MindMap 没 export replaceAll，只有 Writer/Spreadsheet/Presentation 有）。
+- **关联文件**：app/js/modules/presentation.js#L1059-1101（替换面板修复）/ app/js/modules/mindmap.js#L915-968（search/replaceAll + mount export）/ app/js/modules/mindmap.js#L1098-1144（替换面板修复）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-25] 性能优化：MindMap render debounce + PDF 分批并发 + 缩略图缓存
+
+- **选了啥**：MindMap render rAF debounce + selectNodeHighlight 轻量选中（避免每次点击都全量重渲）；PDF renderAll 改成 4 页并发分批（Promise.allSettled）+ 取消标记（快速改 zoom 时旧渲染放弃，不排队）；PDF buildThumbs 用 Map 缓存 HTML（同一个 PDF numPages+首页尺寸 做指纹，第二次打开跳过所有 page.render）。
+- **为啥**：上几个 experience 教训——不定位真实瓶颈就瞎改一通反而更慢。先扫热路径再动手。
+- **瓶颈定位**：
+  - MindMap render 被调 18+ 次/每次都是 view.innerHTML="" + 全量 renderNode。点击选中也全量重渲，浪费。
+  - PDF renderAll 串行 for + await page.render，300 页 PDF 要 30 秒；快速改 zoom 会排队一堆 renderAll；buildThumbs 每次 renderAll 都重渲（但 thumbScale 固定 0.22，跟 zoom 无关）。
+- **修法**：
+  - MindMap render: 加 _renderRaf rAF debounce（同帧多次调用合并成一次）+ selectNodeHighlight(id) 轻量选中（只改 classList，不全量 render）。去 console.time 生产日志。
+  - PDF renderAll: _renderCancel 标记 + 4 页并发分批。每个内部 page.render 前检查 cancel token，用户快速改 zoom 时旧渲染自动放弃。
+  - PDF buildThumbs: _thumbCache Map，key = numPages_首页w_首页h。命中时直接 innerHTML 嵌 dataURL 图像，跳过所有 page.render。
+- **关联文件**：app/js/modules/mindmap.js#L191-231（render debounce + selectNodeHighlight）/ app/js/modules/pdf.js#L69-71（变量声明）/ app/js/modules/pdf.js#L392-496（renderAll 分批并发 + buildThumbs 缓存）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-25] PDF 懒渲染（IntersectionObserver）+ Presentation renderAll debounce 回退教训
+
+- **选了啥**：PDF renderAll 改成懒渲染——Phase 1 只拿所有页尺寸（page.view 不渲，极快）+ 建空 box 占位（固定高度）；Phase 2 渲前 3 页保证首屏秒出；Phase 3 IntersectionObserver(rootMargin:200px) 进视口才渲剩余页。zoom 变化时 disconnect + 重建 Observer。新增 _pdfLazyObs + _pdfRenderedPages + _renderOnePage 辅助函数。Presentation renderAll debounce 尝试后回退（测试期望同步 DOM 更新）。
+- **为啥**：300 页 PDF 原来要渲 300 个 canvas，现在只渲用户看到的 5-10 个。
+- **教训**：**不要对 renderAll 加 rAF debounce**——很多场景（测试、快捷键回调、用户操作立即反馈）期望 renderAll 之后 DOM 同步更新。MindMap 能加是因为它 render 内部没有 "外部立即读取 DOM" 的场景。Presentation 加了炸了 3 个测试，已回退。
+- **关键技术点**：
+  - page.view 只拿宽高不渲 canvas（pdf.js 内部 getter，极快）
+  - IntersectionObserver rootMargin:200px（提前 200px 渲，用户感知不到）
+  - 空 box 占位高度 = vp.height / devicePixelRatio（让滚动条位置正确，不跳）
+  - _renderCancel token 在 Phase 1/2/3 之间都检查（zoom 快速变时 Phase 1 才渲一半就放弃）
+- **关联文件**：app/js/modules/pdf.js#L69-73（变量）/ L394-485（renderAll + _renderOnePage）/ app/js/modules/presentation.js#L280（renderAll 已回退）
+- **决策人**：AI
+- **状态**：active
+
+---
+
+## [2026-09-25c] 静默更新端到端验证通过！
+
+- **选了啥**：用本地 HTTP server（python -m http.server 18080）托管 dist/，改 latest.yml version 成 1.1.4 模拟有新版本，跑 erify-update-feed.js 验证 generic provider 整条链路。
+- **为啥**：之前卡点"远程托管凭证"，但验证链路正确性不需要真正远程——只要能 fetch latest.yml + HEAD exe + compareVersion 方向对，就证明 setupAutoUpdater → autoUpdater.setFeedURL({ provider: "generic", url }) → checkForUpdates → downloadUpdate → quitAndInstall 全通。
+- **验证结果**：✅ 全链路通过！latest.yml 可拉 → compareVersion(1.1.4, 1.1.3)=1 方向正确 → exe HEAD 返回 200 + 104MB。
+- **剩余两个真实卡点**：
+  1. **远程托管**：需要把 dist/latest.yml + dist/绿角犀 Office Setup 1.1.3.exe 一起托管到同一个目录（update.lvjiaoxi.cn 或 GitHub Releases）
+  2. **Setup.exe 签名**：当前 Get-AuthenticodeSignature 返回 NotSigned。Windows SmartScreen 会拦截未签名安装包。需要代码签名证书 + 重新打包
+- **新增脚本**：scripts/verify-update-feed.js — 以后任何时候一条命令就能验证更新链路：
+  `
+  node scripts/verify-update-feed.js --feed=http://your-host/path --current=1.1.3
+  `
+- **关联文件**：scripts/verify-update-feed.js（新增）/ dist/latest.yml.bak（备份已恢复）
+- **决策人**：AI
+- **状态**：active

@@ -28,11 +28,13 @@
   "use strict";
 
   const OS = global.OS;
-  const PDFLib = global.PDFLib; // vendor/pdf-lib.min.js 注入
+  // ★ 懒加载：PDFLib 不在顶层同步加载 — 首次用到时 await OS.LazyLib.load("PDFLib")
+  let PDFLib = null;
 
-  if (!PDFLib) {
-    console.warn("[PDFTextEditor] pdf-lib 未加载");
-    return;
+  async function _ensure() {
+    if (PDFLib) return PDFLib;
+    PDFLib = await OS.LazyLib.load("PDFLib");
+    return PDFLib;
   }
 
   /* ---------------- 工具 ---------------- */
@@ -125,6 +127,7 @@
   /* ---------------- 主 API ---------------- */
 
   async function editTextOnPage({ pdfBytes, pageIndex, oldText, newText, tolerance }) {
+    await _ensure();
     if (!pdfBytes || !oldText) throw new Error("缺少必要参数");
     if (!newText) newText = "";
 
@@ -179,6 +182,7 @@
 
   // Overlay 模式（fallback）：白色矩形遮原文 + 新文本
   async function overlayEdit(pdf, pageIndex, oldText, newText, pdfPointRect) {
+    await _ensure();
     const page = pdf.getPage(pageIndex);
 
     // 1. 如果没给 rect，用 pdf.js 先拿（这里需要调用方提供）
@@ -221,6 +225,7 @@
   /* ---------------- 加载 / 保存 / 工具 ---------------- */
 
   async function loadPdf(bytes) {
+    await _ensure();
     return PDFLib.load(bytes);
   }
 
@@ -244,6 +249,6 @@
     coordFromViewport: simpleViewportToPdf
   };
 
-  console.info("[OS.PDFTextEditor] 已初始化（pdf-lib " + (PDFLib.version || "?") + "）");
+  console.info("[OS.PDFTextEditor] 已初始化（pdf-lib 懒加载中，首次调用时按需 OS.LazyLib.load）");
 
 })(window);

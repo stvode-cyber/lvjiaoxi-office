@@ -1,7 +1,7 @@
-﻿# 绿角犀 Office · 项目长期笔记
+# 绿角犀 Office · 项目长期笔记
 
 > 持续更新。每轮新增显著事实时追加；超长时按主题蒸馏。
-> 最后更新：2026-09-10
+> 最后更新：2026-09-19
 
 ## 2026-09-14 · 代码审计清零 + AI 增强 + Mindmap 扩展 + UX 体系
 
@@ -40,6 +40,47 @@
 4. 测试诚实：失败诊断根因，禁 sleep 重试循环
 5. 回写文档：每轮更新 STATUS/当日日志
 6. 零依赖优先：沙箱可测纯逻辑抽独立模块
+7. **模块 mount 必须创建独立 wrap（2026-09-19 新增，markdown.js 踩坑）**：见下方「模块 mount 规范 Checklist」
+
+## 模块 mount 规范 Checklist（新增模块 / 修改 mount 时逐条打勾）
+
+> **来源**：2026-09-19 markdown.js 未创建独立 wrap 直接 `host.innerHTML=""`，把其他标签页模块容器全清光 → 多标签页堆叠遮挡；presentation.js 缩略图用 `transform:scale()` 被 CSS `.pres-canvas` 的 `position:absolute` + 父容器 `overflow:hidden` 先 clip 再 scale → 缩到 26×14px 肉眼不可见。
+
+### mount 函数必做 4 步
+
+- [ ] **① 创建独立 wrap**：`const wrap = document.createElement("div")`，className 必须包含 `module-wrap` + 模块名后缀（如 `markdown-wrap` / `mindmap-wrap` / `sheet-wrap` / `writer-wrap`）
+- [ ] **② DOM 全挂 wrap 上**：所有 `appendChild` / `innerHTML` 操作挂在 `wrap` 上，**绝对禁止** `host.innerHTML = ""` 或直接往 host 塞子元素
+- [ ] **③ 末尾 host.appendChild(wrap)**：模块产物最后一步 append 到 host，确保 shell.js 的 `t.wrap = hostEl.lastElementChild` 能正确捕获
+- [ ] **④ return 的 el 指向 wrap**：`return { el: wrap, ... }` 而非 `el: host`
+
+### mount 禁止 3 条红线
+
+- [ ] ❌ 禁止 `host.innerHTML = ""`（会清空所有其他标签页的模块容器）
+- [ ] ❌ 禁止修改 host 级样式（`host.style.cssText = ...`）—— mount 是"往容器里放东西"，不是"改造容器"
+- [ ] ❌ 禁止在有 `overflow:hidden` 的父容器里对带 `position:absolute` 的子元素用 `transform:scale()` 做缩略图缩放（浏览器先 clip 再 transform → 内容被裁后再缩到看不见）
+
+### 标准模板
+
+```javascript
+function mount(host, doc, ctx) {
+  const wrap = document.createElement("div");
+  wrap.className = "module-wrap <name>-wrap";
+  // ... 全部 DOM 操作挂 wrap ...
+  host.appendChild(wrap);   // 关键：必须 append 到 host
+  return { el: wrap, /* ... */ };
+}
+```
+
+### 现有模块合规性（2026-09-19 审计）
+
+| 模块 | 合规？ | wrap className |
+|------|--------|---------------|
+| pdf    | ✅ | `module-wrap` |
+| writer | ✅ | `module-wrap writer-wrap` |
+| mindmap | ✅ | `module-wrap` |
+| presentation | ✅ | `module-wrap` |
+| spreadsheet | ✅ | `module-wrap sheet-wrap`（2026-09-19 补 module-wrap） |
+| markdown | ✅ | `module-wrap markdown-wrap`（2026-09-19 修复，原为致命违规） |
 
 ## 字母序特性开发工作流
 「按顺序全权往下开发」= 按字母序推进无需确认。单特性 11 步：定字母→侦察(grep 依赖/icons.js，**不臆造图标**)→建纯模块(IIFE+OS 全局+module.exports)→接入 index.html→UI 接线 ribbon+弹窗→写测试(≥12 断言)→跑测(node _x_test + node --check)→全量门禁→回写文档→四端同步(sync-clients --check)→记忆

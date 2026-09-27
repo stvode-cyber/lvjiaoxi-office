@@ -444,7 +444,7 @@
           const date = new Date(c.createdAt || Date.now()).toISOString();
           const done = c.resolved ? ' w:done="1"' : "";
           items.push('<w:comment w:id="' + wid + '" w:author="' + author + '" w:date="' + date + '"' + done + '>' +
-            '<w:p><w:r><w:rPr><w:rStyle w:val="CommentText"/></w:rPr><w:t xml:space="preserve">' + esc(c.quote || "") + '</w:t></w:r></w:p></w:comment>');
+            '<w:p><w:r><w:rPr><w:rStyle w:val="CommentText"/></w:rPr><w:t xml:space="preserve">' + esc(c.text || c.quote || "") + '</w:t></w:r></w:p></w:comment>');
           (c.replies || []).forEach(rp => {
             rid++;
             const rwid = rid;
@@ -532,6 +532,11 @@
     let wbSheets = "", wbRels = "", ctOverrides = "", chartCT = "";
     const sheetEntries = [];      // { file, xml }
     const drawingEntries = [];    // { sheetIdx, drawingXml, drawingRelsXml, chartFiles }
+    const cmtEntries = [];        // { sheetIdx, xml }
+    const allAuthors = new Set();
+    // 先遍历收集所有批注作者
+    (data.comments || []).forEach(c => { if (c.author) allAuthors.add(c.author); });
+    const authorList = Array.from(allAuthors);
 
     sheets.forEach((sh, i) => {
       const idx = i + 1;
@@ -585,16 +590,41 @@
       let chartParts = null, prefix = "";
       if (charts.length) { prefix = (sheets.length > 1) ? ("s" + idx) : ""; chartParts = buildChartPartsForXlsx(charts, sheetName, cells, maxRow + 2, EMU, prefix); }
 
+      // 过滤当前 sheet 的批注（sheet 未指定也归到 sheet 0）
+      const sheetCmt = (data.comments || []).filter(c => c.sheet == null || c.sheet === (idx - 1));
+      let hasCmt = sheetCmt.length > 0;
+
+      // 生成 comment{idx}.xml
+      let cmtXml = "";
+      if (hasCmt) {
+        const authorsXml = authorList.map(a => "<author>" + esc(a) + "</author>").join("");
+        const commentsXml = sheetCmt.map(c => {
+          const authorIdx = Math.max(0, authorList.indexOf(c.author || "我"));
+          const textXml = c.text
+            ? "<text><r><t xml:space=\"preserve\">" + esc(c.text) + "</t></r></text>"
+            : "<text><r><t></t></r></text>";
+          return '<comment ref="' + esc(c.ref) + '" authorId="' + authorIdx + '" dtId="-1" shapeId="0">' + textXml + "</comment>";
+        }).join("");
+        cmtXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+          '<comments xmlns="' + X.w + '">' +
+          '<authors count="' + authorList.length + '">' + authorsXml + "</authors>" +
+          commentsXml + "</comments>";
+      }
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheetData>' + rowsXml + "</sheetData>" +
-        (chartParts ? '<drawing r:id="rIdD"/>' : "") + "</worksheet>";
+        (chartParts ? '<drawing r:id="rIdD"/>' : "") +
+        (hasCmt ? '<legacyDrawing r:id="rIdC"/>' : "") + "</worksheet>";
 
       sheetEntries.push({ file: "xl/worksheets/sheet" + idx + ".xml", xml: sheetXml });
       if (chartParts) {
         drawingEntries.push({ sheetIdx: idx, drawingXml: chartParts.drawingXml, drawingRelsXml: chartParts.drawingRelsXml, chartFiles: chartParts.chartFiles });
         chartCT += '<Override PartName="/xl/drawings/drawing' + idx + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.drawing+xml"/>' +
           charts.map((c, ci) => '<Override PartName="/xl/charts/' + prefix + "_" + (ci + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>').join("");
+      }
+      if (hasCmt) {
+        cmtEntries.push({ sheetIdx: idx, xml: cmtXml });
       }
 
       const rid = "rId" + idx;
@@ -637,6 +667,7 @@
       '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
       '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>' +
       chartCT +
+      cmtEntries.map(c => '<Override PartName="/xl/comments/comment' + c.sheetIdx + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/>').join("") +
       '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
       "</Types>";
 
@@ -666,6 +697,23 @@
         '<Relationship Id="rIdD" Type="' + X.r + '/drawing" Target="../drawings/drawing' + idx + '.xml"/></Relationships>');
       Object.keys(d.chartFiles).forEach(name => zip.file(name, d.chartFiles[name]));
     });
+    // 写入批注文件 + worksheet .rels（有批注但无 drawing 的 worksheet 需要补 .rels）
+    cmtEntries.forEach(c => {
+      const idx = c.sheetIdx;
+      zip.file("xl/comments/comment" + idx + ".xml", c.xml);
+      const relsPath = "xl/worksheets/_rels/sheet" + idx + ".xml.rels";
+      let relsXml = "";
+      if (zip.files[relsPath]) {
+        // 已存在（有 chart）— 在末尾加 comment 关系
+        const old = zip.files[relsPath].asText();
+        relsXml = old.replace("</Relationships>",
+          '<Relationship Id="rIdC" Type="' + X.r + '/comments" Target="../comments/comment' + idx + '.xml"/></Relationships>');
+      } else {
+        relsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="' + X.rel + '">' +
+          '<Relationship Id="rIdC" Type="' + X.r + '/comments" Target="../comments/comment' + idx + '.xml"/></Relationships>';
+      }
+      zip.file(relsPath, relsXml);
+    });
     zip.file("xl/styles.xml", stylesXml);
     zip.file("xl/sharedStrings.xml", sstXml);
     zip.file("docProps/core.xml", coreXml);
@@ -681,6 +729,43 @@
     const zip = new JSZip();
     const slides = (doc.data && doc.data.slides) || [];
     const W = 9144000, H = 6858000; // 10in x 7.5in
+
+    // ---------- 批注导出 ----------
+    const ptComments = (doc.data && doc.data.comments) || [];
+    const hasPptComments = ptComments.length > 0;
+    const allAuthors = new Set();
+    ptComments.forEach(c => { if (c.author) allAuthors.add(c.author); });
+    const authorList = Array.from(allAuthors);
+    // 按 slide 分组
+    const commentsBySlide = {};
+    ptComments.forEach(c => {
+      const si = c.slide != null ? c.slide : 0;
+      if (!commentsBySlide[si]) commentsBySlide[si] = [];
+      commentsBySlide[si].push(c);
+    });
+    // commentAuthors.xml
+    const authorsXml = hasPptComments ? ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<p:cmAuthorLst xmlns:p="' + X.p + '">' +
+      authorList.map(a => '<p:cmAuthor id="' + authorList.indexOf(a) + '" name="' + esc(a) + '" initials="' + esc((a || "A").slice(0, 2).toUpperCase()) + '" lastIdx="' + authorList.indexOf(a) + '" clrIdx="0"/>').join("") +
+      "</p:cmAuthorLst>") : "";
+    // 每页 commentN.xml
+    const commentFiles = [];  // { slideIdx, xml }
+    if (hasPptComments) {
+      Object.keys(commentsBySlide).forEach(si => {
+        const slideIdx = +si;
+        const cxs = commentsBySlide[slideIdx];
+        const cxml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+          '<p:cmLst xmlns:p="' + X.p + '">' +
+          cxs.map((c, ci) => {
+            const authorIdx = authorList.indexOf(c.author || "我");
+            const pos = c._pos || { x: 100, y: 100 };
+            return '<p:cm authorId="' + Math.max(0, authorIdx) + '" dt="' + (new Date()).toISOString() + '" idx="' + ci + '">' +
+              '<p:pos x="' + (pos.x || 100) + '" y="' + (pos.y || 100) + '"/>' +
+              '<p:text>' + esc(c.text || "") + '</p:text></p:cm>';
+          }).join("") + "</p:cmLst>";
+        commentFiles.push({ slideIdx, xml: cxml });
+      });
+    }
 
     function shapeXml(el, id) {
       const x = Math.round((el.x || 0) * EMU), y = Math.round((el.y || 0) * EMU);
@@ -762,6 +847,7 @@
       '<Relationship Id="rId1" Type="' + X.r + '/slideMaster" Target="slideMasters/slideMaster1.xml"/>' +
       slideXmls.map((_, i) => '<Relationship Id="rId' + (i + 2) + '" Type="' + X.r + '/slide" Target="slides/slide' + (i + 1) + '.xml"/>').join("") +
       (hasNotes ? '<Relationship Id="rId' + (slides.length + 2) + '" Type="' + X.r + '/notesMaster" Target="notesMasters/notesMaster1.xml"/>' : "") +
+      (hasPptComments ? '<Relationship Id="rId' + (slides.length + 3 + (hasNotes ? 1 : 0)) + '" Type="' + X.r + '/commentAuthors" Target="commentAuthors.xml"/>' : "") +
       "</Relationships>";
 
     const masterXml =
@@ -816,6 +902,8 @@
       slideXmls.map((_, i) => '<Override PartName="/ppt/slides/slide' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>').join("") +
       (hasNotes ? '<Override PartName="/ppt/notesMasters/notesMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"/>' +
         notesSlideXml.map((nx, i) => nx ? '<Override PartName="/ppt/notesSlides/notesSlide' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>' : "").join("") : "") +
+      (hasPptComments ? ('<Override PartName="/ppt/commentAuthors.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml"/>' +
+        commentFiles.map(c => '<Override PartName="/ppt/comments/comment' + (c.slideIdx + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.comments+xml"/>').join("")) : "") +
       '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
       "</Types>";
 
@@ -845,9 +933,18 @@
       const rels = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="' + X.rel + '">',
         '<Relationship Id="rId1" Type="' + X.r + '/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>'];
       if (notesSlideRels[i]) rels.push('<Relationship Id="rId2" Type="' + X.r + '/notesSlide" Target="../notesSlides/notesSlide' + (i + 1) + '.xml"/>');
+      const hasCmtOnSlide = hasPptComments && commentFiles.some(cf => cf.slideIdx === i);
+      if (hasCmtOnSlide) rels.push('<Relationship Id="rId3" Type="' + X.r + '/comments" Target="../comments/comment' + (i + 1) + '.xml"/>');
       rels.push("</Relationships>");
       zip.file("ppt/slides/_rels/slide" + (i + 1) + ".xml.rels", rels.join(""));
     });
+    // 批注文件写入
+    if (hasPptComments) {
+      zip.file("ppt/commentAuthors.xml", authorsXml);
+      commentFiles.forEach(cf => {
+        zip.file("ppt/comments/comment" + (cf.slideIdx + 1) + ".xml", cf.xml);
+      });
+    }
     if (hasNotes) {
       zip.file("ppt/notesMasters/notesMaster1.xml", notesMasterXml);
       zip.file("ppt/notesMasters/_rels/notesMaster1.xml.rels", notesMasterRels);
