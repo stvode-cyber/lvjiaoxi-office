@@ -376,3 +376,19 @@ ode.text → itNode(node) + render() + ctx.markDirty()。_mmReplaceAll 同理�
 - **关联文件**：scripts/verify-update-feed.js（新增）/ dist/latest.yml.bak（备份已恢复）
 - **决策人**：AI
 - **状态**：active
+
+---
+
+## [2026-09-27] v1.1.4 发版到 GitHub Releases + 静默更新真正通了
+
+- **选了啥**：publish-github-release.js 用 GitHub REST API 创建 release + 上传 4 个 assets。setupAutoUpdater 默认回退到 GitHub Releases（generic provider，URL=https://github.com/stvode-cyber/lvjiaoxi-office/releases/download/v1.1.4）。verify-update-feed 直接从 GitHub 拉 latest.yml → compareVersion → HEAD exe → **端到端全通**。
+- **为啥**：之前卡点"远程托管凭证"，但 GitHub Releases 天然就是托管点，不需要买服务器。electron-updater 的 generic provider 直接兼容 GitHub releases/download 目录结构。
+- **踩了两个大坑**：
+  1. **GitHub upload endpoint 不接受 multipart/form-data** — 直接 POST 原始文件 body（Content-Type: text/yaml / application/octet-stream）。用 multipart 会把 boundary 垃圾混进文件内容。
+  2. **GitHub 自动清洗 asset 文件名** — URL encode 之前 ?name=绿角犀+Office+Setup+1.1.4.exe 被 GitHub 清洗成 Office.Setup.1.1.4.exe（删中文、把空格换点、补 . 分隔）。**latest.yml 的 path 字段必须匹配 GitHub 实际清洗后的 asset 名**。
+- **验证**：
+ode scripts/verify-update-feed.js --feed=https://github.com/stvode-cyber/lvjiaoxi-office/releases/download/v1.1.4 --current=1.1.3 → 4/4 全过。用户安装后 LVJX_UPDATE_FEED 设这个 URL 就能自动静默更新。
+- **首次使用 GitHub Releases 无需代码签名证书**（generic provider 兼容）。但长期建议买签名证书消除 SmartScreen 警告。
+- **关联文件**：scripts/publish-github-release.js（新增）/ scripts/verify-update-feed.js（修复 redirect follow）/ dist/latest.yml（path 字段改成 Office.Setup.1.1.4.exe）
+- **决策人**：AI
+- **状态**：active
