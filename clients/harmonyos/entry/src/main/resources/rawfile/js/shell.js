@@ -110,6 +110,17 @@
     // TODO: [坑-os-undefined] 预防：boot 入口先 await store.init → store.init 内部调 OS._markReady() resolve OS.ready
     // 这样后续所有跨模块调用（OS.store/OS.auth/OS.AI）都在已就绪状态下执行
     try { await OS.store.init(); } catch (e) { console.error("[Shell] store.init 失败:", e); }
+
+    // —— PWA beforeinstallprompt 捕获（showAbout 里「📱 安装」按钮会用）——
+    let _installPrompt = null;
+    window.addEventListener("beforeinstallprompt", e => {
+      e.preventDefault();
+      _installPrompt = e;
+      try { OS.settings.set("pwaInstallAvailable", true); } catch(e) {}
+    });
+    window.addEventListener("appinstalled", () => { _installPrompt = null; try { OS.settings.set("pwaInstallAvailable", false); } catch(e) {} });
+    // 暴露给 showAbout 用
+    window.__installPrompt = () => _installPrompt;
     // 顶栏图标注入
     $("#qa-save").innerHTML = ICON().svg("save", 18);
     $("#qa-undo").innerHTML = ICON().svg("undo", 18);
@@ -1002,7 +1013,11 @@
   // F1 — 帮助 / 关于弹窗
   function showAbout() {
     const v = (global.APP_VERSION) || "dev";
-    const html = `<div class="overlay show" id="about-overlay" style="z-index:9999"><div class="modal" style="min-width:360px;text-align:center;padding:24px"><h2 style="margin:0 0 4px">绿角犀 Office</h2><p class="muted" style="margin:0 0 16px">v${v} · 本地优先的办公套件</p><p style="font-size:13px;color:#6b7280;margin:0 0 16px">Writer · Spreadsheet · Presentation · PDF · MindMap</p><div style="display:flex;gap:8px;justify-content:center;margin-top:8px"><button class="btn" onclick="(function(){document.getElementById('about-overlay').remove();showShortcuts()})()">⌨️ 快捷键</button><button class="btn" onclick="(function(){document.getElementById('about-overlay').remove();if(window.OS&&OS.updater){OS.updater.checkNow({toast:true})}})()">🔄 检查更新</button><button class="btn primary" onclick="document.getElementById('about-overlay').remove()">知道了</button></div></div></div>`;
+    const hasInstall = typeof window.__installPrompt === "function" && window.__installPrompt();
+    const installBtn = hasInstall
+      ? `<button class="btn" onclick="(async function(){const p=window.__installPrompt&&window.__installPrompt();if(p){await p.prompt();const r=await p.userChoice;if(r.outcome==='accepted'){document.getElementById('about-overlay').remove();OS.toast&&OS.toast('✅ 已安装到桌面');}}else{OS.toast&&OS.toast('当前环境不支持安装');}})()">📱 安装</button>`
+      : "";
+    const html = `<div class="overlay show" id="about-overlay" style="z-index:9999"><div class="modal" style="min-width:360px;text-align:center;padding:24px"><h2 style="margin:0 0 4px">绿角犀 Office</h2><p class="muted" style="margin:0 0 16px">v${v} · 本地优先的办公套件</p><p style="font-size:13px;color:#6b7280;margin:0 0 16px">Writer · Spreadsheet · Presentation · PDF · MindMap</p><div style="display:flex;gap:8px;justify-content:center;margin-top:8px">${installBtn}<button class="btn" onclick="(function(){document.getElementById('about-overlay').remove();showShortcuts()})()">⌨️ 快捷键</button><button class="btn" onclick="(function(){document.getElementById('about-overlay').remove();if(window.OS&&OS.updater){OS.updater.checkNow({toast:true})}})()">🔄 检查更新</button><button class="btn primary" onclick="document.getElementById('about-overlay').remove()">知道了</button></div></div></div>`;
     const old = document.getElementById("about-overlay"); if (old) old.remove();
     document.body.insertAdjacentHTML("beforeend", html);
   }

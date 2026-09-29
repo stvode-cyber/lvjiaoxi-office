@@ -392,3 +392,15 @@ ode scripts/verify-update-feed.js --feed=https://github.com/stvode-cyber/lvjiaox
 - **关联文件**：scripts/publish-github-release.js（新增）/ scripts/verify-update-feed.js（修复 redirect follow）/ dist/latest.yml（path 字段改成 Office.Setup.1.1.4.exe）
 - **决策人**：AI
 - **状态**：active
+
+---
+
+## [2026-09-29] PWA 离线缓存强化 + beforeinstallprompt 安装引导
+
+- **改了啥**：sw.js CACHE 升到 v25 + ASSETS 从 12 项扩充到 25 项（全部 vendor 核心库预缓存）。tesseract/lang-data ~65MB 不进主 CACHE，走独立 LANGDATA_CACHE 按需缓存。shell.js boot() 加 beforeinstallprompt 捕获 + showAbout 加「📱 安装」按钮。新增 _pwa_test.js 47 断言。
+- **为啥**：之前 sw.js 只预缓存 App Shell，vendor 全靠 runtime fetch 自动缓存。离线看 PDF 需要 pdf.worker.min.js，离线跑 OCR 需要 tesseract.min.js。全部预缓存后 ~3.6MB（安全 quota 内）。tesseract/lang-data 太大走独立 cache。
+- **风险控制**：shouldAutoCache 白名单函数防止大二进制文件（.traineddata/.bin/.dat/.wasm）和外部 URL 进主 CACHE。
+- **验证**：_pwa_test.js 47/47 全绿，run-tests.js 103/103 全绿。shell.js beforeinstallprompt 仅在 https + manifest 正确注册 SW 时才触发（Electron 内不会出现，showAbout 里按钮条件渲染）。
+- **关联文件**：app/sw.js（CACHE v25 + ASSETS 25 项 + shouldAutoCache + LANGDATA_CACHE）/ app/js/shell.js（beforeinstallprompt + showAbout 安装按钮）/ _pwa_test.js（新增）
+- **决策人**：AI
+- **状态**：active
