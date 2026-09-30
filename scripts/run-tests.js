@@ -15,6 +15,7 @@
  *   node scripts/run-tests.js --timeout 120
  * ============================================================ */
 "use strict";
+// TODO: [坑-powershell-regex-quote-hell] 预防: PowerShell 调此脚本时用双引号包住 regex 参数
 const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");

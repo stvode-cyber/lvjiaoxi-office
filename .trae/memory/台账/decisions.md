@@ -7,6 +7,22 @@
 
 ---
 
+
+---
+
+## [2026-09-30] 第二轮高频文件补 TODO（6 文件 6 条）→ 剩余 8 条全故意不加
+
+- **选了啥**：spreadsheet.js / presentation.js / pdf-app.js / electron/main.js / run-tests.js / index.html 共 6 文件补 6 条 TODO
+  - spreadsheet + presentation: contextIsolation-window（第三方库引用 window≠global）
+  - pdf-app: electron-csp-dataurl（CSP img-src 别删）
+  - electron/main.js: contextIsolation-window（webPreferences 开了 contextIsolation）
+  - run-tests: powershell-regex-quote-hell（PowerShell 调脚本时引号）
+  - index.html: powershell-batch-todo-newline（HTML 注释格式 + 换行）
+- **为啥**：第一轮补了 10 文件 26 条，收窄 glob 后 precheck 剩 14 条建议；筛出高频改核心文件优先补
+- **故意不加的 8 条**：app/css/*.css（加注释会暴露成可见文本）、*.md 文档（不是代码）、C:/Program Files/...（不在仓库）、_shell_shortcuts_test.js（测试文件低频改）
+- **效果**：核心高频文件 precheck 全 OK；总建议补 TODO 14→8（剩余全非核心）
+- **关联文件**：app/js/modules/spreadsheet.js / presentation.js / pdf-app.js / electron/main.js / scripts/run-tests.js / app/index.html
+- **决策人**：precheck 剩余缺口分析
 ## [2026-09-30] issues.md 4 条关联 glob 收窄 → precheck 噪音 -70%
 
 - **选了啥**：把 4 条写得太宽的关联 glob 收窄成实际有关的具体文件

@@ -3,6 +3,7 @@
 // TODO: [坑-koa-connect] 预防：Koa 路由禁止用 koa-connect wrapper；所有中间件一律原生 Koa 风格
 // TODO: [坑-csc-link] 预防：CI secrets 必须 if guard（脚本里不能裸引用 electron-builder CSC_* 变量）
 // TODO: [坑-electron-builder-csclink-null] 预防: CSC_LINK/CSC_KEY_PASSWORD 未设时 sign 自动 skip 不崩
+// TODO: [坑-electron-contextIsolation-window] 预防: webPreferences 开了 contextIsolation，renderer 第三方库引用别假设 global === window
 const __t0 = Date.now();
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 const fs = require("fs");

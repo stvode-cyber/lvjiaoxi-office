@@ -4,6 +4,7 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-electron-contextIsolation-window] 预防: 同 spreadsheet.js
   const OS = global.OS;
   const W = 760, H = 427;
 

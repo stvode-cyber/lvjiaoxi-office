@@ -4,6 +4,7 @@
 (function () {
 
   'use strict';
+  // TODO: [坑-electron-csp-dataurl] 预防: CSP img-src 必须有 data: blob: 不删
   // ★ 懒加载：pdfjsLib 不在顶层设置 workerSrc — 首次 init 时才加载
   let _pdfjsReady=false;
   async function _ensurePdfjs(){ if(globalThis.pdfjsLib){if(!_pdfjsReady){globalThis.pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js';_pdfjsReady=true;}return;} await window.OS.LazyLib.load('PDFJS'); globalThis.pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js'; _pdfjsReady=true; } 
