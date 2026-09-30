@@ -73,6 +73,19 @@
 
   // pages → Writer HTML（标题 <h1>/<h2>/<h3>，正文 <p>，列表 <ul>/<ol>，跨页分页）
   // 改进：段落合并（连续等间距行合为一段）、列表检测、多级标题
+  // 渲染一个表格块为 HTML <table>（复用 pdfToExcel 的列边界）
+  function renderTableBlock(rows, seps) {
+    if (!rows.length || !seps.length) return "";
+    // rows 按 baseY 降序：表头（y 最大）先渲染在最上面
+    const sorted = rows.slice().sort((a, b) => b.baseY - a.baseY);
+    const trs = sorted.map(row => {
+      const cells = lineToCells(row.items, seps);
+      const tds = cells.map(c => `<td>${esc(String(c == null ? "" : c))}</td>`).join("");
+      return `<tr>${tds}</tr>`;
+    });
+    return `<table border="1" cellspacing="0" cellpadding="4"><tbody>${trs.join("")}</tbody></table>`;
+  }
+
   function pdfToDocxHtml(pages) {
     if (!Array.isArray(pages) || !pages.length) return "";
     const med = medianH(pages);
@@ -80,82 +93,89 @@
     const h2Thresh = Math.max(0.024, med * 1.7);   // 显著大 → <h2>
     const h1Thresh = Math.max(0.032, med * 2.4);   // 很大 → <h1>
     const paraGap = Math.max(med * 0.8, 0.018); // 段落间距阈值（约 1.2 行高）
+    const gapThresh = Math.max(0.02, med * 1.2); // 表格列边界阈值（和 pdfToExcel 一致）
 
     const blocks = [];
     pages.forEach((spans, pi) => {
-      const lines = clusterLines(spans || []);
-      if (!lines.length) { if (pi < pages.length - 1) blocks.push(`<div class="page-break"></div>`); return; }
+      if (!spans || !spans.length) { if (pi < pages.length - 1) blocks.push(`<div class="page-break"></div>`); return; }
 
-      // 第一步：段落合并（连续行间距小于阈值 → 同段内 <br> 换行）
-      const paragraphs = [];
-      let curPara = [lines[0]];
-      for (let i = 1; i < lines.length; i++) {
-        const gap = lines[i].y - lines[i - 1].y;
-        const lineH = Math.max(lines[i - 1].h, 0.015);
-        // 间距 > 0.8*行高 → 新段落
-        if (gap > paraGap) {
-          paragraphs.push(curPara);
-          curPara = [lines[i]];
-        } else {
-          curPara.push(lines[i]);
-        }
+      // 两套行格式并行：
+      //   rowLines (lineItems) → { items, baseY } 用于表格识别（需要 items 数组）
+      //   proseLines (clusterLines) → { text, x, y, h } 用于段落合并 + 标题/列表/正文渲染
+      const rowLines = lineItems(spans);
+      const proseLines = clusterLines(spans);
+      const gapThresh = Math.max(0.02, med * 1.2); // 和 pdfToExcel 一致
+
+      // 表格识别（用 rowLines，它有 items 数组）
+      const tableRowSet = new Set(); // baseY → 属于表格
+      const tableSlots = [];
+      const tRows = rowLines.filter(l => isTableLike(l.items, gapThresh));
+      const tBlocks = clusterTableBlocks(tRows, gapThresh);
+      const tBlockSeps = tBlocks.map(blk => blk.length >= 2 ? detectSeparators(blk, gapThresh) : []);
+      tBlocks.forEach((blk, bi) => {
+        if (blk.length < 2) return; // 单行块跳过
+        blk.forEach(l => tableRowSet.add(l.baseY));
+        const minY = Math.min(...blk.map(l => l.baseY));
+        tableSlots.push({ minY, html: renderTableBlock(blk, tBlockSeps[bi]) });
+      });
+
+      // 段落合并（用 proseLines，过滤掉表格行）
+      const proseOnly = proseLines.filter(l => !tableRowSet.has(l.y));
+      if (!proseOnly.length && !tableSlots.length) {
+        if (pi < pages.length - 1) blocks.push(`<div class="page-break"></div>`);
+        return;
       }
-      paragraphs.push(curPara);
 
-      // 第二步：检测并渲染每个段落
+      const paragraphs = [];
+      let curPara = proseOnly.length ? [proseOnly[0]] : [];
+      for (let i = 1; i < proseOnly.length; i++) {
+        const gap = proseOnly[i].y - proseOnly[i - 1].y;
+        if (gap > paraGap) { paragraphs.push(curPara); curPara = [proseOnly[i]]; }
+        else { curPara.push(proseOnly[i]); }
+      }
+      if (curPara.length) paragraphs.push(curPara);
+
+      // 渲染事件按 y 排序穿插
+      const events = [];
+      for (const slot of tableSlots) events.push({ y: slot.minY, kind: "table", html: slot.html });
+      for (const para of paragraphs) events.push({ y: para[0].y, kind: "para", para });
+      events.sort((a, b) => a.y - b.y);
+
       let inList = false, listType = null;
-      for (const para of paragraphs) {
+      for (const ev of events) {
+        if (ev.kind === "table") {
+          if (inList) { blocks.push(`</${listType}>`); inList = false; listType = null; }
+          blocks.push(ev.html);
+          continue;
+        }
+        const para = ev.para;
         const firstLine = para[0];
-        // 标题判定（由大到小，互斥）
+        // 标题判定（firstLine.h = maxH from clusterLines）
         const isH1 = firstLine.h >= h1Thresh;
         const isH2 = !isH1 && firstLine.h >= h2Thresh;
         const isH3 = !isH1 && !isH2 && firstLine.h >= h3Thresh;
         const isHeading = isH1 || isH2 || isH3;
-
-        // 关闭列表
-        if (inList && !isHeading) {
-          blocks.push(`</${listType}>`);
-          inList = false; listType = null;
-        }
-
+        if (inList && !isHeading) { blocks.push(`</${listType}>`); inList = false; listType = null; }
         if (isHeading) {
           const tag = isH1 ? "h1" : (isH2 ? "h2" : "h3");
           blocks.push(`<${tag}>${esc(firstLine.text)}</${tag}>`);
-          // 多行标题取第一行，其余行作为正文段落
-          for (let li = 1; li < para.length; li++) {
-            blocks.push(`<p>${esc(para[li].text)}</p>`);
-          }
+          for (let li = 1; li < para.length; li++) blocks.push(`<p>${esc(para[li].text)}</p>`);
           continue;
         }
-
-        // 行内列表检测：首行匹配有序/无序列表标记
         const listMatch = detectListType(firstLine.text);
         if (listMatch && para.length >= 1) {
           const isOrdered = listMatch === "ordered";
           const lt = isOrdered ? "ol" : "ul";
-          if (!inList || listType !== lt) {
-            if (inList) blocks.push(`</${listType}>`);
-            blocks.push(`<${lt}>`);
-            inList = true; listType = lt;
-          }
-          // 多行列表项合并为一项
+          if (!inList || listType !== lt) { if (inList) blocks.push(`</${listType}>`); blocks.push(`<${lt}>`); inList = true; listType = lt; }
           const itemText = para.map(l => esc(l.text)).join("<br>");
-          // 去掉列表标记前缀
           const cleanText = itemText.replace(/^(<[^>]+>)?\s*(?:[•·●\-*]|\d+[\.\)]|[a-zA-Z][\.\)]|\(?\d+\))\s*/, "$1");
           blocks.push(`<li>${cleanText}</li>`);
           continue;
         }
-
-        // 正文段落：多行合并为一段（<br> 软换行）
-        if (para.length === 1) {
-          blocks.push(`<p>${esc(firstLine.text)}</p>`);
-        } else {
-          const joined = para.map(l => esc(l.text)).join("<br>");
-          if (joined.trim()) blocks.push(`<p>${joined}</p>`);
-        }
+        if (para.length === 1) { blocks.push(`<p>${esc(firstLine.text)}</p>`); }
+        else { const joined = para.map(l => esc(l.text)).join("<br>"); if (joined.trim()) blocks.push(`<p>${joined}</p>`); }
       }
       if (inList) { blocks.push(`</${listType}>`); inList = false; listType = null; }
-
       if (pi < pages.length - 1) blocks.push(`<div class="page-break"></div>`);
     });
     return blocks.join("\n");

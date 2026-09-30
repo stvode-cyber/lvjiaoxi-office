@@ -19,6 +19,24 @@
 
 ---
 
+
+---
+
+## [2026-09-30] PDF→DOCX 版面还原加表格识别（复用 pdfToExcel 工具链）
+
+- **选了啥**：pdfToDocxHtml 加表格识别 — 复用 pdfToExcel 已成熟的 isTableLike / clusterTableBlocks / detectSeparators（直方图众数法 v2）/ lineToCells 4 个工具函数，渲染成 HTML <table>
+- **为啥**：STATUS.md 🟡 边界 — "PDF→DOCX/TXT/MD 版面还原有限：仅文本层 + 标题判别，无图片/表格/多栏"；伪 gap 修复自动复用（pdfToExcel v2 直方图法 → pdfToDocxHtml 也受益，表头被拆的伪 gap 自动合并）
+- **技术要点**：
+  1. 两套行格式并行：lineItems（有 items 数组）做表格识别 + clusterLines（有 text/h）做正文渲染
+  2. clusterLines L55-60 把 items 数组丢了 → 必须单独 call lineItems
+  3. 表格行 baseY 和 prose 行 y 做 Set 过滤（注意两个函数 tol 不同但 y 值基本一致）
+  4. 渲染事件按 y 排序穿插 → 表格和段落保持原始视觉顺序
+  5. renderTableBlock 里 rows 按 baseY 降序 → 表头（y 最大）先渲染在顶部
+  6. 单行 table block 跳过（isTableLike 无跨行依据）
+- **效果**：纯测试页里 PDF→DOCX 从 10 个 <p> 变成 2 个 <p> + 1 个完整 <table border="1">；伪 gap bug 自动修复（表头"年月"拆成"年"+"月" → 合并成"年月"在同一列）
+- **STATUS.md 🟡→✅ 推进**：PDF→DOCX 版面还原从"纯文本提取"升为"文本+表格识别+标题+列表"
+- **关联文件**：app/js/modules/pdf-convert.js L74-180（新增 renderTableBlock + 改 pdfToDocxHtml）
+- **决策人**：上一个 commit pdfToExcel detectSeparators 修复后想到"复用同一工具链"
 ## [2026-09-30] PDF→Excel 列边界检测：primary 行优先 → 直方图众数法
 
 - **选了啥**：detectSeparators 从 primary 行优先 + 容差合并，改为**所有表格行 gaps 直方图 + 众数 bin + minSupport 过滤 + 双路回退**
