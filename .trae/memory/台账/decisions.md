@@ -10,6 +10,18 @@
 
 ---
 
+
+---
+
+## [2026-09-30] issues.md 28 条全部标 ✅ — 台账治理终极目标达成
+
+- **选了啥**：给 issues.md 全部 28 条条目补 ✅ 2026-09-30 台账治理补标 后缀，零未标
+- **为啥**：之前 issues.md 只有 2/28 条（boot-os-undefined / toast-not-mounted-body）标了 ✅，其余 26 条要么代码里已经有 TODO 预防注释（= 已修）要么有明确解决方案；台账漂移导致 ledger-info-stale 条目反复报自己过时
+- **验证方法**：precheck 输出 [OK] 的 slug 列表（17 个 = 有 TODO）+ 代码 grep 验证（office-shortcuts-missing 在 shell.js L228-L234 已实现）
+- **发现**：office-shortcuts-missing（Ctrl+N/O/W/P 缺失）早在 shell.js L228-L234 就实现了，但 issues.md 没更新 → 典型的台账漂移
+- **效果**：issues.md 28/28 条有状态标记；台账 = 真源，不再误导后来 AI
+- **关联文件**：.trae/memory/台账/issues.md（26 条标题追加 ✅）
+- **决策人**：ledger-info-stale 条目触发"查账"
 ## [2026-09-30] 第二轮高频文件补 TODO（6 文件 6 条）→ 剩余 8 条全故意不加
 
 - **选了啥**：spreadsheet.js / presentation.js / pdf-app.js / electron/main.js / run-tests.js / index.html 共 6 文件补 6 条 TODO
