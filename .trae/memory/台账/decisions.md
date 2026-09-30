@@ -1,6 +1,16 @@
 ﻿
 ---
 
+
+---
+
+## [2026-09-30] 沉淀 agents-ledger-workflow Skill
+
+- **选了啥**：创建 .trae/skills/agents-ledger-workflow/SKILL.md，把 AGENTS §7 台账五步闭环（扫台账→选任务→实现→验证→写台账+commit 带 ref）沉淀为 workspace 级 skill
+- **为啥**：同一会话里完整跑了 3 轮闭环（fix precheck / 补 issues.md severity / 补 26 条 TODO），每次都是触发型流程，值得让后续 AI 一接手就自动调用
+- **Skill 里包含**：触发条件、五步流程图、每步具体命令、避坑清单（PowerShell 批量写/HTML 注释踩坑）、台账格式模板、工具链速查、实战数据
+- **关联文件**：.trae/skills/agents-ledger-workflow/SKILL.md
+- **决策人**：Skill Accumulation 规则触发（同流程执行 ≥3 次）
 ## [2026-09-30] 核心 9 文件补 26 条 TODO 预防注释
 
 - **选了啥**：shell.js(6) / mindmap.js(4) / import-ooxml.js(3) / electron/main.js(1) / auth.js(2) / tasks.js(2) / pdf.js(2) / store.js(1) / bump-version.js(2) + index.html(2) 共 10 文件 26 条 TODO 预防注释；JS 用 // TODO: [坑-slug] 预防: xxx，HTML 用 <!-- TODO: ... -->
