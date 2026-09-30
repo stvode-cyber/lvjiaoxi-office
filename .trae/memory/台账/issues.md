@@ -292,6 +292,11 @@
 - **首次踩坑**：2026-09-16
 - **复发次数**：N/A（首次发现即根治）
 - **是否入 Skill**：待定
+- **修复验证 2026-09-30**：代码里多层防御已到位
+  - layoutMap L160-168 🔥 孤立节点兜底（不在 _placed 的强制分配 y）
+  - edgePath L187 🔥 Number.isFinite 检查 return null
+  - layoutMap L132-135 rootId 兜底
+  - fitNode L100 fontSize 默认值 + L117-118 最终 w/h 默认值
 
 ---
 
@@ -311,8 +316,9 @@
 - **修复**：在 index.html 末尾注入全局 OS.prompt/OS.confirm/OS.alert（CSS + HTML 模态框），并兜底 patch window.prompt/confirm/alert 指向 OS.*
 - **坑位**：L462 mindmap.js，全局兜底在 index.html
 - **首次踩坑**：2026-09-16
+- **修复验证 2026-09-30**：全仓库 grep window.prompt/confirm/alert 为零，shell.js 有自己的 toast/command-panel/dialog 弹窗
 
----
+  ---
 
 ## [P0] [mindmap-fitNode-NaN] fitNode/renderNode 在 fontSize 缺失 / x/y 未 place 时算出 NaN → SVG path 渲染异常 → 卡死 ✅ 2026-09-30 台账治理补标
 
@@ -328,8 +334,14 @@
 - **效果**：坏数据最多节点位置丑，**绝不卡死**
 - **坑位**：fitNode L94-117, renderNode L211-252, layoutMap L111-154, edgePath L181-190
 - **首次踩坑**：2026-09-16
+- **修复验证 2026-09-30**：代码里多层防御已到位（同 mindmap-NaN-path）
+  - fitNode L100 🔥 !n.fontSize → 14
+  - fitNode L110 🔥 measureText filter(w => Number.isFinite(w))
+  - fitNode L117-118 🔥 n.w = Number.isFinite(w) ? w : 120 / n.h 同理
+  - layoutMap L160-168 🔥 孤立节点强制 place
+  - edgePath L187 🔥 Number.isFinite 检查 return null
 
----
+  ---
 
 ## [P1] [tasks-settle-step] Tasks.run settle 后 step 文字不更新 → 视觉卡死 95% ✅ 2026-09-30 台账治理补标
 
