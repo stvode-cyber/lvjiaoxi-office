@@ -33,6 +33,9 @@ function parseIssues(mdPath) {
     // B: ## [2026-09-15] 中文描述      → title[1]=date,   title[2]=中文
     const titleA = sec.match(/^##\s+\[(P[0-3])\]\s+\[([^\]]+)\]\s*(.+)$/m);
     const titleB = sec.match(/^##\s+\[(\d{4}-\d{2}-\d{2})\]\s*(.+)$/m);
+    // 🛡️ 已修复条目标了 ✅ 的跳过不扫（台账治理后 30/30 全标，precheck 不再输出一堆 [OK] 噪音）
+    const titleLine = sec.match(/^##.+$/m);
+    if (titleLine && titleLine[0].includes("✅")) continue;
     const link = sec.match(/^\s*-\s*\*\*关联(?:文件)?\*\*[:：]\s*(.+)$/m);
     if (!link) continue;
     let severity, slug, cnTitle;
