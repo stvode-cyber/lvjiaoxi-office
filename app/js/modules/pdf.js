@@ -7,6 +7,8 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-fileassoc-hardcoded-absolute] 预防: 同 shell.js
+  // TODO: [坑-electron-csp-dataurl] 预防: CSP img-src 保持 data: blob: 不删
   const OS = global.OS;
   const Anno = OS.PdfAnno;
   const PdfText = OS.PdfText;

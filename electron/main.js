@@ -2,6 +2,7 @@
 // 用一个零依赖的本地静态服务器加载 app/ 目录，使桌面版行为与浏览器版完全一致。
 // TODO: [坑-koa-connect] 预防：Koa 路由禁止用 koa-connect wrapper；所有中间件一律原生 Koa 风格
 // TODO: [坑-csc-link] 预防：CI secrets 必须 if guard（脚本里不能裸引用 electron-builder CSC_* 变量）
+// TODO: [坑-electron-builder-csclink-null] 预防: CSC_LINK/CSC_KEY_PASSWORD 未设时 sign 自动 skip 不崩
 const __t0 = Date.now();
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 const fs = require("fs");

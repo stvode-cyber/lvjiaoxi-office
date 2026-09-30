@@ -28,6 +28,8 @@
  * =============================================================== */
 "use strict";
 
+// TODO: [坑-fileassoc-hardcoded-absolute] 预防: 路径用 path.join 拼别裸写反斜杠
+// TODO: [坑-powershell-regex-quote-hell] 预防: PowerShell 调此脚本时用双引号，内部单引号字符串
 const fs = require("fs");
 const path = require("path");
 

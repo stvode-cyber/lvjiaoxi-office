@@ -24,6 +24,18 @@
 - 复发次数：1
 
 # 踩坑台账
+---
+
+## [P2] [powershell-batch-todo-newline] PowerShell 批量写 TODO 换行丢失 + HTML 用 JS 注释
+
+- **问题**：用 PowerShell foreach + Set-Content 批量加 TODO 到 10 文件时：① index.html 两条 TODO 挤成一行无换行 ② 用了 JS // 注释（HTML 不认，浏览器渲染时暴露成可见文本）→ 导致 boot test 挂 16 个
+- **解决**：立刻 git checkout -- 回滚全部，改用 Edit 工具逐文件 old_string→new_string 精确替换，每条 TODO 独占一行，HTML 用 <!-- --> 注释
+- **根因**：PowerShell [System.Collections.Generic.List[string]]::AddRange() 类型转换在 PS5 报错跳过了 Set-Content 的部分文件（shell.js 等虽然 AddRange 报错但仍然写了，因为写了两次 index 冲突）；且 index.html 头部插入没加换行符分隔
+- **预防**：批量改多个文件 + 要求精确格式时，**不用 PowerShell foreach 写文件**，改用 Edit 工具逐文件替换；HTML 文件的注释必须用 <!-- --> 不是 //
+- **关联文件**：app/index.html（回滚后重新 Edit）
+- **首次踩坑**：2026-09-30
+- **复发次数**：1
+
 
 > 每条：问题 / 解决方法 / 根因 / 预防 / 严重程度 / 关联文件。
 > 严重程度：P0=阻断发布 / P1=影响核心体验 / P2=影响局部 / P3=不爽但能用

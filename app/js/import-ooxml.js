@@ -10,6 +10,9 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-parseXmind-国际化title] 预防: title 字段先 typeof === 'string' 再 .trim()，否则取 .default 或 .zh-CN
+  // TODO: [坑-mindmap-NaN-path] 预防: 同 mindmap.js — 孤立节点坐标给 fallback
+  // TODO: [坑-fileassoc-hardcoded-absolute] 预防: 同 shell.js
   const OS = global.OS;
   // Electron contextIsolation: true + nodeIntegration: false 下，
   // 第三方库只挂到 window.XLSX / window.JSZip，不挂到 Node global。
