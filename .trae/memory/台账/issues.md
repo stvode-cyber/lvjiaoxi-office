@@ -1,4 +1,4 @@
----
+﻿---
 
 ## [P0] [tesseract-worker-in-inline-script] worker.min.js 被 script 标签直接加载到主线程
 

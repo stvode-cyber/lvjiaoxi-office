@@ -8,6 +8,15 @@
 
 ---
 
+
+---
+
+## [2026-09-30] ledger-precheck + posthint 的 parseIssues 统一两种标题正则
+
+- **选了啥**：两个脚本共用同一份正则逻辑：## [P0] [slug-name] 中文...（titleA）和 ## [2026-09-15] 中文...（titleB）分别 capture severity/slug/cnTitle 三字段；parseIssues 不再自己生成超长 tag，直接返回原始 slug
+- **为啥**：issues.md 标题实际有两种格式混用（P 级 + slug 的踩坑条目，和只有日期的老条目）；之前单 regex 把 slug + 整条中文描述拼成 40+ token 超长 tag，生成的 TODO 注释 [坑-shell-opendoc-无await-opendoc-无-await-进度条粒度粗导致-95-卡死-假象] 完全没法读
+- **关联文件**：scripts/ledger-precheck.js L25-63 / scripts/ledger-posthint.js L71-96
+- **决策人**：AI 修 glob 阈值时实测发现
 ## [2026-09-30] ledger-precheck.js 加 glob 阈值 + 修关联正则（解决 109 噪音误报）
 
 - **选了啥**：precheck 全局扫描时跳过 glob 展开 > 50 文件的宽条目（如 app/js/**/*.js）；跳过 app/vendor/；parseIssues 正则同时匹配「**关联**」和「**关联文件**」

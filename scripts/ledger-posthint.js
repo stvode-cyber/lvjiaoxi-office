@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
  * 绿角犀 Office · 台账改后建议 (ledger-posthint)
  * ------------------------------------------------------------
  * 用法：
@@ -74,12 +74,23 @@ function parseSections(mdPath) {
   const sections = raw.split(/^---\s*$/m);
   const out = [];
   for (const sec of sections) {
-    const title = sec.match(/^##\s+\[?([^\]]\S+)\]?\s*(.+)$/m);
+    // 同 ledger-precheck.js：两种标题格式
+    const titleA = sec.match(/^##\s+\[(P[0-3])\]\s+\[([^\]]+)\]\s*(.+)$/m);
+    const titleB = sec.match(/^##\s+\[(\d{4}-\d{2}-\d{2})\]\s*(.+)$/m);
     const link = sec.match(/^\s*-\s*\*\*关联[^*]*\*\*[:：]\s*(.+)$/m) ||
                  sec.match(/^\s*-\s*关联文件?[:：]\s*(.+)$/m);
-    if (!title) continue;
+    let slug, cnTitle;
+    if (titleA) {
+      slug = titleA[2];
+      cnTitle = titleA[3];
+    } else if (titleB) {
+      slug = titleB[1].replace(/-/g, "");
+      cnTitle = titleB[2];
+    } else {
+      continue;
+    }
     const paths = link ? link[1].replace(/\s*\/\s/g, ",").split(/[,，]\s*/).map(s => s.trim().replace(/^`|`$/g, "")) : [];
-    out.push({ title: title[0].trim(), tag: title[1].trim(), paths });
+    out.push({ title: cnTitle.trim(), tag: slug, paths });
   }
   return out;
 }

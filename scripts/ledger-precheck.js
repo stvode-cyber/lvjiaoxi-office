@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
  * 绿角犀 Office · 台账改前扫描 (ledger-precheck)
  * ------------------------------------------------------------
  * 用法：
@@ -28,21 +28,34 @@ function parseIssues(mdPath) {
   const sections = raw.split(/^---\s*$/m);
   const out = [];
   for (const sec of sections) {
-    const title = sec.match(/^##\s+\[([^\]]+)\]\s*(.+)$/m);
+    // 两种标题格式：
+    // A: ## [P0] [slug-name] 中文描述  → title[1]=severity, title[2]=slug, title[3]=中文
+    // B: ## [2026-09-15] 中文描述      → title[1]=date,   title[2]=中文
+    const titleA = sec.match(/^##\s+\[(P[0-3])\]\s+\[([^\]]+)\]\s*(.+)$/m);
+    const titleB = sec.match(/^##\s+\[(\d{4}-\d{2}-\d{2})\]\s*(.+)$/m);
     const link = sec.match(/^\s*-\s*\*\*关联(?:文件)?\*\*[:：]\s*(.+)$/m);
-    const sev = sec.match(/^\s*-\s*\*\*严重程度\*\*[:：]\s*(.+)$/m);
-    if (!title || !link) continue;
-    // 先把 "路径 / 路径 / 路径" 里的 " / " 替换成 "," 再 split —— 关键：不能把路径里的 / 当分隔符！
+    if (!link) continue;
+    let severity, slug, cnTitle;
+    if (titleA) {
+      severity = titleA[1];
+      slug = titleA[2];   // 直接用 [slug-name] 段
+      cnTitle = titleA[3];
+    } else if (titleB) {
+      severity = "?";
+      slug = titleB[1].replace(/-/g, ""); // 20260915
+      cnTitle = titleB[2];
+    } else {
+      continue;
+    }
     const paths = link[1]
-      .replace(/\s*\/\s/g, ",")   // " / " → ","（只在有空格时才替换，避免破坏 unix 路径）
+      .replace(/\s*\/\s/g, ",")
       .split(/[,，]\s*/)
       .map((p) => p.trim().replace(/^`|`$/g, "").replace(/[（(].*?[)）]/g, "").trim())
       .filter((p) => p && p.length > 2);
     out.push({
-      title: title[0].trim(),
-      date: title[1],
-      tag: title[2].trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-+|-+$/g, ""),
-      severity: sev ? sev[1].trim() : "?",
+      severity,
+      slug,
+      cnTitle: cnTitle.trim(),
       paths,
     });
   }
@@ -159,13 +172,13 @@ function main() {
       if (!issueAbsSet.has(abs)) continue;
       // 匹配：短 tag 在长 tag 里出现，或两者有 ≥2 个连续相同的 ASCII token
       const hasTodo = info.todos.some((td) => {
-        if (issue.tag.includes(td.tag) || td.tag.includes(issue.tag)) return true;
-        const ia = issue.tag.split("-"), ta = td.tag.split("-");
+        if (issue.slug.includes(td.tag) || td.tag.includes(issue.slug)) return true;
+        const ia = issue.slug.split("-"), ta = td.tag.split("-");
         // 计算共有 token 数（忽略中英文混杂后拆分导致的空 token）
         const common = ia.filter((t) => t.length >= 2 && ta.includes(t)).length;
         return common >= 2;
       });
-      hits.push({ file: rel, severity: issue.severity, title: issue.title, date: issue.date, tag: issue.tag, hasTodo });
+      hits.push({ file: rel, severity: issue.severity, title: issue.cnTitle, date: issue.slug, tag: issue.slug, hasTodo });
     }
   }
 
@@ -190,3 +203,4 @@ function main() {
 }
 
 main();
+
