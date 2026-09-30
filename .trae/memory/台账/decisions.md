@@ -16,6 +16,23 @@
 
 ---
 
+
+---
+
+## [2026-09-30] PDF→Excel 列边界检测：primary 行优先 → 直方图众数法
+
+- **选了啥**：detectSeparators 从 primary 行优先 + 容差合并，改为**所有表格行 gaps 直方图 + 众数 bin + minSupport 过滤 + 双路回退**
+- **为啥**：旧版 primary 行优先有 1 个实锤 bug —— 表头被 PDF 解析器拆成多段（如"年月"→"年"+"月"）时，primary 行的 gapsOf 产出伪 gap → 伪 sep 被保留 → 输出多 1 列（2024-03,,3000 空列）
+- **新算法**：
+  1. 收集所有表格行的所有 gap 坐标
+  2. 建直方图（bin 宽 = tol = 0.035）
+  3. minSupport = max(2, ceil(总行数*0.5)) — 只保留至少半数行都有的 gap
+  4. 高斯加权合并相邻 bin
+- **双路回退**：单行表回退 gapsOf(primary)；直方图空结果（minSupport 太严如 2 行表其中 1 行缺列）回退 primary 行优先
+- **效果**：伪 gap bug 修复（测试 case "表头被拆产生 3 个 gap" 从 4 列 → 正确 3 列）；旧行为 104/104 全绿
+- **STATUS.md 🟡 边界改进**：PDF→Excel 版面还原从"文本+列边界聚类"升为"文本+列边界直方图众数"
+- **关联文件**：app/js/modules/pdf-convert.js L320-363
+- **决策人**：手工测试构造 bug case 触发
 ## [2026-09-30] ledger-precheck 智能跳过已修复条目（标题含 ✅）
 
 - **选了啥**：parseIssues 加 2 行逻辑 — 读取 section 的标题行，includes("✅") 的直接 continue

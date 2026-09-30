@@ -317,24 +317,49 @@
     }
     return out;
   }
-  // 从表格块检测列分隔符：以列数最多行为「基准行」定列边界；
-  // 其余行仅在容差内贴近已有边界才合并，缺列行跨列的大 gap 不引入伪列。
+  // 从表格块检测列分隔符（直方图法 v2）：
+  // 收集所有表格行的 gaps，建直方图找「众数 bin」作为真实列边界；
+  // primary 行的伪 gap（只在 1 行出现）自然被淘汰。
+  // 对比旧版 primary 行优先法：表头被拆成多段时不会引入伪列。
+  // 单行表（tableLines.length===1）回退旧逻辑；
+  // minSupport 过滤后若结果为空也回退（如 2 行表其中 1 行缺列）。
   function detectSeparators(tableLines, gapThresh) {
     if (!tableLines || !tableLines.length) return [];
-    let primary = tableLines[0];
-    for (const l of tableLines) if (l.items.length > primary.items.length) primary = l;
-    const seps = gapsOf(primary, gapThresh);
-    const tol = Math.max(0.035, gapThresh); // 其他行边界合并容差
-    for (const l of tableLines) {
-      if (l === primary) continue;
-      for (const g of gapsOf(l, gapThresh)) {
-        for (let i = 0; i < seps.length; i++) {
-          if (Math.abs(seps[i] - g) <= tol) { seps[i] = (seps[i] + g) / 2; break; }
-        }
-        // 不贴近任何已有 sep → 视为缺列行的跨列 gap，跳过，不新增伪列
+    // 单行表回退：只有 1 行，用该行自身 gaps 即可
+    if (tableLines.length === 1) return gapsOf(tableLines[0], gapThresh).sort((a, b) => a - b);
+    const tol = Math.max(0.035, gapThresh); // bin 宽 = 合并容差
+    const allGaps = []; // [ { x, lineIdx } ]
+    tableLines.forEach((l, li) => {
+      for (const g of gapsOf(l, gapThresh)) allGaps.push({ x: g, li });
+    });
+    if (!allGaps.length) return [];
+    // 建直方图
+    const minX = Math.min(...allGaps.map(g => g.x));
+    const maxX = Math.max(...allGaps.map(g => g.x));
+    const nBins = Math.max(1, Math.ceil((maxX - minX) / tol) + 1);
+    const bins = new Array(nBins).fill(null).map(() => ({ sum: 0, n: 0, lines: new Set() }));
+    for (const g of allGaps) {
+      const bi = Math.round((g.x - minX) / tol);
+      if (bi >= 0 && bi < nBins) { bins[bi].sum += g.x; bins[bi].n++; bins[bi].lines.add(g.li); }
+    }
+    // 找峰值 bin（出现次数 ≥ 总行数 50% 的才是真实列边界）
+    const minSupport = Math.max(2, Math.ceil(tableLines.length * 0.5));
+    const peaks = [];
+    for (let i = 0; i < nBins; i++) {
+      if (bins[i].n >= minSupport) {
+        // 高斯加权合并相邻 bin
+        let w = bins[i].sum; let n = bins[i].n;
+        if (i + 1 < nBins && bins[i + 1].n >= minSupport) { w += bins[i + 1].sum; n += bins[i + 1].n; i++; }
+        peaks.push(w / n);
       }
     }
-    return seps.slice().sort((a, b) => a - b);
+    // 直方图法空结果回退：minSupport 太严（如 2 行表其中 1 行缺列）
+    if (peaks.length === 0) {
+      let primary = tableLines[0];
+      for (const l of tableLines) if (l.items.length > primary.items.length) primary = l;
+      return gapsOf(primary, gapThresh).sort((a, b) => a - b);
+    }
+    return peaks.sort((a, b) => a - b);
   }
 
   // 把一行项按分隔符分配到对齐的列（含空列补空串）
