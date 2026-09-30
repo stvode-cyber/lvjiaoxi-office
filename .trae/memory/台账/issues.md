@@ -122,7 +122,7 @@
 
 ---
 
-## [2026-09-15] Electron contextIsolation 下 global ≠ window，第三方库只挂 window 导致 OOXML 导入静默失败
+## [P0] [electron-contextIsolation-window] Electron contextIsolation 下 global ≠ window，第三方库只挂 window 导致 OOXML 导入静默失败
 
 - **问题**：.xls 打开无反应（实际 throw "未加载 SheetJS"）；.pptx 图片缺失；.xmind 卡死（同样 JSZip undefined 导致后续逻辑 undefined 报错循环）
 - **解决**：import-ooxml.js 加 `_pickLib(name)` 辅助函数，按 `window[name] → globalThis[name] → global[name]` 顺序查找，全部改成局部变量 `JSZip / XLSX`
@@ -135,7 +135,7 @@
 ---
 
 
-## [2026-09-15] PDF 模块 escapeHtml 转发 OS.util 在 Node 环境 undefined
+## [P1] [pdf-escapehtml-osutil] PDF 模块 escapeHtml 转发 OS.util 在 Node 环境 undefined
 
 - **问题**：7 个 PDF 模块的 escapeHtml 函数裸调 `OS.util.escapeHtml(s)`，Node 单测直接 require 时 util.js 未加载导致 TypeError
 - **解决**：每个 PDF 模块 escapeHtml 加 `global.OS?.util?.escapeHtml` 存在性守卫 + 内置 fallback 实现
@@ -151,7 +151,7 @@
 
 ---
 
-## [2026-09-15] shell.js `_on` 定义在 renderTopPanel 内部但被外层函数调用
+## [P0] [shell-_-on-scope] shell.js `_on` 定义在 renderTopPanel 内部但被外层函数调用
 
 - **问题**：boot / renderDashboard / globalSearch / globalReplace 调用 `_on()` 时 ReferenceError（jsdom 严格模式暴露）
 - **解决**：将 `_Listeners` + `_on` + `_offAll` 从 renderTopPanel 内部提升到 shell.js IIFE 顶层
@@ -167,7 +167,7 @@
 
 ---
 
-## [2026-09-15] koa-connect wrapper 导致 ctx 泄漏
+## [P2] [koa-connect-ctx-leak] koa-connect wrapper 导致 ctx 泄漏
 
 - **问题**：Express 中间件通过 koa-connect 桥接到 Koa 后，ctx.request.body 偶发 undefined
 - **解决**：重写为原生 Koa middleware，不走 wrapper
@@ -178,7 +178,7 @@
 
 ---
 
-## [2026-09-15] XMind 导入 mkNode 默认颜色 bug
+## [P1] [xmind-mknode-color] XMind 导入 mkNode 默认颜色 bug
 
 - **问题**：mkNode 主题变量 undefined 导致思维导图节点渲染成黑色
 - **解决**：给 mkNode 默认值 `#2563eb` 并在 importXmind 中显式传 color 参数，根节点用 `#1e3a5f`
@@ -189,7 +189,7 @@
 
 ---
 
-## [2026-09-15] electron-builder CSC_LINK 空指针崩溃
+## [P0] [electron-builder-csclink-null] electron-builder CSC_LINK 空指针崩溃
 
 - **问题**：release.yml 在无证书环境下注入空 CSC_LINK，electron-builder 直接崩溃 exit code 1
 - **解决**：加 `if: env.CSC_LINK` 条件，空则不注入证书变量
@@ -200,7 +200,7 @@
 
 ---
 
-## [2026-09-15] 启动时 OS 对象 undefined ✅ 已修复 2026-09-15
+## [P0] [boot-os-undefined] 启动时 OS 对象 undefined ✅ 已修复 2026-09-15
 
 - **问题**：冷启动后立即触发 AI 功能，报 OS is not defined
 - **解决**：在 renderer 入口加 `await OS.ready()`，所有子模块 mount 完成才 resolve
@@ -214,7 +214,7 @@
 
 ---
 
-## [2026-09-15] Toast 容器未挂载到 body ✅ 已修复 2026-09-15
+## [P1] [toast-not-mounted-body] Toast 容器未挂载到 body ✅ 已修复 2026-09-15
 
 - **问题**：UX 测试找不到 toast DOM，用户操作后无反馈
 - **修复文件**：app/js/util.js（+84/-9 重写 OS.toast）
@@ -227,7 +227,7 @@
 
 ---
 
-## [2026-09-15] PowerShell 正则引号地狱
+## [P2] [powershell-regex-quote-hell] PowerShell 正则引号地狱
 
 - **问题**：含单引号/反斜杠的正则在 PowerShell 里解析失败
 - **解决**：改走 Node 脚本执行审计逻辑，PowerShell 只做外壳
@@ -238,7 +238,7 @@
 
 ---
 
-## [2026-09-15] fileAssoc 硬编码绝对路径跨环境炸
+## [P1] [fileassoc-hardcoded-absolute] fileAssoc 硬编码绝对路径跨环境炸
 
 - **问题**：测试脚本硬编码 `C:\xxx`，换机器就找不到
 - **解决**：全部换成 `__dirname` 相对路径
@@ -249,7 +249,7 @@
 
 ---
 
-## [2026-09-15] 订单/库存/审批残留引用导致白屏
+## [P2] [order-inventory-approval-residue] 订单/库存/审批残留引用导致白屏
 
 - **问题**：删了 UI 和模块文件但没删 CSS 类名和 JS 事件绑定，点击残留元素触发 404
 - **解决**：全局 grep `order|inventory|approval`，命中文件全部清理

@@ -11,6 +11,15 @@
 
 ---
 
+
+---
+
+## [2026-09-30] issues.md 29 条全量补齐 [P0-P3] severity 前缀 + slug
+
+- **选了啥**：给 11 条老格式踩坑条目统一加 [P0-P3] [slug-name] 前缀（之前是纯日期 [2026-09-15]）；分级：4 条 P0（崩溃/静默失败）、4 条 P1（核心功能受影响）、3 条 P2（局部）；每条配语义化 slug
+- **为啥**：ledger-precheck parseIssues 对 titleB 格式（只有日期）输出 severity=?、slug=20260915，导致 precheck 全量扫时一堆 [?] 无色分级 + 不可读 slug；台账格式本身也不统一
+- **关联文件**：.trae/memory/台账/issues.md（11 条标题重写）
+- **决策人**：AI 修 ledger-precheck parseIssues 时发现
 ## [2026-09-30] ledger-precheck + posthint 的 parseIssues 统一两种标题正则
 
 - **选了啥**：两个脚本共用同一份正则逻辑：## [P0] [slug-name] 中文...（titleA）和 ## [2026-09-15] 中文...（titleB）分别 capture severity/slug/cnTitle 三字段；parseIssues 不再自己生成超长 tag，直接返回原始 slug
