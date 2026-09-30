@@ -4,6 +4,21 @@
 
 ---
 
+
+---
+
+## [2026-09-30] issues.md 4 条关联 glob 收窄 → precheck 噪音 -70%
+
+- **选了啥**：把 4 条写得太宽的关联 glob 收窄成实际有关的具体文件
+  - ileassoc-hardcoded-absolute: pp/js/**/*.js / scripts/*.js → pp/js/shell.js
+  - koa-connect-ctx-leak: electron/main.js / server/index.js / scripts/*.js → electron/main.js
+  - powershell-regex-quote-hell: scripts/run-tests.js / scripts/*.js → scripts/run-tests.js, scripts/bump-version.js
+  - electron-builder-csclink-null: electron/main.js / electron/*.js → electron/main.js
+- **为啥**：precheck 扫 47 条建议，34 条来自这 4 条宽 glob（fileAssoc 12 + koa 10 + PS regex 8 + csclink 4）；实际 grep 验证：scripts/ 里根本没有 koa 引用、硬编码路径只在 shell.js、csclink 只在 main.js
+- **效果**：precheck 建议补 TODO 从 47 → 14（-70%）；总行数从 ~100 → 67
+- **教训**：issues.md 关联文件写 glob 前先 grep 验证实际命中范围
+- **关联文件**：.trae/memory/台账/issues.md（4 条条目 L189 L211 L249 L260）
+- **决策人**：precheck 噪音来源分析发现
 ## [2026-09-30] 沉淀 agents-ledger-workflow Skill
 
 - **选了啥**：创建 .trae/skills/agents-ledger-workflow/SKILL.md，把 AGENTS §7 台账五步闭环（扫台账→选任务→实现→验证→写台账+commit 带 ref）沉淀为 workspace 级 skill

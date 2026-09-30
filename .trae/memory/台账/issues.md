@@ -1,4 +1,4 @@
-﻿---
+---
 
 ## [P0] [tesseract-worker-in-inline-script] worker.min.js 被 script 标签直接加载到主线程
 
@@ -186,7 +186,7 @@
 - **根因**：koa-connect 内部代理层对 request 对象做了浅拷贝，流式 body 在拷贝后丢失
 - **预防**：所有 Koa 路由禁止使用 koa-connect；新写中间件一律原生 Koa 风格
 - **严重程度**：P0
-- **关联**：electron/main.js / server/index.js / scripts/*.js
+- **关联**：electron/main.js（scripts/ 里根本没有 koa，之前写 scripts/*.js 是噪音）
 
 ---
 
@@ -208,7 +208,7 @@
 - **根因**：CI 脚本假设所有环境都有证书，开发机本地构建时环境变量缺失
 - **预防**：所有 secrets 环境变量必须 `if: env.XXX` 守卫，禁止裸引用
 - **严重程度**：P0
-- **关联**：electron/main.js / electron/*.js
+- **关联**：electron/main.js（只有 main.js 引用 electron-builder 环境变量）
 
 ---
 
@@ -246,7 +246,7 @@
 - **根因**：PowerShell 5 引号转义规则与 bash/Python 完全不同，跨平台脚本必炸
 - **预防**：复杂正则 / 文件扫描一律写 Node 脚本，PowerShell 只负责调用
 - **严重程度**：P2
-- **关联**：scripts/run-tests.js / scripts/*.js
+- **关联**：scripts/run-tests.js, scripts/bump-version.js（只有这两个用 PowerShell regex 调 Node）
 
 ---
 
@@ -257,7 +257,7 @@
 - **根因**：开发机本地调试时偷懒写死
 - **预防**：禁止任何源码出现 `C:\` / `/home/` 等绝对路径；grep 扫 `[A-Z]:\\[a-z]` 拦截
 - **严重程度**：P1
-- **关联**：app/js/**/*.js / scripts/*.js
+- **关联**：app/js/shell.js（只有 shell.js 有硬编码绝对路径）
 
 ---
 
