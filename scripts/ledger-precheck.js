@@ -29,7 +29,7 @@ function parseIssues(mdPath) {
   const out = [];
   for (const sec of sections) {
     const title = sec.match(/^##\s+\[([^\]]+)\]\s*(.+)$/m);
-    const link = sec.match(/^\s*-\s*\*\*关联\*\*[:：]\s*(.+)$/m);
+    const link = sec.match(/^\s*-\s*\*\*关联(?:文件)?\*\*[:：]\s*(.+)$/m);
     const sev = sec.match(/^\s*-\s*\*\*严重程度\*\*[:：]\s*(.+)$/m);
     if (!title || !link) continue;
     // 先把 "路径 / 路径 / 路径" 里的 " / " 替换成 "," 再 split —— 关键：不能把路径里的 / 当分隔符！
@@ -120,10 +120,24 @@ function scanFile(file) {
 
 function main() {
   const args = process.argv.slice(2);
+  const userSpecified = args.length > 0;
   const allIssues = parseIssues(ISSUES_PATH).concat(parseIssues(GLOBAL_SHARED));
 
-  // 目标：用户指定 or 所有活跃坑关联路径
-  const targets = args.length ? args : allIssues.flatMap((i) => i.paths);
+  // 阈值：glob 展开后文件数 > MIN_GLOB_THRESHOLD 的条目，
+  // 全局扫描时跳过（用户显式指定单文件时仍扫）；vendor/ 也跳过（第三方库）
+  const MIN_GLOB_THRESHOLD = 50;
+  const targets = args.length
+    ? args
+    : allIssues
+        .filter((i) => {
+          if (userSpecified) return true;
+          // vendor/ 跳过
+          const all = i.paths.flatMap((p) => expandPattern(p));
+          if (all.some((f) => path.relative(ROOT, f).startsWith("app/vendor/"))) return false;
+          // glob 过宽的跳过
+          return all.length <= MIN_GLOB_THRESHOLD;
+        })
+        .flatMap((i) => i.paths);
 
   // 构建 { absPath → fileInfo } 映射
   const fileMap = new Map();

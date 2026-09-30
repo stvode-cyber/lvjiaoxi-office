@@ -5,6 +5,28 @@
 
 ---
 
+
+---
+
+## [2026-09-30] ledger-precheck.js 加 glob 阈值 + 修关联正则（解决 109 噪音误报）
+
+- **选了啥**：precheck 全局扫描时跳过 glob 展开 > 50 文件的宽条目（如 app/js/**/*.js）；跳过 app/vendor/；parseIssues 正则同时匹配「**关联**」和「**关联文件**」
+- **为啥**：issues.md 里一条 fileAssoc 坑写 pp/js/**/*.js / scripts/*.js，glob 展开覆盖 109 个文件，precheck 每次扫出全噪音，根本没法用；且 issues.md 里「关联」和「关联文件」两种写法都有，原正则只匹配前者
+- **备选方案**：收窄 issues.md 里的 glob（但改台账有风险，用户写的关联范围可能是对的）；precheck 里加白名单 / 黑名单（不够灵活）
+- **关联文件**：scripts/ledger-precheck.js（L32 正则 + L126-140 glob 阈值过滤）
+- **决策人**：AI 扫台账脚本实测发现
+
+---
+
+## [P2] [ledger-precheck-tag-generator] tag 生成器把整条标题塞成 tag，导致 TODO 注释极长
+
+- **问题**：issues.md 条目标题格式 ## [P0] [slug-name] 一句话标题，但 tag 生成器用整个第二组匹配（含 slug 后面的中文标题），生成 tag 如 shell-opendoc-无await-opendoc-无-await-进度条粒度粗导致-95-卡死-假象（40+ token）
+- **解决**：tag 生成器应只取 [slug-name] 部分（方括号里的第一个 slug 段），或 fallback 到标题末词
+- **根因**：parseIssues 里用 ##\s+\[([^\]]+)\]\s*(.+)$ 的第二组（.+）当标题，但没再细分 slug 和中文描述
+- **预防**：正则改成 ##\s+\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.+)$ → 第一组 slug / 第二组严重程度 / 第三组中文标题
+- **关联文件**：scripts/ledger-precheck.js L31 / scripts/ledger-posthint.js（同理）
+- **首次踩坑**：2026-09-30（修 glob 阈值时实测发现）
+- **复发次数**：1
 ## [2026-09-30] AGENTS §7 工作前必读 + 动作必记账 铁律
 
 - **选了啥**：在 AGENTS.md 新增 §7 章节，强制要求 AI 每轮开工先扫台账（≤30秒）、改完立刻记决策/踩坑、commit body 带 ref: ledger#N；台账格式写死，台账是唯一真源
