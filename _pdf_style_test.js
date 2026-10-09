@@ -221,6 +221,42 @@ function extractFontMap(page, items) {
     ok("H3 左对齐段不输出 text-align:left", !(idxLStyle >= 0 && idxL - idxLStyle < 50));
   }
 
+  /* ---------- I. 表格 cell 内联样式还原（lineItems 保留样式 + lineToCells keepItems + renderLineInline）---------- */
+  {
+    // 合成两行表格：行 1 表头（红色粗体），行 2 数据（蓝色斜体）
+    // 行内 gap 足够大（>gapThresh≈0.024）让 isTableLike 判定为表格，且需 ≥2 行才不跳过
+    const spans = [
+      { text: "项目", x: 0.10, y: 0.10, w: 0.05, h: 0.015, fontSize: 12, fontReal: "Helvetica-Bold", bold: true, color: "#cc1a1a" },
+      { text: "金额", x: 0.50, y: 0.10, w: 0.05, h: 0.015, fontSize: 12, fontReal: "Helvetica-Bold", bold: true, color: "#cc1a1a" },
+      { text: "苹果", x: 0.10, y: 0.15, w: 0.05, h: 0.015, fontSize: 12, fontReal: "Helvetica-Oblique", italic: true, color: "#1a66cc" },
+      { text: "30",   x: 0.50, y: 0.15, w: 0.05, h: 0.015, fontSize: 12, fontReal: "Helvetica-Oblique", italic: true, color: "#1a66cc" }
+    ];
+    const html = C.pdfToDocxHtml([spans]);
+    ok("I1 HTML 含 <table", html.indexOf("<table") >= 0);
+    ok("I2 HTML 含 <td>", html.indexOf("<td>") >= 0);
+    ok("I3 表头 cell 含粗体红色 span", html.indexOf("<b><span style=\"font-family:'Helvetica-Bold';font-size:16px;color:#cc1a1a\">项目</span></b>") >= 0);
+    ok("I4 数据 cell 含斜体蓝色 span", html.indexOf("<i><span style=\"font-family:'Helvetica-Oblique';font-size:16px;color:#1a66cc\">苹果</span></i>") >= 0);
+  }
+
+  /* ---------- J. lineToCells keepItems 兼容（默认 false 返回字符串数组）---------- */
+  {
+    const items = [
+      { text: "A", x: 0.10, y: 0.10, w: 0.05, h: 0.015, fontReal: "F", bold: true, color: "#ff0000" },
+      { text: "B", x: 0.50, y: 0.10, w: 0.05, h: 0.015, fontReal: "F", italic: true, color: "#00ff00" }
+    ];
+    const seps = [0.30];
+    // 默认（keepItems 不传）返回字符串数组，向后兼容 Excel 路径
+    const cellsStr = C._lineToCells(items, seps);
+    ok("J1 默认返回字符串数组", Array.isArray(cellsStr) && cellsStr.length === 2 && typeof cellsStr[0] === "string");
+    ok("J2 字符串值正确", cellsStr[0] === "A" && cellsStr[1] === "B");
+    // keepItems=true 返回对象数组带 items
+    const cellsObj = C._lineToCells(items, seps, true);
+    ok("J3 keepItems 返回对象数组", Array.isArray(cellsObj) && cellsObj.length === 2 && typeof cellsObj[0] === "object");
+    ok("J4 对象含 text 字段", cellsObj[0].text === "A" && cellsObj[1].text === "B");
+    ok("J5 对象含 items 数组", Array.isArray(cellsObj[0].items) && cellsObj[0].items.length === 1);
+    ok("J6 items 保留样式字段", cellsObj[0].items[0].bold === true && cellsObj[0].items[0].color === "#ff0000");
+  }
+
   console.log((fail === 0 ? "✓ 全部通过" : "✗ 有失败") + "：通过 " + pass + " / " + (pass + fail));
   process.exit(fail === 0 ? 0 : 1);
 })().catch(e => { console.error("  ✗ 异常：" + (e && e.message)); process.exit(1); });

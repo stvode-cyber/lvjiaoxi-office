@@ -2,6 +2,18 @@
 
 ---
 
+## [2026-10-09] PDF→DOCX 表格 cell 内联样式还原：lineToCells keepItems + lineItems 保留样式 + renderLineInline 渲染 cell
+
+- **选了啥**：① `lineToCells(items, seps, keepItems)` 加第三参数，true 返回 `[{text, items}]` 供表格渲染用，false 保持字符串数组兼容 Excel `_buildExcelRows` 路径；② `renderTableBlock` 调 `lineToCells(row.items, seps, true)`，每个 cell 用 `renderLineInline({text, items})` 渲染（复用段内分组逻辑：连续同 fontReal+bold+italic+color+fontSize 合并为一组，输出 `<span style="...">` + `<b>`/`<i>` 包裹）；③ **关键 bug 修复**：`lineItems` 的 map 丢了 fontReal/bold/italic/color/fontSize/w 字段（和 #42 clusterLines 同 bug），cell.items 里的 span 全无样式 → renderLineInline 分组 key 全空 → 只输出纯文本无 inline span；补保留全部样式字段
+- **为啥**：project_memory 列为下一个开发任务（#42 已知边界「表格 cell 文本不还原样式」）；之前 renderTableBlock cell 用 `esc(String(c))` 输出纯文本，表格内字体/字号/粗斜体/颜色全部丢失
+- **兼容设计**：keepItems 默认 false，Excel 路径 `_buildExcelRows` 不传第三参数，行为完全不变；仅 DOCX 表格渲染传 true 拿 items 走 inline span
+- **测试调整**：`_pdf_3col_e2e_test.js` D2 硬匹配 `<td>H1</td>` 改为 `>H1<`（cell 现在可能包 inline span，用 >text< 匹配更鲁棒，不依赖是否包 span）
+- **已知边界**：cell 内多字号混合按 inline span 分组渲染（行内混排可还原）；cell 无样式信息（spans 不传 fontReal 等）时 inlineStyle 返回空串不包 span，输出纯文本（向后兼容合成测试）
+- **关联文件**：app/js/modules/pdf-convert.js（lineToCells keepItems L805-819、renderTableBlock L178-192、lineItems 保留样式 L717-737）、_pdf_style_test.js（I+J 组 10 断言）、_pdf_3col_e2e_test.js（D2 匹配改鲁棒）、app/sw.js CACHE v32→v33
+- **决策人**：用户「继续做表格 cell 内联样式还原」拍板
+
+---
+
 ## [2026-10-09] PDF→DOCX 段落对齐推断：pageMargins（min/max）+ detectParaAlign（左右偏移对称判定）+ buildDocx text-align→`<w:jc>`
 
 - **选了啥**：① 新增 `pageMargins(spans)`：左边距取所有 span 的最小 x，右边距取 (x+w) 最大值；② 新增 `detectParaAlign(para, leftMargin, rightMargin)`：段 minX/maxX 与页边距比对，左右偏移都 > 容差且大致对称 → center，左偏移大+右贴边 → right，其余 → left（justify 难与 left 区分保守归 left）；③ `pdfToDocxHtml` 主流程每页先算 margins，每段调 detectParaAlign，输出 `<p style="text-align:center|right">`（左对齐不输出 text-align 节省噪音）；④ `buildDocx.blockToParagraphs` 解析 `<p>`/`<h*>` 的 style.text-align → 输出 `<w:jc w:val="center|right|both"/>` 段落级对齐；⑤ `clusterLines` map 补保留 w 字段（之前只留 text/x/y/h，detectParaAlign 拿不到 maxX）

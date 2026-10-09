@@ -180,8 +180,12 @@
     // rows 按 baseY 升序：表头（y 最小=视觉顶部，与批注渲染 top=y*bh 同坐标系）先渲染在最上面
     const sorted = rows.slice().sort((a, b) => a.baseY - b.baseY);
     const trs = sorted.map(row => {
-      const cells = lineToCells(row.items, seps);
-      const tds = cells.map(c => `<td>${esc(String(c == null ? "" : c))}</td>`).join("");
+      // keepItems=true 拿 [{text, items}]，用 renderLineInline 还原 inline span 样式
+      const cells = lineToCells(row.items, seps, true);
+      const tds = cells.map(c => {
+        const html = c && c.items && c.items.length ? renderLineInline({ text: c.text, items: c.items }) : esc(String(c == null ? "" : (c.text || "")));
+        return `<td>${html}</td>`;
+      }).join("");
       return `<tr>${tds}</tr>`;
     });
     return `<table border="1" cellspacing="0" cellpadding="4"><tbody>${trs.join("")}</tbody></table>`;
@@ -714,12 +718,22 @@
     if (!Array.isArray(spans)) return [];
     const items = spans
       .filter(s => s && typeof s.text === "string" && s.text.trim().length)
-      .map(s => ({
-        text: s.text,
-        x: typeof s.x === "number" && isFinite(s.x) ? s.x : 0,
-        y: typeof s.y === "number" && isFinite(s.y) ? s.y : 0,
-        h: (typeof s.h === "number" && s.h > 0) ? s.h : 0.015
-      }))
+      .map(s => {
+        // 保留全部样式字段（fontReal/bold/italic/color/fontSize/w），下游 lineToCells(keepItems=true) → renderLineInline 用
+        const o = {
+          text: s.text,
+          x: typeof s.x === "number" && isFinite(s.x) ? s.x : 0,
+          y: typeof s.y === "number" && isFinite(s.y) ? s.y : 0,
+          w: typeof s.w === "number" && isFinite(s.w) ? s.w : 0,
+          h: (typeof s.h === "number" && s.h > 0) ? s.h : 0.015
+        };
+        if (s.fontReal) o.fontReal = s.fontReal;
+        if (s.bold) o.bold = true;
+        if (s.italic) o.italic = true;
+        if (s.color) o.color = s.color;
+        if (s.fontSize) o.fontSize = s.fontSize;
+        return o;
+      })
       .sort((a, b) => a.y - b.y || a.x - b.x);
     const lines = [];
     let cur = null, baseY = null;
@@ -802,7 +816,8 @@
   }
 
   // 把一行项按分隔符分配到对齐的列（含空列补空串）
-  function lineToCells(items, seps) {
+  // keepItems=true 返回 [{text, items}]，供 renderTableBlock 走 renderLineInline 还原 inline span 样式
+  function lineToCells(items, seps, keepItems) {
     const cols = new Array(seps.length + 1).fill(null).map(() => []);
     const sorted = items.slice().sort((a, b) => a.x - b.x);
     for (const it of sorted) {
@@ -810,6 +825,10 @@
       let ci = 0;
       for (let i = 0; i < seps.length; i++) { if (cx > seps[i]) ci = i + 1; else break; }
       cols[ci].push(it);
+    }
+    if (keepItems) {
+      // 返回 [{text, items}]，renderTableBlock 用 renderLineInline 渲染 inline span 样式
+      return cols.map(arr => ({ text: arr.map(it => it.text).join(" "), items: arr }));
     }
     return cols.map(arr => arr.map(it => it.text).join(""));
   }

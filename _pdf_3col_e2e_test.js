@@ -125,7 +125,8 @@ async function extractSpans(bytes) {
     page.drawText("c12", { x: 300, y: 680, font, size: 10 });
     const { spans } = await extractSpans(await doc.save());
     const html = C.pdfToDocxHtml([spans]);
-    const iH = html.indexOf("<td>H1</td>"), iC = html.indexOf("<td>c11</td>");
+    // cell 现在可能包 inline span（font-family/font-size），用 >H1< / >c11< 匹配更鲁棒
+    const iH = html.indexOf(">H1<"), iC = html.indexOf(">c11<");
     ok("D1 识别为表格", /<table/.test(html));
     ok("D2 表头行在数据行之前", iH >= 0 && iC >= 0 && iH < iC);
   }
