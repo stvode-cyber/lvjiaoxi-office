@@ -12,10 +12,10 @@
 | 项 | 值 |
 |---|---|
 | 测试基线 | **108/108 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **15:15**（含 PDF→DOCX 全链路：三栏版面 + 字体/字号/粗斜体/颜色还原 + 段落对齐推断 + 表格 cell 内联样式 + 坐标系修正 + Form XObject 嵌套图片 + 图片嵌入） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **16:05**（含 PDF→DOCX 全链路 + PPTX blipFill 图片背景 + 三栏版面 + 字体样式还原 + 段落对齐推断 + 表格 cell 内联样式 + 坐标系修正 + Form XObject 嵌套图片 + 图片嵌入） |
 | 发布状态 | ❌ VPS 待重新上传（本机网络 SSH 超时 + HTTPS SNI 干扰，老毛病）；dist 包已就绪，换网络后跑 `scripts/publish-latest.bat` |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
-| 台账状态 | decisions.md 44 条（最新 #44：表格 cell 内联样式还原 lineToCells keepItems + lineItems 保留样式，覆盖 #42/#43 表格 cell 已知边界），issues.md 28 条（最新 L2：提取层坐标系两坑已修✅，覆盖 #27 坐标系定论） |
+| 台账状态 | decisions.md 45 条（最新 #45：PPTX blipFill 图片背景 rels 扩展 + resolveMediaByRels 通用化），issues.md 28 条（最新 L2：提取层坐标系两坑已修✅，覆盖 #27 坐标系定论） |
 
 ---
 
