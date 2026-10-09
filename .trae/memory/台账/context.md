@@ -12,7 +12,7 @@
 | 项 | 值 |
 |---|---|
 | 测试基线 | **105/105 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **09:43**（已装；图片嵌入改动未打包，需用户实测后重打） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **12:29**（含 PDF→DOCX 图片嵌入，待用户实机验证） |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
 | 台账状态 | decisions.md 38 条（最新：PDF→DOCX 图片嵌入），issues.md 25 条（最新 L2：图片专属页丢弃已修✅） |
 
