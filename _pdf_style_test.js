@@ -182,6 +182,45 @@ function extractFontMap(page, items) {
     ok("E4 旧调用：fontSize 保留", spans[0] && spans[0].fontSize === 10);
   }
 
+  /* ---------- G. 段落对齐推断（_pageMargins + _detectParaAlign）---------- */
+  {
+    // 合成一页 spans：页边距 left=0.1, right=0.9
+    // 三段：左对齐 x=0.1 w=0.5；居中 x=0.3 w=0.4；右对齐 x=0.4 w=0.5
+    const spans = [
+      { text: "Left line",   x: 0.10, y: 0.10, w: 0.50, h: 0.015, fontSize: 12, fontReal: "Helvetica" },
+      { text: "Center line", x: 0.30, y: 0.20, w: 0.40, h: 0.015, fontSize: 12, fontReal: "Helvetica" },
+      { text: "Right line",  x: 0.40, y: 0.30, w: 0.50, h: 0.015, fontSize: 12, fontReal: "Helvetica" }
+    ];
+    const m = C._pageMargins(spans);
+    ok("G1 页左边距≈0.1", Math.abs(m.left - 0.1) < 0.05);
+    ok("G2 页右边距≈0.9", Math.abs(m.right - 0.9) < 0.05);
+
+    // 各段单行 paragraph（用 clusterLines 输出格式带 items）
+    const paraL = [{ text: "Left line", x: 0.10, y: 0.10, h: 0.015, items: [spans[0]] }];
+    const paraC = [{ text: "Center line", x: 0.30, y: 0.20, h: 0.015, items: [spans[1]] }];
+    const paraR = [{ text: "Right line", x: 0.40, y: 0.30, h: 0.015, items: [spans[2]] }];
+    ok("G3 左对齐段 → left", C._detectParaAlign(paraL, m.left, m.right) === "left");
+    ok("G4 居中段 → center", C._detectParaAlign(paraC, m.left, m.right) === "center");
+    ok("G5 右对齐段 → right", C._detectParaAlign(paraR, m.left, m.right) === "right");
+  }
+
+  /* ---------- H. pdfToDocxHtml 输出含 text-align ---------- */
+  {
+    const spans = [
+      { text: "Left",   x: 0.10, y: 0.10, w: 0.50, h: 0.015, fontSize: 12, fontReal: "Helvetica" },
+      { text: "Center", x: 0.30, y: 0.20, w: 0.40, h: 0.015, fontSize: 12, fontReal: "Helvetica" },
+      { text: "Right",  x: 0.40, y: 0.30, w: 0.50, h: 0.015, fontSize: 12, fontReal: "Helvetica" }
+    ];
+    const html = C.pdfToDocxHtml([spans]);
+    ok("H1 HTML 含 text-align:center", html.indexOf("text-align:center") >= 0);
+    ok("H2 HTML 含 text-align:right", html.indexOf("text-align:right") >= 0);
+    // 左对齐不输出 text-align（默认 left，不污染 style）
+    const idxL = html.indexOf(">Left<");
+    const idxLStyle = html.lastIndexOf("text-align", idxL);
+    // Left 段附近不应有 text-align（容差：往前 50 字符内无 text-align:left）
+    ok("H3 左对齐段不输出 text-align:left", !(idxLStyle >= 0 && idxL - idxLStyle < 50));
+  }
+
   console.log((fail === 0 ? "✓ 全部通过" : "✗ 有失败") + "：通过 " + pass + " / " + (pass + fail));
   process.exit(fail === 0 ? 0 : 1);
 })().catch(e => { console.error("  ✗ 异常：" + (e && e.message)); process.exit(1); });

@@ -68,6 +68,50 @@
     return out.join("");
   }
 
+  // 估算页边距：左边距 = 最小 x，右边距 = 最大 (x+w)
+  // 中位数会被居中/右对齐段拉到中间，min/max 对单栏+多对齐混合更稳；真实 PDF 通常左对齐段占多数，min 接近左页边
+  function pageMargins(spans) {
+    if (!Array.isArray(spans) || !spans.length) return { left: 0.05, right: 0.95 };
+    const xs = [], rs = [];
+    for (const s of spans) {
+      if (!s || s.image || s.text === undefined) continue;
+      if (typeof s.x === "number" && isFinite(s.x)) xs.push(s.x);
+      const r = (typeof s.x === "number" ? s.x : 0) + (typeof s.w === "number" ? s.w : 0);
+      if (isFinite(r)) rs.push(r);
+    }
+    if (!xs.length) return { left: 0.05, right: 0.95 };
+    xs.sort((a, b) => a - b); rs.sort((a, b) => a - b);
+    const left = xs[0];
+    let right = rs[rs.length - 1];
+    if (right <= left) right = Math.min(left + 0.5, 0.95);
+    return { left, right };
+  }
+
+  // 段落对齐推断：left/center/right（justify 难与 left 区分，保守归 left）
+  // 思路：段左偏移 vs 段右偏移，左右大致对称且都 > 容差 → center；左偏移大 + 右贴边 → right
+  function detectParaAlign(para, leftMargin, rightMargin) {
+    if (!Array.isArray(para) || !para.length) return "left";
+    let minX = Infinity, maxX = -Infinity;
+    for (const line of para) {
+      if (Array.isArray(line.items) && line.items.length) {
+        for (const s of line.items) {
+          if (typeof s.x !== "number" || !isFinite(s.x)) continue;
+          minX = Math.min(minX, s.x);
+          maxX = Math.max(maxX, s.x + (typeof s.w === "number" ? s.w : 0));
+        }
+      } else if (typeof line.x === "number") {
+        minX = Math.min(minX, line.x);
+      }
+    }
+    if (!isFinite(minX) || !isFinite(maxX)) return "left";
+    const tol = 0.02; // 容差约 1.2% 页宽
+    const leftOff = minX - leftMargin;
+    const rightOff = rightMargin - maxX;
+    if (leftOff > tol && rightOff > tol && Math.abs(leftOff - rightOff) < tol * 1.5) return "center";
+    if (leftOff > tol && rightOff <= tol) return "right";
+    return "left";
+  }
+
   // 单行聚类：把一页的 span 按阅读顺序（y 升序、行内 x 升序）合并为行
   // 返回 [{text, x, y, h}]（行级：已合并文本、记录行首 x、行 y、行内最大字号 h）
   // 改进：同行基线抖动容差+软换行合并（同段落内换行保留为一个段落）
@@ -81,6 +125,7 @@
           text: s.text,
           x: typeof s.x === "number" && isFinite(s.x) ? s.x : 0,
           y: typeof s.y === "number" && isFinite(s.y) ? s.y : 0,
+          w: typeof s.w === "number" && isFinite(s.w) ? s.w : 0,
           h: (typeof s.h === "number" && s.h > 0) ? s.h : 0.015
         };
         if (s.fontReal) o.fontReal = s.fontReal;
@@ -154,6 +199,9 @@
     const blocks = [];
     pages.forEach((spans, pi) => {
       if (!spans || !spans.length) { if (pi < pages.length - 1) blocks.push(`<div class="page-break"></div>`); return; }
+
+      // 页边距推断（用于段落对齐判定）
+      const margins = pageMargins(spans);
 
       // === 先分离图片 span 和文本 span ===
       // 图片 span 格式：{ image: "data:image/png;base64,...", x, y, w, h }
@@ -296,11 +344,14 @@
         const isH2 = !isH1 && firstLine.h >= h2Thresh;
         const isH3 = !isH1 && !isH2 && firstLine.h >= h3Thresh;
         const isHeading = isH1 || isH2 || isH3;
+        // 段落对齐推断（标题也支持居中）
+        const align = detectParaAlign(para, margins.left, margins.right);
+        const alignAttr = align === "left" ? "" : ` style="text-align:${align}"`;
         if (inList && !isHeading) { blocks.push(`</${listType}>`); inList = false; listType = null; }
         if (isHeading) {
           const tag = isH1 ? "h1" : (isH2 ? "h2" : "h3");
-          blocks.push(`<${tag}>${renderLineInline(firstLine)}</${tag}>`);
-          for (let li = 1; li < para.length; li++) blocks.push(`<p>${renderLineInline(para[li])}</p>`);
+          blocks.push(`<${tag}${alignAttr}>${renderLineInline(firstLine)}</${tag}>`);
+          for (let li = 1; li < para.length; li++) blocks.push(`<p${alignAttr}>${renderLineInline(para[li])}</p>`);
           continue;
         }
         const listMatch = detectListType(firstLine.text);
@@ -314,8 +365,8 @@
           blocks.push(`<li>${cleanHtml}</li>`);
           continue;
         }
-        if (para.length === 1) { blocks.push(`<p>${renderLineInline(firstLine)}</p>`); }
-        else { const joined = renderParaInline(para); if (joined.trim()) blocks.push(`<p>${joined}</p>`); }
+        if (para.length === 1) { blocks.push(`<p${alignAttr}>${renderLineInline(firstLine)}</p>`); }
+        else { const joined = renderParaInline(para); if (joined.trim()) blocks.push(`<p${alignAttr}>${joined}</p>`); }
       }
       if (inList) { blocks.push(`</${listType}>`); inList = false; listType = null; }
       if (pi < pages.length - 1) blocks.push(`<div class="page-break"></div>`);
@@ -850,6 +901,7 @@
     _detectSeparators: detectSeparators, _lineToCells: lineToCells, _clusterTableBlocks: clusterTableBlocks,
     _detectColumnSeps: detectColumnSeps,
     _textSpansFromTC: textSpansFromTC, _colorRunsFromOps: colorRunsFromOps, _walkImageRects: walkImageRects,
+    _pageMargins: pageMargins, _detectParaAlign: detectParaAlign,
     _imgUtils };
   OS.PdfConvert = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

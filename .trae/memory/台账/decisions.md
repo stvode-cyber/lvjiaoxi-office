@@ -1,4 +1,16 @@
-﻿
+
+
+---
+
+## [2026-10-09] PDF→DOCX 段落对齐推断：pageMargins（min/max）+ detectParaAlign（左右偏移对称判定）+ buildDocx text-align→`<w:jc>`
+
+- **选了啥**：① 新增 `pageMargins(spans)`：左边距取所有 span 的最小 x，右边距取 (x+w) 最大值；② 新增 `detectParaAlign(para, leftMargin, rightMargin)`：段 minX/maxX 与页边距比对，左右偏移都 > 容差且大致对称 → center，左偏移大+右贴边 → right，其余 → left（justify 难与 left 区分保守归 left）；③ `pdfToDocxHtml` 主流程每页先算 margins，每段调 detectParaAlign，输出 `<p style="text-align:center|right">`（左对齐不输出 text-align 节省噪音）；④ `buildDocx.blockToParagraphs` 解析 `<p>`/`<h*>` 的 style.text-align → 输出 `<w:jc w:val="center|right|both"/>` 段落级对齐；⑤ `clusterLines` map 补保留 w 字段（之前只留 text/x/y/h，detectParaAlign 拿不到 maxX）
+- **为啥**：上一轮字体样式还原完成后，project_memory 列「段落对齐推断」为下一个开发任务；原 pdfToDocxHtml 所有段落都默认左对齐，居中标题/右对齐日期全部丢失
+- **为啥用 min/max 不用中位数**：合成测试实锤——一页混合左/居中/右三段时，中位数 x=0.30、(x+w)=0.70 把页边距误判到中间，导致 detectParaAlign 全部归 left；min/max 对单栏+多对齐混合更稳，真实 PDF 通常左对齐段占多数，min 接近真实左页边
+- **容差选择**：tol=0.02（约 1.2% 页宽 ≈ 8.4px on 600px viewport），既能容忍 PDF 文本提取的亚像素抖动，又不会把真正居中的段误判成左对齐
+- **已知边界**：justify（两端对齐）外观像 left，保守归 left 不强分；表格 cell 不参与对齐推断；标题也支持居中（isHeading 段也走 detectParaAlign）
+- **关联文件**：app/js/modules/pdf-convert.js（pageMargins L73-89、detectParaAlign L91-113、clusterLines 保留 w L122-130、pdfToDocxHtml 主流程 margins+align L202-348）、app/js/export-ooxml.js（blockToParagraphs 解析 text-align L366-388）、_pdf_style_test.js（G+H 组 8 断言）、app/sw.js CACHE v31→v32
+- **决策人**：用户「先处理段落对齐推断」拍板
 
 ---
 

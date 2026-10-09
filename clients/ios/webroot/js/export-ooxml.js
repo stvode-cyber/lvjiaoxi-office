@@ -367,11 +367,25 @@
       const tag = el.localName;
       const paras = [];
       let m;
+      // 解析 <p>/<h*> 的 style.text-align → <w:jc>（段落级对齐，居中/右/两端）
+      const st = el.getAttribute && el.getAttribute("style");
+      let jc = "";
+      if (st) {
+        const am = /text-align:\s*(left|center|right|justify)/i.exec(st);
+        if (am) {
+          const v = am[1].toLowerCase();
+          if (v === "center") jc = '<w:jc w:val="center"/>';
+          else if (v === "right") jc = '<w:jc w:val="right"/>';
+          else if (v === "justify") jc = '<w:jc w:val="both"/>';
+        }
+      }
       if ((m = /^h([1-6])$/.exec(tag))) {
         const lvl = m[1];
-        paras.push('<w:p><w:pPr><w:pStyle w:val="Heading' + lvl + '"/></w:pPr>' + inlines(el, props) + "</w:p>");
+        const pPr = "<w:pPr><w:pStyle w:val=\"Heading" + lvl + "\"/>" + jc + "</w:pPr>";
+        paras.push("<w:p>" + pPr + inlines(el, props) + "</w:p>");
       } else if (tag === "p") {
-        paras.push("<w:p>" + inlines(el, props) + "</w:p>");
+        const pPr = jc ? "<w:pPr>" + jc + "</w:pPr>" : "";
+        paras.push("<w:p>" + pPr + inlines(el, props) + "</w:p>");
       } else if (tag === "ul" || tag === "ol") {
         const numId = tag === "ul" ? 1 : 2;
         Array.from(el.children).forEach(li => {
