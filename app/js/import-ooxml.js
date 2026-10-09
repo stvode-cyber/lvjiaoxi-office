@@ -408,27 +408,62 @@
   async function parseXlsx(zip) {
     console.time("[XLSX] parseXlsx 总耗时");
     console.time("[XLSX] 1. I/O 预读");
-    // sharedStrings + sheet1 并行预读
     let shared = [];
     const sf = zip.file("xl/sharedStrings.xml");
     const sheetFile = zip.file("xl/worksheets/sheet1.xml") || firstZip(zip, "xl/worksheets/sheet");
+    const stylesFile = zip.file("xl/styles.xml");
     if (!sheetFile) throw new Error("未找到工作表");
-    const [sharedXml, sheetXml] = await Promise.all([
+    const [sharedXml, sheetXml, stylesXml] = await Promise.all([
       sf ? sf.async("string") : Promise.resolve(null),
-      sheetFile.async("string")
+      sheetFile.async("string"),
+      stylesFile ? stylesFile.async("string") : Promise.resolve(null)
     ]);
     console.timeEnd("[XLSX] 1. I/O 预读");
     if (sharedXml) {
       const d = parseXML(sharedXml);
       shared = all(d.documentElement, "si").map(si => all(si, "t").map(t => t.textContent).join(""));
     }
+
+    // ====== 解析 styles.xml ======
+    const fonts = [], fills = [], cellXfs = [];
+    if (stylesXml) {
+      const sd = parseXML(stylesXml);
+      all(first(sd.documentElement, "fonts") || sd.documentElement, "font").forEach(f => {
+        fonts.push({
+          bold: !!first(f, "b"),
+          italic: !!first(f, "i"),
+          underline: !!first(f, "u"),
+          color: (() => { const c = first(f, "color"); if (!c) return null; const rgb = attr(c, "rgb"); return rgb && rgb.length >= 8 ? "#" + rgb.substring(2).toLowerCase() : null; })()
+        });
+      });
+      all(first(sd.documentElement, "fills") || sd.documentElement, "fill").forEach(f => {
+        const pf = first(f, "patternFill");
+        fills.push({
+          pattern: attr(pf, "patternType") || "none",
+          fg: (() => { if (!pf) return null; const c = first(pf, "fgColor"); if (!c) return null; const rgb = attr(c, "rgb"); return rgb && rgb.length >= 8 ? "#" + rgb.substring(2).toLowerCase() : null; })()
+        });
+      });
+      all(first(sd.documentElement, "cellXfs") || sd.documentElement, "xf").forEach(xf => {
+        cellXfs.push({
+          fontId: +(attr(xf, "fontId") || 0),
+          fillId: +(attr(xf, "fillId") || 0),
+          applyFont: attr(xf, "applyFont") === "1",
+          applyFill: attr(xf, "applyFill") === "1"
+        });
+      });
+    }
+
+    // ====== 解析 sheet1.xml ======
     const d = parseXML(sheetXml);
     const cells = {};
+    const styles = {};
+    const merges = [];
     console.time("[XLSX] 2. 单元格遍历");
     let maxC = 1, maxR = 1;
     all(d.documentElement, "c").forEach(c => {
       const ref = attr(c, "r"); if (!ref) return;
       const t = attr(c, "t");
+      const sIdx = attr(c, "s");
       const f = first(c, "f");
       const v = first(c, "v");
       const is = first(c, "is");
@@ -445,9 +480,34 @@
         else val = v ? v.textContent : "";
         cells[ref] = { v: isNum(val) ? Number(val) : val };
       }
+      if (sIdx && cellXfs.length) {
+        const xf = cellXfs[+sIdx];
+        if (xf) {
+          const st = {};
+          if (xf.applyFont) {
+            const font = fonts[xf.fontId] || {};
+            if (font.bold) st.bold = true;
+            if (font.italic) st.italic = true;
+            if (font.underline) st.underline = true;
+            if (font.color) st.color = font.color;
+          }
+          if (xf.applyFill) {
+            const fill = fills[xf.fillId] || {};
+            if (fill.pattern === "solid" && fill.fg) st.bg = fill.fg;
+          }
+          if (Object.keys(st).length) styles[ref] = st;
+        }
+      }
     });
+
+    // mergeCells: <mergeCell ref="A1:B2"/>
+    const mergeCellsEl = first(d.documentElement, "mergeCells");
+    if (mergeCellsEl) all(mergeCellsEl, "mergeCell").forEach(m => { const ref = attr(m, "ref"); if (ref && ref.includes(":")) merges.push(ref); });
+    const hasFmt = Object.keys(styles).length > 0;
+    const hasMerge = merges.length > 0;
+    const noteExtra = [hasFmt ? "格式已保留" : null, hasMerge ? `合并 ${merges.length} 处` : null].filter(Boolean).join("；");
     const note = Object.keys(cells).length
-      ? "XLSX 已导入（基本兼容：值与公式保留；仅导入首个工作表）"
+      ? `XLSX 已导入（基本兼容：值与公式保留${noteExtra ? "；" + noteExtra : ""}；仅导入首个工作表）`
       : "XLSX 已导入（空表）";
 
     // ---------- 批注导入（xl/comments/commentN.xml，逐 sheet）----------
@@ -490,7 +550,7 @@
 
     console.timeEnd("[XLSX] 2. 单元格遍历");
     console.timeEnd("[XLSX] parseXlsx 总耗时");
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles: {}, comments }, compat: "B", note };
+    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments }, compat: hasFmt ? "A" : "B", note };
   }
 
   /* ============================================================
