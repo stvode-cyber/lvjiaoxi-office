@@ -5,6 +5,12 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-shell-openDoc-无await] 预防: openDoc 加 await + 进度条 step 文字每 5% 更新一次 (见 issues.md)
+  // TODO: [坑-Promise-无timeout] 预防: Promise 链首尾加 _withTimeout 兜底
+  // TODO: [坑-fileassoc-hardcoded-absolute] 预防: fileAssoc 路径用 OS.path 拼接别裸写绝对路径
+  // TODO: [坑-order-inventory-approval-residue] 预防: import 语句定期扫 grep 残留模块名
+  // TODO: [坑-tasks-settle-step] 预防: Tasks.run settle 回调里显式 reporter.step(xx, 1) 刷 100%
+  // TODO: [坑-shortcut-test-fragile] 预防: 快捷键矩阵用枚举名匹配别用字符串 include
   const OS = global.OS;
   // ========== 🩺 诊断工具：phase 心跳 + 带 timeout 的 await ==========
   function _withTimeout(promise, ms, label) {

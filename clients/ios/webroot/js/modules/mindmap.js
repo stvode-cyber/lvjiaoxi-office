@@ -5,6 +5,10 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-mindmap-渲染性能] 预防: 大节点数用 requestAnimationFrame 分帧，O(N²) 查改用 Map 索引
+  // TODO: [坑-electron-contextIsolation-window] 预防: 第三方库需要 window 时用 globalThis 或 preload bridge
+  // TODO: [坑-mindmap-NaN-path] 预防: layoutMap.place 从 root + 孤立节点都遍历，坐标 undefined 时给 fallback
+  // TODO: [坑-fileassoc-hardcoded-absolute] 预防: 同上 shell.js
   const OS = global.OS;
   const SVGNS = "http://www.w3.org/2000/svg";
   const MEASURE_FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif';

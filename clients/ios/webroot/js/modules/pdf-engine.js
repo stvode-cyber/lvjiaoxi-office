@@ -5024,6 +5024,73 @@
     return { images: out, total: out.length };
   }
 
+  // —— OCR 识别（多页批量）——
+  async function ocrPDF(arg, opts, onProgress) {
+    opts = opts || {};
+    const bytes = arg && (arg.bytes || (arg.file instanceof Uint8Array ? arg.file : new Uint8Array(await arg.file.arrayBuffer())));
+    const langs = opts.langs || "chi_sim+eng";
+    if (!window.OS.PDFOCR) throw new Error("PDF OCR 模块未加载");
+    if (!globalThis.pdfjsLib) { await _ensureEngine(); if (!globalThis.pdfjsLib) throw new Error("pdf.js 未加载"); }
+    const doc = await globalThis.pdfjsLib.getDocument({ data: bytes, password: opts.password }).promise;
+    const n = doc.numPages;
+    const pageResults = [];
+    for (let i = 1; i <= n; i++) {
+      if (onProgress) onProgress({ done: i - 1, total: n, phase: 'OCR 识别' });
+      const page = await doc.getPage(i);
+      const scale = 2.5;
+      const vp = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      const r = await window.OS.PDFOCR.recognizePage({ canvas, lang: langs });
+      pageResults.push({ page: i, text: r.text || "", confidence: r.confidence || 0 });
+      canvas.width = canvas.height = 0;
+    }
+    if (onProgress) onProgress({ done: n, total: n, phase: '完成' });
+    return {
+      pageCount: n,
+      pages: pageResults,
+      fullText: pageResults.map(p => `=== 第 ${p.page} 页 ===\n${p.text}`).join("\n\n")
+    };
+  }
+
+  // —— 生成可检索 PDF（把 OCR 文字烤入隐藏文本层）——
+  async function makeSearchablePDF(arg, ocrResult, opts, onProgress) {
+    await _ensureEngine();
+    opts = opts || {};
+    const bytes = arg && (arg.bytes || (arg.file instanceof Uint8Array ? arg.file : new Uint8Array(await arg.file.arrayBuffer())));
+    const pdfDoc = await PDFDocument.load(bytes, { password: opts.password });
+    let drawn = 0, skipped = 0;
+    const helvetica = pdfDoc.getEmbeddedFont(PDFDocument.Font.Helvetica) || await pdfDoc.embedFont(PDFDocument.Font.Helvetica);
+    const pages = pdfDoc.getPages();
+    const n = pages.length;
+    for (let i = 0; i < n; i++) {
+      if (onProgress) onProgress({ done: i, total: n, phase: '写入文字层' });
+      const text = ocrResult.pages && ocrResult.pages[i] ? ocrResult.pages[i].text : "";
+      if (!text.trim()) continue;
+      const page = pages[i];
+      const { width, height } = page.getSize();
+      try {
+        page.drawText(text, {
+          x: 6, y: height - 14,
+          size: 2,
+          font: helvetica,
+          color: rgb(0, 0, 0),
+          opacity: 0.0,   // 完全透明，仅可选中搜索
+          maxWidth: width - 12,
+        });
+        drawn++;
+      } catch (e) { skipped++; }
+    }
+    if (onProgress) onProgress({ done: n, total: n, phase: '完成' });
+    const out = await pdfDoc.save();
+    return { bytes: out, drawn, skipped };
+  }
+
   OS = window.OS || {}; OS.PDFEngine = {
     mergePDFs, splitPDF, extractPages, splitByOutline, splitByCount, splitBySize, setPageBackground, deletePages, removeBlankPages, detectBlankPages, detectDuplicatePages, removeDuplicatePages, reorderPages, rotatePages, rotateSelectedPages,
     encryptPDF, decryptPDF,

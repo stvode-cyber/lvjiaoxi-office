@@ -7,14 +7,14 @@
 
 ## 🎯 交付快照（新 AI 读这里就够了）
 
-**当前阶段**：v1.1.6 稳定化 — 顶部导航三层合并 + 多窗口修复 + PPTX 背景完整链路 + 大文件闪退修复
+**当前阶段**：v1.1.6 稳定化 + 新功能迭代 — PDF→DOCX 图片嵌入已打通（operator list CTM 提取 + 600×800 像素归一化）
 
 | 项 | 值 |
 |---|---|
-| 测试基线 | **104/104 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **09:43**（已装） |
+| 测试基线 | **105/105 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **09:43**（已装；图片嵌入改动未打包，需用户实测后重打） |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
-| 台账状态 | decisions.md 10+ 条（含顶部导航/多窗口/PPTX背景三轮修复），issues.md L1 聚合坑 |
+| 台账状态 | decisions.md 38 条（最新：PDF→DOCX 图片嵌入），issues.md 25 条（最新 L2：图片专属页丢弃已修✅） |
 
 ---
 
@@ -26,7 +26,7 @@ Get-Content .trae/memory/台账/context.md -TotalCount 25
 (Get-Content .trae/memory/台账/issues.md -Raw) -split '---' | Select-Object -First 4
 (Get-Content .trae/memory/台账/decisions.md -Raw) -split '---' | Select-Object -First 4
 
-# 1) 跑测试（必须 104/104 绿，红了先修）
+# 1) 跑测试（必须 105/105 绿，红了先修）
 node scripts/run-tests.js
 
 # 2) 首次换电脑

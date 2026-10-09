@@ -149,9 +149,82 @@
             h: fontH / vp.height
           });
         }
+        // 图片提取（失败不阻断文本，单页图片异常只丢图不丢字）
+        try {
+          const imgSpans = await extractPageImages(page, vp);
+          for (const s of imgSpans) spans.push(s);
+        } catch (e) { /* 单页图片提取失败静默跳过 */ }
         pages.push(spans);
       }
       return pages;
+    }
+
+    // —— 图片提取（operator list 遍历 → {image, x, y, w, h} spans）——
+    // 原理：paintImageXObject 把图片画在 CTM 下的单位正方形上，
+    // 跟踪 save/restore/transform 栈算出每张图在页面用户空间的矩形，
+    // 归一化后与文本 span 同坐标系（x=e/vpW, y=f/vpH），供 pdfToDocxHtml 穿插排版。
+    // 像素归一化到 600×800 页网格（与 pdf-convert 的 wAttr/hAttr 约定一致），
+    // 保证 buildDocx 从 PNG 头读到的尺寸就是目标显示尺寸。
+    async function extractPageImages(page, vp) {
+      const out = [];
+      const U = OS.PdfConvert && OS.PdfConvert._imgUtils;
+      if (!U || !global.pdfjsLib || !global.pdfjsLib.OPS) return out;
+      const OPS = global.pdfjsLib.OPS;
+      const opList = await page.getOperatorList();
+      let ctm = [1, 0, 0, 1, 0, 0];
+      const stack = [];
+      for (let i = 0; i < opList.fnArray.length; i++) {
+        const fn = opList.fnArray[i];
+        const args = opList.argsArray[i];
+        if (fn === OPS.save) { stack.push(ctm.slice()); continue; }
+        if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); continue; }
+        if (fn === OPS.transform) { ctm = U.multiplyM(args, ctm); continue; }
+        const isXObj = fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject;
+        const isInline = fn === OPS.paintInlineImageXObject;
+        if (!isXObj && !isInline) continue;
+        const rect = U.imageRect(ctm, vp.width, vp.height);
+        if (!rect) continue;
+        const px = U.targetPx(rect.w, rect.h);
+        if (!px) continue; // 小图标/项目符号跳过
+        try {
+          // XObject：args[0] 是 objId，从 page.objs 取（callback 形式等未解析对象）
+          // Inline：args[0] 直接是图像对象
+          const img = isInline ? args[0] : await resolvePageObj(page, args[0]);
+          if (!img) continue;
+          const dataUrl = imageObjToDataUrl(img, px.tw, px.th);
+          if (dataUrl) out.push({ image: dataUrl, x: rect.x, y: rect.y, w: rect.w, h: rect.h });
+        } catch (e) { /* 单张图失败跳过 */ }
+      }
+      return out;
+    }
+
+    // page.objs.get：优先同步取，未解析则 callback 等，10s 超时兜底防挂死
+    function resolvePageObj(page, objId) {
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), 10000);
+        try {
+          const v = page.objs.get(objId, (d) => { clearTimeout(timer); resolve(d || null); });
+          if (v) { clearTimeout(timer); resolve(v); }
+        } catch (e) { clearTimeout(timer); resolve(null); }
+      });
+    }
+
+    // pdf.js 图像对象 → PNG dataURL（缩放到 tw×th；bitmap 直接画，data 按 kind 转 RGBA）
+    function imageObjToDataUrl(img, tw, th) {
+      const c = document.createElement("canvas");
+      c.width = tw; c.height = th;
+      const ctx = c.getContext("2d");
+      if (img.bitmap) {
+        ctx.drawImage(img.bitmap, 0, 0, tw, th);
+        return c.toDataURL("image/png");
+      }
+      const rgba = OS.PdfConvert._imgUtils.expandRGBA(img);
+      if (!rgba) return null;
+      const nc = document.createElement("canvas");
+      nc.width = img.width; nc.height = img.height;
+      nc.getContext("2d").putImageData(new ImageData(rgba, img.width, img.height), 0, 0);
+      ctx.drawImage(nc, 0, 0, tw, th);
+      return c.toDataURL("image/png");
     }
 
     // —— 批注覆盖层 ——

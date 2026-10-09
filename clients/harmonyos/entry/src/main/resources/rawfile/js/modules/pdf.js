@@ -7,6 +7,8 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-fileassoc-hardcoded-absolute] 预防: 同 shell.js
+  // TODO: [坑-electron-csp-dataurl] 预防: CSP img-src 保持 data: blob: 不删
   const OS = global.OS;
   const Anno = OS.PdfAnno;
   const PdfText = OS.PdfText;
@@ -37,7 +39,12 @@
           <p class="muted" style="font-size:11px;margin-top:8px">合并/拆分支持常见 PDF（1.4 风格内联对象）。</p>
           <hr style="border:none;border-top:1px solid var(--rule);margin:10px 0">
           <button class="btn" data-act="pdf-dark" style="width:100%;display:flex;justify-content:space-between;align-items:center"><span>🌙 夜间模式</span><span class="pdf-dark-indicator" style="width:28px;height:16px;border-radius:8px;background:var(--rule);position:relative;transition:background .2s"><span style="position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;top:2px;left:2px;transition:left .2s"></span></span></button>
-          <button class="btn primary" data-act="toolbox" style="width:100%">🛠 页面工具箱（旋转 / 删除 / OCR…）</button>
+           <button class="btn" data-act="export-word" style="width:100%;margin-bottom:6px">📄 导出 Word (.docx)</button>
+            <button class="btn" data-act="export-excel" style="width:100%;margin-bottom:6px">📊 导出 Excel (.xlsx)</button>
+            <button class="btn" data-act="export-txt" style="width:100%;margin-bottom:6px">📝 导出纯文本 (.txt)</button>
+            <button class="btn" data-act="export-md" style="width:100%;margin-bottom:6px">📋 导出 Markdown (.md)</button>
+            <button class="btn" data-act="ocr-page" style="width:100%;margin-bottom:8px">🔍 OCR 识别当前页（扫描件→文字）</button>
+           <button class="btn primary" data-act="toolbox" style="width:100%">🛠 页面工具箱（旋转 / 删除 / OCR…）</button>
           <p class="muted" style="font-size:11px;margin-top:4px">当前 PDF 会自动载入 PDF 工具箱（30+ 工具全在本地跑）。</p>
           <div class="pdf-thumbs-toggle" style="cursor:pointer;font-size:12px;color:var(--muted);padding:4px 0;display:flex;justify-content:space-between;align-items:center">
             <span>🖼 页面缩略图</span><span class="thumbs-count"></span>
@@ -65,6 +72,7 @@
     wrap.appendChild(annoFileInput);
 
     let pdfDoc = null, zoom = 1, textIndex = { pages: [] }, pageDims = {};
+    let _pages = null;              // 每页的 spans 数组（textContent 提取结果，供导出 Word 用）
     let tool = "select";           // select | highlight | pen | note | rect
     // 性能优化：renderAll 取消标记 + 缩略图缓存
     let _renderCancel = 0;         // 每次 renderAll 开始时 +1，旧渲染检测到不匹配就放弃
@@ -115,7 +123,108 @@
         pageInput.max = pdfDoc.numPages;
         renderAll();
         OS.toast(`已打开，共 ${pdfDoc.numPages} 页`, "ok");
+        // 后台预提取 textContent spans，供导出 Word 用（失败不阻断阅读）
+        extractAllPagesSpans().then(ps => { _pages = ps; }).catch(() => {});
       } catch (e) { OS.toast("PDF 解析失败：" + e.message, "err"); emptyState(); }
+    }
+
+    // —— 文本提取（textContent → {text, x, y, w, h} spans 数组）——
+    async function extractAllPagesSpans() {
+      if (!pdfDoc) return null;
+      const pages = [];
+      for (let p = 1; p <= pdfDoc.numPages; p++) {
+        const page = await pdfDoc.getPage(p);
+        const vp = page.getViewport({ scale: 1.0 });
+        const tc = await page.getTextContent();
+        const spans = [];
+        for (const it of tc.items) {
+          if (!it.str || !it.str.trim()) continue;
+          const t = it.transform || [1, 0, 0, 1, 0, 0];
+          const fontH = Math.abs(t[3]) || 10;
+          spans.push({
+            text: it.str,
+            x: (t[4] || 0) / vp.width,
+            y: (t[5] || 0) / vp.height,
+            w: (it.width || fontH) / vp.width,
+            h: fontH / vp.height
+          });
+        }
+        // 图片提取（失败不阻断文本，单页图片异常只丢图不丢字）
+        try {
+          const imgSpans = await extractPageImages(page, vp);
+          for (const s of imgSpans) spans.push(s);
+        } catch (e) { /* 单页图片提取失败静默跳过 */ }
+        pages.push(spans);
+      }
+      return pages;
+    }
+
+    // —— 图片提取（operator list 遍历 → {image, x, y, w, h} spans）——
+    // 原理：paintImageXObject 把图片画在 CTM 下的单位正方形上，
+    // 跟踪 save/restore/transform 栈算出每张图在页面用户空间的矩形，
+    // 归一化后与文本 span 同坐标系（x=e/vpW, y=f/vpH），供 pdfToDocxHtml 穿插排版。
+    // 像素归一化到 600×800 页网格（与 pdf-convert 的 wAttr/hAttr 约定一致），
+    // 保证 buildDocx 从 PNG 头读到的尺寸就是目标显示尺寸。
+    async function extractPageImages(page, vp) {
+      const out = [];
+      const U = OS.PdfConvert && OS.PdfConvert._imgUtils;
+      if (!U || !global.pdfjsLib || !global.pdfjsLib.OPS) return out;
+      const OPS = global.pdfjsLib.OPS;
+      const opList = await page.getOperatorList();
+      let ctm = [1, 0, 0, 1, 0, 0];
+      const stack = [];
+      for (let i = 0; i < opList.fnArray.length; i++) {
+        const fn = opList.fnArray[i];
+        const args = opList.argsArray[i];
+        if (fn === OPS.save) { stack.push(ctm.slice()); continue; }
+        if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); continue; }
+        if (fn === OPS.transform) { ctm = U.multiplyM(args, ctm); continue; }
+        const isXObj = fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject;
+        const isInline = fn === OPS.paintInlineImageXObject;
+        if (!isXObj && !isInline) continue;
+        const rect = U.imageRect(ctm, vp.width, vp.height);
+        if (!rect) continue;
+        const px = U.targetPx(rect.w, rect.h);
+        if (!px) continue; // 小图标/项目符号跳过
+        try {
+          // XObject：args[0] 是 objId，从 page.objs 取（callback 形式等未解析对象）
+          // Inline：args[0] 直接是图像对象
+          const img = isInline ? args[0] : await resolvePageObj(page, args[0]);
+          if (!img) continue;
+          const dataUrl = imageObjToDataUrl(img, px.tw, px.th);
+          if (dataUrl) out.push({ image: dataUrl, x: rect.x, y: rect.y, w: rect.w, h: rect.h });
+        } catch (e) { /* 单张图失败跳过 */ }
+      }
+      return out;
+    }
+
+    // page.objs.get：优先同步取，未解析则 callback 等，10s 超时兜底防挂死
+    function resolvePageObj(page, objId) {
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), 10000);
+        try {
+          const v = page.objs.get(objId, (d) => { clearTimeout(timer); resolve(d || null); });
+          if (v) { clearTimeout(timer); resolve(v); }
+        } catch (e) { clearTimeout(timer); resolve(null); }
+      });
+    }
+
+    // pdf.js 图像对象 → PNG dataURL（缩放到 tw×th；bitmap 直接画，data 按 kind 转 RGBA）
+    function imageObjToDataUrl(img, tw, th) {
+      const c = document.createElement("canvas");
+      c.width = tw; c.height = th;
+      const ctx = c.getContext("2d");
+      if (img.bitmap) {
+        ctx.drawImage(img.bitmap, 0, 0, tw, th);
+        return c.toDataURL("image/png");
+      }
+      const rgba = OS.PdfConvert._imgUtils.expandRGBA(img);
+      if (!rgba) return null;
+      const nc = document.createElement("canvas");
+      nc.width = img.width; nc.height = img.height;
+      nc.getContext("2d").putImageData(new ImageData(rgba, img.width, img.height), 0, 0);
+      ctx.drawImage(nc, 0, 0, tw, th);
+      return c.toDataURL("image/png");
     }
 
     // —— 批注覆盖层 ——
@@ -684,6 +793,107 @@
         }
         OS.toast("已拆分为 " + outs.filter(o => o && o.length).length + " 份", "ok");
       } catch (e) { OS.toast("拆分失败：" + e.message, "err"); }
+    });
+
+    // —— 导出 Word ——
+    wrap.querySelector('[data-act="export-word"]').addEventListener("click", async () => {
+      if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
+      if (!OS.PdfConvert) { OS.toast("PDF 转换引擎未加载", "err"); return; }
+      if (!OS.Exporter) { OS.toast("导出引擎未加载", "err"); return; }
+      try {
+        // 若后台预提取还没跑完，同步等一下
+        if (!_pages) { _pages = await extractAllPagesSpans(); }
+        if (!_pages || !_pages.length) { OS.toast("文本提取失败", "err"); return; }
+        OS.toast("正在转换 Word…", "info");
+        const html = OS.PdfConvert.pdfToDocxHtml(_pages);
+        const zip = OS.Exporter.buildDocx({ type: "writer", name: (doc.name || "PDF 转换").replace(/\.pdf$/i, ""), data: { html } });
+        const blob = await zip.generateAsync({ type: "blob" });
+        OS.util.download(blob, (doc.name || "PDF 转换").replace(/\.pdf$/i, "") + ".docx");
+        OS.toast("已导出 Word", "ok");
+      } catch (e) { OS.toast("导出 Word 失败：" + e.message, "err"); }
+    });
+
+    // —— 导出 Excel (真 .xlsx via buildXlsx) ——
+    wrap.querySelector('[data-act="export-excel"]').addEventListener("click", async () => {
+      if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
+      if (!OS.PdfConvert) { OS.toast("PDF 转换引擎未加载", "err"); return; }
+      if (!OS.Exporter) { OS.toast("导出引擎未加载", "err"); return; }
+      try {
+        if (!_pages) { _pages = await extractAllPagesSpans(); }
+        if (!_pages || !_pages.length) { OS.toast("文本提取失败", "err"); return; }
+        OS.toast("正在转换 Excel…", "info");
+        const rows = OS.PdfConvert.pdfToExcelRows(_pages, { pageMarkers: true });
+        if (!rows.length) { OS.toast("无文本可导出", "warn"); return; }
+        const cells = OS.PdfConvert.rowsToCells(rows);
+        const base = (doc.name || "PDF 转换").replace(/\.pdf$/i, "");
+        const zip = OS.Exporter.buildXlsx({ name: base, data: { sheets: [{ name: "Sheet1", cells }] } });
+        const blob = await zip.generateAsync({ type: "blob" });
+        OS.util.download(blob, base + ".xlsx");
+        OS.toast("已导出 Excel .xlsx（" + rows.length + " 行）", "ok");
+      } catch (e) { OS.toast("导出 Excel 失败：" + e.message, "err"); }
+    });
+
+    // —— 导出纯文本 (.txt) ——
+    wrap.querySelector('[data-act="export-txt"]').addEventListener("click", async () => {
+      if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
+      if (!OS.PdfConvert) { OS.toast("PDF 转换引擎未加载", "err"); return; }
+      try {
+        if (!_pages) { _pages = await extractAllPagesSpans(); }
+        if (!_pages || !_pages.length) { OS.toast("文本提取失败", "err"); return; }
+        OS.toast("正在转换纯文本…", "info");
+        const text = OS.PdfConvert.pdfToText(_pages, { pageMarkers: true });
+        if (!text) { OS.toast("无文本可导出", "warn"); return; }
+        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+        const base = (doc.name || "PDF 转换").replace(/\.pdf$/i, "");
+        OS.util.download(blob, base + ".txt");
+        OS.toast("已导出纯文本（" + text.length + " 字符）", "ok");
+      } catch (e) { OS.toast("导出纯文本失败：" + e.message, "err"); }
+    });
+
+    // —— 导出 Markdown (.md) ——
+    wrap.querySelector('[data-act="export-md"]').addEventListener("click", async () => {
+      if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
+      if (!OS.PdfConvert) { OS.toast("PDF 转换引擎未加载", "err"); return; }
+      try {
+        if (!_pages) { _pages = await extractAllPagesSpans(); }
+        if (!_pages || !_pages.length) { OS.toast("文本提取失败", "err"); return; }
+        OS.toast("正在转换 Markdown…", "info");
+        const md = OS.PdfConvert.pdfToMarkdown(_pages);
+        if (!md) { OS.toast("无文本可导出", "warn"); return; }
+        const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+        const base = (doc.name || "PDF 转换").replace(/\.pdf$/i, "");
+        OS.util.download(blob, base + ".md");
+        OS.toast("已导出 Markdown（" + md.length + " 字符）", "ok");
+      } catch (e) { OS.toast("导出 Markdown 失败：" + e.message, "err"); }
+    });
+
+    // —— OCR 识别当前页（扫描件→文字）——
+    wrap.querySelector('[data-act="ocr-page"]').addEventListener("click", async () => {
+      if (!pdfDoc) { OS.toast("请先打开一个 PDF 再 OCR", "warn"); return; }
+      if (!OS.PDFOCR) { OS.toast("OCR 引擎未加载", "err"); return; }
+      try {
+        // 从视口算出当前页号（哪个 .pdf-page-box 可见）
+        const boxes = Array.from(wrap.querySelectorAll(".pdf-page-box"));
+        const viewTop = wrap.scrollTop;
+        const viewBot = viewTop + wrap.clientHeight;
+        let curPage = 1;
+        for (const box of boxes) {
+          const top = box.offsetTop;
+          if (top <= viewTop + 50) curPage = +box.dataset.p;
+          if (top > viewTop && top < viewBot) { curPage = +box.dataset.p; break; }
+        }
+        const canvas = wrap.querySelector('.pdf-page[data-p="' + curPage + '"]');
+        if (!canvas) { OS.toast("请先滚动到要 OCR 的页面", "warn"); return; }
+        window.__pdfCurrentPageNum = curPage;
+        OS.toast("正在 OCR 第 " + curPage + " 页（tesseract 引擎首次加载需几秒）…", "info");
+        const result = await OS.PDFOCR.recognizePage({ canvas, lang: "eng+chi_sim" });
+        if (!result.text) { OS.toast("OCR 未识别到文字", "warn"); return; }
+        // 下载为 .txt
+        const blob = new Blob([result.text], { type: "text/plain;charset=utf-8" });
+        const base = (doc.name || "PDF").replace(/\.pdf$/i, "");
+        OS.util.download(blob, base + "_ocr_p" + curPage + ".txt");
+        OS.toast("OCR 完成（置信 " + (result.confidence || "?") + "%，" + result.text.length + " 字），已下载", "ok");
+      } catch (e) { OS.toast("OCR 失败：" + e.message, "err"); }
     });
 
     // —— PDF 夜间模式（暗模式阅读器反色）——
@@ -1737,81 +1947,76 @@
       } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
     }
 
-    // —— PDF → DOCX 文本提取（轻量骨架）：复用已建立的文本层索引，聚类成行生成可编辑 DOCX ——
+    // —— PDF → DOCX：优先 _pages（新版），fallback textIndex.pages（旧版）——
     async function exportAsWord() {
       if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
       try {
-        if (!textIndex || !textIndex.pages || !textIndex.pages.length) {
-          OS.toast("当前文档尚未建立文本索引，请等待渲染完成", "warn"); return;
-        }
-        if (!OS.PdfConvert || typeof OS.PdfConvert.pdfToDocx !== "function") {
-          OS.toast("转换组件未就绪", "err"); return;
-        }
-        const zip = OS.PdfConvert.pdfToDocx(textIndex.pages, doc.name || "PDF 转换");
+        if (!_pages || !_pages.length) { _pages = await extractAllPagesSpans(); }
+        const src = (_pages && _pages.length) ? _pages : textIndex.pages;
+        if (!src || !src.length) { OS.toast("文本提取失败", "err"); return; }
+        if (!OS.PdfConvert || typeof OS.PdfConvert.pdfToDocx !== "function") { OS.toast("转换组件未就绪", "err"); return; }
+        const zip = OS.PdfConvert.pdfToDocx(src, doc.name || "PDF 转换");
         if (!zip) { OS.toast("转换失败：导出器未就绪", "err"); return; }
         const blob = await zip.generateAsync({ type: "blob" });
         const base = (doc.name || "document").replace(/\.pdf$/i, "");
         OS.util.download(blob, base + ".docx");
-        OS.toast("已导出为可编辑 DOCX（文本提取，版面还原有限）", "ok");
-    } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
-  }
+        OS.toast("已导出为 Word DOCX", "ok");
+      } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
+    }
 
-  // —— PDF → 纯文本：复用文本层索引，拼接各页文本（可选页码分隔）——
-  async function exportAsText() {
-    if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
-    try {
-      if (!textIndex || !textIndex.pages || !textIndex.pages.length) {
-        OS.toast("当前文档尚未建立文本索引，请等待渲染完成", "warn"); return;
-      }
-      if (!OS.PdfConvert || typeof OS.PdfConvert.pdfToText !== "function") {
-        OS.toast("转换组件未就绪", "err"); return;
-      }
-      const text = OS.PdfConvert.pdfToText(textIndex.pages, { pageMarkers: true });
-      if (!text) { OS.toast("无文本可导出", "warn"); return; }
-      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-      const base = (doc.name || "document").replace(/\.pdf$/i, "");
-      OS.util.download(blob, base + ".txt");
-      OS.toast("已导出为纯文本（" + text.length + " 字符）", "ok");
-    } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
-  }
+    // —— PDF → 纯文本：优先 _pages ——
+    async function exportAsText() {
+      if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
+      try {
+        if (!_pages || !_pages.length) { _pages = await extractAllPagesSpans(); }
+        const src = (_pages && _pages.length) ? _pages : textIndex.pages;
+        if (!src || !src.length) { OS.toast("文本提取失败", "err"); return; }
+        if (!OS.PdfConvert || typeof OS.PdfConvert.pdfToText !== "function") { OS.toast("转换组件未就绪", "err"); return; }
+        const text = OS.PdfConvert.pdfToText(src, { pageMarkers: true });
+        if (!text) { OS.toast("无文本可导出", "warn"); return; }
+        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+        const base = (doc.name || "document").replace(/\.pdf$/i, "");
+        OS.util.download(blob, base + ".txt");
+        OS.toast("已导出为纯文本（" + text.length + " 字符）", "ok");
+      } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
+    }
 
-  // —— PDF → Markdown：复用文本层索引，大字号行判 #/## 标题 ——
-  async function exportAsMarkdown() {
-    if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
-    try {
-      if (!textIndex || !textIndex.pages || !textIndex.pages.length) {
-        OS.toast("当前文档尚未建立文本索引，请等待渲染完成", "warn"); return;
-      }
-      if (!OS.PdfConvert || typeof OS.PdfConvert.pdfToMarkdown !== "function") {
-        OS.toast("转换组件未就绪", "err"); return;
-      }
-      const md = OS.PdfConvert.pdfToMarkdown(textIndex.pages);
-      if (!md) { OS.toast("无文本可导出", "warn"); return; }
-      const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
-      const base = (doc.name || "document").replace(/\.pdf$/i, "");
-      OS.util.download(blob, base + ".md");
-      OS.toast("已导出为 Markdown（" + md.length + " 字符）", "ok");
-    } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
-  }
+    // —— PDF → Markdown：优先 _pages ——
+    async function exportAsMarkdown() {
+      if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
+      try {
+        if (!_pages || !_pages.length) { _pages = await extractAllPagesSpans(); }
+        const src = (_pages && _pages.length) ? _pages : textIndex.pages;
+        if (!src || !src.length) { OS.toast("文本提取失败", "err"); return; }
+        if (!OS.PdfConvert || typeof OS.PdfConvert.pdfToMarkdown !== "function") { OS.toast("转换组件未就绪", "err"); return; }
+        const md = OS.PdfConvert.pdfToMarkdown(src);
+        if (!md) { OS.toast("无文本可导出", "warn"); return; }
+        const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+        const base = (doc.name || "document").replace(/\.pdf$/i, "");
+        OS.util.download(blob, base + ".md");
+        OS.toast("已导出为 Markdown（" + md.length + " 字符）", "ok");
+      } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
+    }
 
-  // —— PDF → Excel(CSV)：复用文本层索引，按行/列启发式提取为 CSV ——
-  async function exportAsExcel() {
-    if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
-    try {
-      if (!textIndex || !textIndex.pages || !textIndex.pages.length) {
-        OS.toast("当前文档尚未建立文本索引，请等待渲染完成", "warn"); return;
-      }
-      if (!OS.PdfConvert || typeof OS.PdfConvert.pdfToExcel !== "function") {
-        OS.toast("转换组件未就绪", "err"); return;
-      }
-      const csv = OS.PdfConvert.pdfToExcel(textIndex.pages, { pageMarkers: true });
-      if (!csv) { OS.toast("无文本可导出", "warn"); return; }
-      const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-      const base = (doc.name || "document").replace(/\.pdf$/i, "");
-      OS.util.download(blob, base + ".csv");
-      OS.toast("已导出为表格 CSV（Excel 可直接打开，含 " + csv.split("\n").filter(Boolean).length + " 行）", "ok");
-    } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
-  }
+    // —— PDF → Excel：优先 _pages + 升级为真 .xlsx（与侧边栏按钮一致）——
+    async function exportAsExcel() {
+      if (!pdfDoc) { OS.toast("请先打开一个 PDF 再导出", "warn"); return; }
+      try {
+        if (!_pages || !_pages.length) { _pages = await extractAllPagesSpans(); }
+        const src = (_pages && _pages.length) ? _pages : textIndex.pages;
+        if (!src || !src.length) { OS.toast("文本提取失败", "err"); return; }
+        if (!OS.PdfConvert || !OS.PdfConvert.pdfToExcelRows || !OS.Exporter) { OS.toast("转换组件未就绪", "err"); return; }
+        OS.toast("正在转换 Excel…", "info");
+        const rows = OS.PdfConvert.pdfToExcelRows(src, { pageMarkers: true });
+        if (!rows.length) { OS.toast("无文本可导出", "warn"); return; }
+        const cells = OS.PdfConvert.rowsToCells(rows);
+        const base = (doc.name || "document").replace(/\.pdf$/i, "");
+        const zip = OS.Exporter.buildXlsx({ name: base, data: { sheets: [{ name: "Sheet1", cells }] } });
+        const blob = await zip.generateAsync({ type: "blob" });
+        OS.util.download(blob, base + ".xlsx");
+        OS.toast("已导出 Excel .xlsx（" + rows.length + " 行）", "ok");
+      } catch (e) { OS.toast("导出失败：" + e.message, "err"); }
+    }
 
   function dataUrlToBlob(u) { const [h, b] = u.split(","); const mime = /:(.*?);/.exec(h)[1]; const bin = atob(b); const arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); return new Blob([arr], { type: mime }); }
 

@@ -4,6 +4,7 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-electron-contextIsolation-window] 预防: 第三方库引用用 window→globalThis→global 顺序，别假设 global === window
   const OS = global.OS;
 
   /* ---------------- 公式引擎 ---------------- */

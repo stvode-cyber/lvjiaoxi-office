@@ -1,7 +1,9 @@
 {
-  "version": "1.1.4",
-  "publishedAt": "2026-09-25",
+  "version": "1.1.6",
+  "publishedAt": "2026-10-08",
   "notes": [
-    "OS.Versions 历史版本快照 UI 接入 + 测试 95 套件 0 失败"
+    "PDF OCR 扫描件识别（tesseract.js 7.0.0 + eng+chi_sim）",
+    "侧边栏 OCR 按钮 + LazyLib 懒加载",
+    "零原生依赖（纯 JS + WASM）"
   ]
 }

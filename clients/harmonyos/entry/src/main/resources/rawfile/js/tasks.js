@@ -8,6 +8,8 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-fileassoc-hardcoded-absolute] 预防: 同 shell.js
+  // TODO: [坑-tasks-settle-step] 预防: Tasks.run settle 回调里显式 reporter.step 刷 100%
   const OS = global.OS || (global.OS = {});
 
   const tasks = [];          // 全部任务（含已完成，用于面板回溯）

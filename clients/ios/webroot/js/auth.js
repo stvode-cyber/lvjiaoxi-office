@@ -14,6 +14,8 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-Promise-无timeout] 预防: 登录 Promise 链首尾加 _withTimeout 兜底
+  // TODO: [坑-fileassoc-hardcoded-absolute] 预防: 同 shell.js
   const OS = global.OS || (global.OS = {});
 
   // TODO: [坑-os-undefined] 预防：跨模块调用前必须 await OS.ready()；永不 hang —— 即使 store.init 失败也在 5s 后 auto-resolve

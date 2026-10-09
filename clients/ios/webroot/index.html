@@ -4,8 +4,11 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; font-src 'self' data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="x-app-version" content="1.1.4">
+  <meta name="x-app-version" content="1.1.6">
   <title>绿角犀 Office · 跨平台办公套件</title>
+  <!-- TODO: [坑-order-inventory-approval-residue] 预防: 定期 grep 残留模块名 -->
+  <!-- TODO: [坑-electron-csp-dataurl] 预防: CSP img-src 保持 data: blob: 不删 -->
+  <!-- TODO: [坑-powershell-batch-todo-newline] 预防: 批量改多文件别用 PowerShell foreach + Set-Content，用 Edit 工具逐文件替换 -->
   <meta name="description" content="兼容 OOXML 的跨平台国产办公套件 · 模块化轻量部署，全能力可选">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg">
@@ -100,13 +103,18 @@
 </head>
 <body>
   <div id="app">
-    <!-- 标题栏 -->
+    <!-- 超级顶栏：品牌 + 主导航 + 快速操作 + 文档标题 + 工具按钮 -->
     <header class="titlebar">
       <div class="tb-left">
         <div class="brand">
           <span class="brand-mark">绿角犀</span>
           <span class="brand-sub">Office</span>
         </div>
+        <!-- 主导航已合并进 titlebar，消除一整行 -->
+        <nav class="app-nav" id="app-nav">
+          <button class="app-nav-item active" data-view="workbench">工作台</button>
+          <button class="app-nav-item" data-view="profile">我的</button>
+        </nav>
         <span class="qa-sep"></span>
         <button class="icon-btn" id="qa-save" title="保存 (Ctrl/Cmd+S)"></button>
         <button class="icon-btn" id="qa-undo" title="撤销 (Ctrl/Cmd+Z)"></button>
@@ -124,11 +132,8 @@
       </div>
     </header>
 
-    <!-- 主导航：工作台 / 我的 -->
-    <nav class="app-nav" id="app-nav" aria-label="主导航">
-      <button class="app-nav-item active" data-view="workbench">工作台</button>
-      <button class="app-nav-item" data-view="profile">我的</button>
-    </nav>
+    <!-- 主导航已合并进 titlebar；此 div 保留但始终 hidden，供 shell.js 复用 id="app-nav" -->
+    <nav class="app-nav" id="app-nav-standalone" hidden aria-label="主导航"></nav>
 
     <!-- 功能区（仅编辑态显示） -->
     <div class="ribbon-host" id="ribbon-host" hidden></div>
@@ -323,6 +328,7 @@
   <script  src="js/import-ooxml.js" defer></script>
   <script  src="js/export-ooxml.js" defer></script>
   <script  src="js/modules/pdf-convert.js" defer></script>
+  <script  src="js/modules/pdf-ocr.js" defer></script>
   <script  src="js/tasks.js" defer></script>
   <script  src="js/ai.js" defer></script>
   <script  src="js/ai-selbar.js" defer></script>

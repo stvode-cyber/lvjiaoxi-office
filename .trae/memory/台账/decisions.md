@@ -1,6 +1,3 @@
-﻿
----
-
 
 ---
 
@@ -19,6 +16,24 @@
 
 ---
 
+
+---
+
+
+---
+
+## [2026-10-09] PDF→DOCX 图片嵌入：pdf.js operator list 提取 + 像素归一化 600×800 网格
+
+- **选了啥**：extractAllPagesSpans 增加图片提取 — getOperatorList 遍历 paintImageXObject/paintJpegXObject/paintInlineImageXObject，save/restore/transform 栈算 CTM → imageRect 归一化（与文本 span 同坐标系 x=e/vpW, y=f/vpH）→ Canvas 缩放转 PNG dataURL；纯函数沉淀 OS.PdfConvert._imgUtils（multiplyM/imageRect/expandRGBA/targetPx）
+- **为啥**：下游链路早已就绪（pdfToDocxHtml 图片分支 + buildDocx drawingRun 从 PNG 头读尺寸），唯独 extractAllPagesSpans 只提文本不提取图片 → 图片分支是死代码；项目记忆列为下一个开发任务
+- **关键设计**：
+  1. 像素归一化到 600×800 页网格（与 pdf-convert wAttr/hAttr 约定一致）→ buildDocx 从 PNG 头读到的就是目标显示尺寸，exporter 零改动
+  2. 小图过滤（<8px 图标/项目符号跳过）+ 1600px 上限防 DOCX 爆体积
+  3. page.objs.get callback 形式等未解析对象 + 10s 超时兜底防挂死
+  4. 每页/每图独立 try/catch — 丢图不丢字（遵 L1 electron 总预防规则：绝不裸 await）
+- **已知边界**：Form XObject 内嵌套图片不递归；SMask 掩码图不特殊处理；多栏 y 序沿用 prose 既有约定
+- **关联文件**：app/js/modules/pdf.js L131-228, app/js/modules/pdf-convert.js L181+L327-402, app/sw.js CACHE v27→v28, _pdf_convert_image_test.js（30 断言）
+- **决策人**：用户拍板「按方案开始新功能迭代」
 
 ---
 

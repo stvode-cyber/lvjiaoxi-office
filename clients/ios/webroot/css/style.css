@@ -20,7 +20,7 @@
   --shadow:0 6.4px 14.4px rgba(0,0,0,.10),0 1.2px 3.6px rgba(0,0,0,.08);
   --shadow-lg:0 32px 64px rgba(0,0,0,.18),0 0 8px rgba(0,0,0,.06);
   --radius:4px;
-  --ribbon-h:72px; --tabstrip-h:32px; --title-h:46px; --status-h:26px;
+  --ribbon-h:36px; --tabstrip-h:24px; --title-h:40px; --status-h:26px;
   --font:"Segoe UI Variable","Segoe UI",-apple-system,BlinkMacSystemFont,"Microsoft YaHei","PingFang SC",Roboto,Helvetica,Arial,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
@@ -83,6 +83,16 @@ a{color:var(--accent)}
   font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px;
   background:var(--ok-soft);color:var(--ok);border:1px solid var(--ok);
 }
+/* 合并进 titlebar 的主导航：用父选择器覆盖 .app-nav 的 display:none */
+.tb-left .app-nav{display:flex!important;align-items:center;gap:1px;height:100%;padding:0;border-bottom:none;background:transparent}
+.tb-left .app-nav .app-nav-item{
+  font-size:12px;color:var(--muted);padding:0 10px;height:100%;
+  cursor:pointer;white-space:nowrap;border-radius:var(--radius);
+  display:inline-flex;align-items:center;background:transparent;border:0;
+}
+.tb-left .app-nav .app-nav-item:hover{color:var(--ink);background:var(--hover)}
+.tb-left .app-nav .app-nav-item.active{color:var(--accent);font-weight:600}
+.tb-left .app-nav .app-nav-item.active::after{display:none} /* titlebar 紧凑模式去掉下划线 */
 
 /* ============================================================
    按钮 (通用)
@@ -118,19 +128,19 @@ a{color:var(--accent)}
 .tab-file.active{box-shadow:inset 0 -3px 0 var(--accent);color:var(--accent)}
 
 /* 命令面板 */
-.ribbon-panel{display:flex;align-items:stretch;background:var(--bg2);border-bottom:1px solid var(--rule);padding:5px 6px;min-height:var(--ribbon-h);gap:0}
+.ribbon-panel{display:flex;align-items:stretch;background:var(--bg2);padding:2px 6px;min-height:var(--ribbon-h);gap:0}
 .ribbon-panel[hidden]{display:none}
-.rgroup{display:flex;flex-direction:column;justify-content:flex-end;padding:2px 12px 0;border-right:1px solid var(--rule)}
-.rgroup-body{display:flex;flex-wrap:wrap;align-content:flex-end;gap:2px;max-width:248px}
-.rgroup-cap{font-size:10.5px;color:var(--muted);text-align:center;padding-top:5px;white-space:nowrap;line-height:1;text-transform:uppercase;letter-spacing:.04em}
+.rgroup{display:flex;flex-direction:column;justify-content:center;padding:0 8px;border-right:1px solid var(--rule)}
+.rgroup-body{display:flex;flex-wrap:nowrap;align-items:center;gap:1px}
+.rgroup-cap{display:none} /* 紧凑模式隐藏分组底注（"幻灯片""放映"等） */
 .rgroup.rgroup-end{border-right:none}
 .rsep{width:1px;align-self:stretch;background:var(--rule);margin:4px 5px}
 
-/* 命令按钮（图标 + 底注） */
+/* 命令按钮（紧凑模式：图标 + 小字） */
 .rbtn{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  min-width:42px;padding:4px 7px;border-radius:var(--radius);
-  background:transparent;color:var(--ink);font-size:11px;line-height:1.1;transition:.1s;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  min-width:36px;padding:2px 5px;border-radius:var(--radius);
+  background:transparent;color:var(--ink);font-size:10px;line-height:1.1;transition:.1s;
 }
 .rbtn:hover{background:var(--hover)}
 .rbtn:active{background:var(--hover2)}
@@ -687,7 +697,7 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
 .pres-thumb.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 .pres-thumb .tnum{position:absolute;top:4px;left:6px;font-size:11px;color:var(--muted);font-weight:700}
 .pres-canvas-area{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--bg);box-sizing:border-box}
-.pres-canvas{width:760px;height:427px;background:#fff;color:#111;box-shadow:var(--shadow);border-radius:2px;position:absolute;left:0;top:0;transform-origin:top left;font-family:var(--font);overflow:hidden}
+.pres-canvas{width:760px;height:427px;background:var(--bg);color:#111;box-shadow:var(--shadow);border-radius:2px;position:absolute;left:0;top:0;transform-origin:top left;font-family:var(--font);overflow:hidden}
 .pres-canvas .el{position:absolute;border:1px dashed transparent}
 .pres-canvas .el.selected{border-color:var(--accent)}
 .pres-canvas .el.text{padding:6px 8px;font-size:18px;line-height:1.4}
@@ -1120,8 +1130,10 @@ table.sheet td.cf-bar{background-repeat:no-repeat;background-position:left cente
    主导航（工作台 / 订单 / 库存 / 审批 / 我的）
    中性 chrome 底，激活项用品牌蓝下划线，简洁无杂饰
    =========================================================== */
-.app-nav{display:flex;align-items:center;gap:2px;height:38px;padding:0 12px;background:var(--chrome2);border-bottom:1px solid var(--rule);user-select:none}
-.app-nav-item{appearance:none;border:0;background:transparent;font:inherit;font-size:13.5px;color:var(--muted);padding:0 14px;height:100%;cursor:pointer;position:relative;white-space:nowrap;border-radius:2px}
+/* 主导航已合并进 titlebar (.tb-nav)，此独立行永久隐藏 */
+.app-nav{display:none!important}
+/* 保留的 .app-nav-item 样式是旧版独立行的，实际走 .tb-nav 下的覆盖 */
+.app-nav-item{appearance:none;border:0;background:transparent;font:inherit;font-size:13.5px;color:var(--muted);padding:0 14px;cursor:pointer;position:relative;white-space:nowrap;border-radius:2px}
 .app-nav-item:hover{color:var(--ink);background:var(--hover)}
 .app-nav-item.active{color:var(--ink);font-weight:600}
 .app-nav-item.active::after{content:"";position:absolute;left:14px;right:14px;bottom:0;height:2px;background:var(--accent);border-radius:1px}

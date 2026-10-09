@@ -305,3 +305,14 @@
   3. **临时兜底**：JS 创建元素时用内联 style 覆盖所有 CSS class 的冲突属性
 - **踩坑次数**：这是 renderSlide 第 4 次修改。每次都在 CSS class 复用上翻车
 - **关联文件**：app/js/modules/presentation.js renderSlide + app/css/style.css L690
+
+---
+
+## [P2] [L2|pdf-img-only-page-dropped] 图片专属页被 early-return 整页丢弃 ✅
+
+- **现象**：pdfToDocxHtml 对「只有图片没有文本/表格」的页整页 return，图片全部丢失
+- **根因**：early-return 条件 `!proseOnly.length && !tableSlots.length` 没把 imageSpans 算进去 — 图片分支上线前是死代码，该条件从未暴露
+- **修复**：条件补 `&& !imageSpans.length`
+- **预防**：给「备用分支」接数据时，先审计所有 early-return / 空值分支是否把新数据类型算进去
+- **关联文件**：app/js/modules/pdf-convert.js L181
+- **修复验证**：_pdf_convert_image_test.js「图片专属页保留 <img>」「第2页纯图片页保留且分页」2 断言，105/105 全绿

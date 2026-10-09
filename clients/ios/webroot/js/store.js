@@ -5,6 +5,7 @@
    ============================================================ */
 (function (global) {
   "use strict";
+  // TODO: [坑-fileassoc-hardcoded-absolute] 预防: 同 shell.js
   const OS = global.OS;
   const BASE = "lvjiaoxi-office";
   const STORE_DOCS = "docs";

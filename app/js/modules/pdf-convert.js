@@ -178,7 +178,7 @@
         proseOnly = insertPreserved(reordered, preserved);
       }
 
-      if (!proseOnly.length && !tableSlots.length) {
+      if (!proseOnly.length && !tableSlots.length && !imageSpans.length) {
         if (pi < pages.length - 1) blocks.push(`<div class="page-break"></div>`);
         return;
       }
@@ -323,6 +323,83 @@
     }
     return null;
   }
+
+  /* ============================================================
+     图片提取纯函数工具（pdf.js operator list → 图片 span）
+     供 app/js/modules/pdf.js extractAllPagesSpans 调用；
+     无 DOM/Canvas 依赖，node 直跑单测。
+     ============================================================ */
+
+  // PDF 仿射矩阵相乘 m1×m2（[a,b,c,d,e,f] 表示 |a c e; b d f|）
+  function multiplyM(m1, m2) {
+    return [
+      m1[0] * m2[0] + m1[2] * m2[1],
+      m1[1] * m2[0] + m1[3] * m2[1],
+      m1[0] * m2[2] + m1[2] * m2[3],
+      m1[1] * m2[2] + m1[3] * m2[3],
+      m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+      m1[1] * m2[4] + m1[3] * m2[5] + m1[5]
+    ];
+  }
+
+  // CTM → 归一化图片矩形（与文本 span 同坐标系：x=e/vpW, y=f/vpH）
+  // 图片画在单位正方形 [0,1]² 上：宽=|(a,b)|，高=|(c,d)|（取绝对值容忍翻转）
+  function imageRect(ctm, vpW, vpH) {
+    if (!ctm || ctm.length < 6 || !vpW || !vpH) return null;
+    const w = Math.hypot(ctm[0], ctm[1]) / vpW;
+    const h = Math.hypot(ctm[2], ctm[3]) / vpH;
+    const x = ctm[4] / vpW;
+    const y = ctm[5] / vpH;
+    if (!isFinite(x) || !isFinite(y) || !isFinite(w) || !isFinite(h)) return null;
+    if (w <= 0 || h <= 0) return null;
+    return { x, y, w, h };
+  }
+
+  // pdf.js 图像对象 {data,width,height,kind} → RGBA 字节流
+  // kind: 1=GRAYSCALE_1BPP（位打包） 2=RGB_24BPP 3=RGBA_32BPP；缺 kind 按数据长度推断
+  function expandRGBA(img) {
+    if (!img || !img.width || !img.height || !img.data || !img.data.length) return null;
+    const W = img.width, H = img.height, n = W * H;
+    const src = img.data;
+    let kind = img.kind;
+    if (!kind) {
+      if (src.length >= n * 4) kind = 3;
+      else if (src.length >= n * 3) kind = 2;
+      else kind = 1;
+    }
+    const out = new Uint8ClampedArray(n * 4);
+    if (kind === 3) {
+      out.set(src.length === n * 4 ? src : src.subarray(0, n * 4));
+    } else if (kind === 2) {
+      for (let i = 0, j = 0; i < n; i++, j += 3) {
+        out[i * 4] = src[j]; out[i * 4 + 1] = src[j + 1]; out[i * 4 + 2] = src[j + 2]; out[i * 4 + 3] = 255;
+      }
+    } else if (kind === 1) {
+      const stride = Math.ceil(W / 8);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const byte = src[y * stride + (x >> 3)] || 0;
+          const v = (byte & (0x80 >> (x & 7))) ? 255 : 0;
+          const o = (y * W + x) * 4;
+          out[o] = v; out[o + 1] = v; out[o + 2] = v; out[o + 3] = 255;
+        }
+      }
+    } else {
+      return null;
+    }
+    return out;
+  }
+
+  // 归一化尺寸 → 目标像素（600×800 页网格约定，和 pdfToDocxHtml 的 wAttr/hAttr 一致）
+  // 上限 1600px 防爆 DOCX 体积；小于 8px 的图标/项目符号返回 null（调用方跳过）
+  function targetPx(wNorm, hNorm) {
+    const tw = Math.round(wNorm * 600);
+    const th = Math.round(hNorm * 800);
+    if (!isFinite(tw) || !isFinite(th) || tw < 8 || th < 8) return null;
+    return { tw: Math.min(tw, 1600), th: Math.min(th, 1600) };
+  }
+
+  const _imgUtils = { multiplyM, imageRect, expandRGBA, targetPx };
 
   // pages → 纯文本（跨页行文本 join；opts.pageMarkers 时插入「--- 第 N 页 ---」分隔）
   function pdfToText(pages, opts) {
@@ -601,7 +678,8 @@
     detectListType,
     _esc: esc, _medianH: medianH, _splitCells: splitCells, _csvCell: csvCell,
     _estimateWidth: estimateWidth, _lineItems: lineItems, _isTableLike: isTableLike,
-    _detectSeparators: detectSeparators, _lineToCells: lineToCells, _clusterTableBlocks: clusterTableBlocks };
+    _detectSeparators: detectSeparators, _lineToCells: lineToCells, _clusterTableBlocks: clusterTableBlocks,
+    _imgUtils };
   OS.PdfConvert = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   return api;
