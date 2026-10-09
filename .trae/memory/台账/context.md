@@ -12,7 +12,8 @@
 | 项 | 值 |
 |---|---|
 | 测试基线 | **105/105 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **12:29**（含 PDF→DOCX 图片嵌入，待用户实机验证） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **12:29**（含 PDF→DOCX 图片嵌入，已发布到 VPS） |
+| 发布状态 | ✅ 已上传 lujax.fun/releases（sha256 双侧一致）；nginx 443 已补 /releases location，feed 恢复 200；本机网络 SNI 干扰拉不了（老毛病，其它网络正常） |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
 | 台账状态 | decisions.md 38 条（最新：PDF→DOCX 图片嵌入），issues.md 25 条（最新 L2：图片专属页丢弃已修✅） |
 

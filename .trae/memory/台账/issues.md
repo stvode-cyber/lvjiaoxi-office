@@ -316,3 +316,14 @@
 - **预防**：给「备用分支」接数据时，先审计所有 early-return / 空值分支是否把新数据类型算进去
 - **关联文件**：app/js/modules/pdf-convert.js L181
 - **修复验证**：_pdf_convert_image_test.js「图片专属页保留 <img>」「第2页纯图片页保留且分页」2 断言，105/105 全绿
+
+---
+
+## [P1] [L2|publish-chain-env-gaps] 发布链路环境三坑：bash 不在 PATH / rcprod 私钥缺失 / rsync 缺失 ✅
+
+- **现象**：publish-latest.sh 连跑三次失败：① PowerShell 无 bash（Git 在 PortableGit）② 脚本默认私钥 ~/.ssh/id_ed25519_rcprod 不存在 ③ publish-desktop-feed.js 走 rsync 但 PortableGit 不带 rsync
+- **根因**：发布脚本按「开发者本机装了完整 Git for Windows + 专用发布私钥」假设写的，本机环境是 PortableGit + 只有 id_ed25519
+- **修复**：用 PortableGit 全路径 bash + 环境变量覆盖 LVJX_FEED_SSH_KEY（id_ed25519 base64）+ 绕过 rsync 直接 scp 三个产物；另发现默认 host 8.149.245.252 已连不通，47.116.59.141 才是现役 VPS
+- **预防**：发布脚本默认值会随时间漂移 — 发布前先探活 host + 确认私钥名；PortableGit 环境没有 rsync，scp 是兜底
+- **关联文件**：scripts/publish-latest.sh, scripts/publish-desktop-feed.js
+- **修复验证**：远端 ls 三个产物齐 + sha256 双侧一致 + latest.yml HTTPS 200

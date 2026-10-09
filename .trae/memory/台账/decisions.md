@@ -22,6 +22,17 @@
 
 ---
 
+## [2026-10-09] v1.1.6 发布到 VPS + 恢复 lujax.fun/releases 更新源（nginx 443 补 /releases location）
+
+- **做了啥**：12:29 Setup.exe（含图片嵌入）+ blockmap + latest.yml 已上传 `/var/www/lujax.fun/releases/`（sha256 25ed8789676d1110 双侧一致）；发现 `https://lujax.fun/releases/` 返回 API 404 — 根因是 `lujax-fun.conf.disabled`（8444 静态 vhost 未启用）且 8444 未监听；在 443 vhost `greenrhino-cloud-ssl.conf` 的 catch-all 前补 `location ^~ /releases/ { alias /var/www/lujax.fun/releases/; }`，nginx -t 通过后 reload
+- **为啥**：旧客户端 generic feed 指向 `https://lujax.fun/releases`（443），feed 挂了自动更新就全断；server 侧已验证 latest.yml 200 + EXE 206
+- **备选方案**：启用 8444 vhost — 排除，因为旧客户端 feed URL 写死 443
+- **已知约束**：本机网络对 lujax.fun 有 SNI 级 TLS 干扰（IP 直连 200，带 SNI reset）— 客户端在其它网络正常，本机内测只能手动下载（与既有记忆一致）
+- **关联文件**：VPS /etc/nginx/conf.d/greenrhino-cloud-ssl.conf（备份 .bak-20261009）、dist/、electron/feed-config.js
+- **决策人**：用户「执行吧」拍板发布
+
+---
+
 ## [2026-10-09] PDF→DOCX 图片嵌入：pdf.js operator list 提取 + 像素归一化 600×800 网格
 
 - **选了啥**：extractAllPagesSpans 增加图片提取 — getOperatorList 遍历 paintImageXObject/paintJpegXObject/paintInlineImageXObject，save/restore/transform 栈算 CTM → imageRect 归一化（与文本 span 同坐标系 x=e/vpW, y=f/vpH）→ Canvas 缩放转 PNG dataURL；纯函数沉淀 OS.PdfConvert._imgUtils（multiplyM/imageRect/expandRGBA/targetPx）
