@@ -19,6 +19,18 @@
 
 ---
 
+## [2026-10-09] PDF→DOCX 三栏版面还原：递归二分 K-means + 多栏段落预构建（顺带修复 y 方向颠倒）
+
+- **选了啥**：多栏检测从双栏泛化到最多三栏 — ① 新函数 detectColumnSeps 递归二分 K-means（整体 K=2 得 sep → 左右子集各再分一次，depth=1 防过拆，单栏子集因 dist<0.15 防抖被拒），返回 []/[sep]/[sep1,sep2]；② 检测输入从「合并行 x」改「items 级 x」（真实多栏排版栏内基线对齐，合并行 x 全是左栏起点退化成单峰）；③ 跨栏判定 some→every（必须跨所有 sep，防「单栏+2 列表格」表格两列在右子集形成假双峰被吞）；④ 主流程 N 栏 buckets 拆行 + 每栏预构建一整段 + 栏段共享 colMinY 事件 y 保栏序
+- **为啥**：project_memory 既定任务（"三栏版面支持需作为多栏版面还原的后续优化方向"）；真实杂志/论文三栏排版栏内基线完全对齐，旧输入根本检不出
+- **顺带修复**（issues#27）：renderTableBlock / colGroups baseY 降序→升序 — 原假设 y-up，实际 extractAllPagesSpans 是 y-down（批注 top=y*bh 实锤），表格/多栏栏内行序在真实 PDF 一直颠倒；insertPreserved 删除，preserved 改独立成段按自身 y 穿插
+- **备选方案**：K-means K=3 直接跑 — 排除，初值敏感易收敛错；递归二分每步都是已验证的 K=2 逻辑
+- **已知边界**：三栏行要求左中右都有 item（every），某栏缺字的行走 preserved 普通 prose；三栏+3 列表格同页可能误判（crossSep<5 回滚兜底）；四栏不支持（depth=1）
+- **关联文件**：app/js/modules/pdf-convert.js（detectColumnSeps L291-310、主流程 L114-191、events L209-212、renderTableBlock L80）、_pdf_convert_3col_test.js（17 断言）、app/sw.js CACHE v28→v29
+- **决策人**：用户「执行吧」拍板
+
+---
+
 
 ---
 

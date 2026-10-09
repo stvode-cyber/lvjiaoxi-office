@@ -76,8 +76,8 @@
   // 渲染一个表格块为 HTML <table>（复用 pdfToExcel 的列边界）
   function renderTableBlock(rows, seps) {
     if (!rows.length || !seps.length) return "";
-    // rows 按 baseY 降序：表头（y 最大）先渲染在最上面
-    const sorted = rows.slice().sort((a, b) => b.baseY - a.baseY);
+    // rows 按 baseY 升序：表头（y 最小=视觉顶部，与批注渲染 top=y*bh 同坐标系）先渲染在最上面
+    const sorted = rows.slice().sort((a, b) => a.baseY - b.baseY);
     const trs = sorted.map(row => {
       const cells = lineToCells(row.items, seps);
       const tds = cells.map(c => `<td>${esc(String(c == null ? "" : c))}</td>`).join("");
@@ -112,24 +112,27 @@
       const proseLines = clusterLines(textSpans);
 
       // === 流程：先多栏检测 → 再表格识别（避免循环依赖）===
-      // 新方案：K-means K=2 对 prose spans 的 x 坐标做双峰检测
-      // （旧方案依赖 rows gap histogram，真实 PDF 里 items>=3 的行太多导致 dominant ratio 不够）
-      let colSep = detectColumnSep(proseLines.map(l => l.x));
+      // 新方案：递归二分 K-means 对 items 级 x 坐标做多峰检测（最多三栏）
+      // （旧方案依赖 rows gap histogram，真实 PDF 里 items>=3 的行太多导致 dominant ratio 不够；
+      //   输入用 items 级 x 而非合并行 x —— 基线对齐的多栏排版合并行 x 全是左栏起点会退化成单峰）
+      const colSeps = detectColumnSeps(rowLines.reduce((acc, l) => { for (const it of l.items) acc.push(it.x); return acc; }, []));
+      const nCols = colSeps.length + 1;
 
       let proseRowLines = [];
       let tableCandidates = rowLines.filter(l => isTableLike(l.items, gapThresh));
-      if (colSep) {
-        // 跨 colSep 的行：左栏 + 右栏都有 item
-        const crossSepAll = rowLines.filter(l => l.items.length >= 2
-          && l.items.some(it => it.x < colSep - 0.02)
-          && l.items.some(it => it.x >= colSep - 0.02));
-        // 剔除多列表格行（items>=3 是多列表格的特征，不是双栏 prose）
-        // 双栏 prose 每行只有 2 个 items（左栏 1 个 + 右栏 1 个）
-        const crossSep = crossSepAll.filter(l => l.items.length < 3);
-        // 安全回滚：剔除后剩下的双栏 prose 行不够多（<5）→ 可能是 2 列表格 → 回滚
+      if (colSeps.length) {
+        // 跨所有分隔点的行：每个分隔点两侧都有 item（三栏行 = 左中右都有字）
+        // 用 every 而非 some：防「单栏正文 + 2 列表格」误判 —— 表格两列在右子集形成假双峰时，
+        // 表格行只跨第二个 sep、不跨第一个，every 判定直接排除，表格不会被吞
+        const crossSepAll = rowLines.filter(l => l.items.length >= 2 && colSeps.every(sep =>
+          l.items.some(it => it.x < sep - 0.02) && l.items.some(it => it.x >= sep - 0.02)));
+        // 剔除多列表格行（items 数 > 栏数是多列表格的特征，不是多栏 prose）
+        // 多栏 prose 每行每栏 1 个 item（双栏 2 个、三栏 3 个）
+        const crossSep = crossSepAll.filter(l => l.items.length <= nCols);
+        // 安全回滚：剔除后剩下的多栏 prose 行不够多（<5）→ 可能是表格 → 回滚
         const afterRemove = tableCandidates.filter(l => !crossSep.some(c => Math.abs(c.baseY - l.baseY) < 0.005));
         if (crossSep.length < 5) {
-          colSep = null;
+          colSeps.length = 0;
         } else {
           proseRowLines = crossSep;
           tableCandidates = afterRemove;
@@ -149,33 +152,42 @@
       // 段落合并（用 proseLines，过滤掉表格行）
       let proseOnly = proseLines.filter(l => !tableRowSet.has(l.y));
 
-      // === 多栏 prose 重排（用上面 detectColumnSep 已算出的 colSep）===
-      if (colSep && proseRowLines.length) {
-        // 先保存未被多栏覆盖的 prose 行（标题、备注等 items=1 的）
+      // === 多栏 prose 重排（用上面 detectColumnSeps 已算出的 colSeps，支持双栏/三栏）===
+      // 多栏段落直接预构建（每栏一整段），不走下方 y-gap 段落合并 ——
+      // y-gap 合并会让栏切换处（y 回落）粘连、栏内行距大时被拆段导致 events 按 y 交错乱栏。
+      let prebuiltParagraphs = null;
+      if (colSeps.length && proseRowLines.length) {
+        // 先保存未被多栏覆盖的 prose 行（标题、备注等单栏行）
         const multiColBaseY = new Set(proseRowLines.map(l => l.baseY));
         const preserved = proseOnly.filter(l => !multiColBaseY.has(l.y));
-        // 按 colSep 拆 proseRowLines → 左栏 items 组 + 右栏 items 组
-        const leftGroups = [], rightGroups = [];
+        // 按 colSeps 拆 proseRowLines → N 栏 items 组
+        const colGroups = Array.from({ length: nCols }, () => []);
         for (const row of proseRowLines) {
-          const left = row.items.filter(it => it.x < colSep - 0.02);
-          const right = row.items.filter(it => it.x >= colSep - 0.02);
-          if (left.length) leftGroups.push({ baseY: row.baseY, items: left });
-          if (right.length) rightGroups.push({ baseY: row.baseY, items: right });
+          const buckets = Array.from({ length: nCols }, () => []);
+          for (const it of row.items) {
+            let ci = 0;
+            for (const sep of colSeps) { if (it.x >= sep - 0.02) ci++; else break; }
+            buckets[ci].push(it);
+          }
+          buckets.forEach((items, ci) => { if (items.length) colGroups[ci].push({ baseY: row.baseY, items }); });
         }
-        // 每栏内 baseY 降序（从上到下）
-        leftGroups.sort((a, b) => b.baseY - a.baseY);
-        rightGroups.sort((a, b) => b.baseY - a.baseY);
-        // 左栏全部先 → 右栏全部后（各自按阅读顺序从上到下）
-        const allGroups = [...leftGroups, ...rightGroups];
-        // 重建成 clusterLines 格式 { text, x, y, h }
-        const reordered = allGroups.map(g => {
-          const sorted = g.items.slice().sort((a, b) => a.x - b.x);
-          return { text: sorted.map(s => s.text).join(" "), x: sorted[0].x, y: g.baseY, h: Math.max(...sorted.map(s => s.h)) };
-        });
-        // 合并：重排的多栏 prose + 保留的其他 prose
-        // 关键：不能按 y 整体 sort！会打乱「左栏读完再右栏」的阅读顺序
-        // 规则：preserved 按 y 降序插在对应位置，reordered 保持左→右顺序不变
-        proseOnly = insertPreserved(reordered, preserved);
+        // 栏内 baseY 升序（y 小=视觉顶部，自上而下阅读序；与批注 top=y*bh 同坐标系）
+        colGroups.forEach(g => g.sort((a, b) => a.baseY - b.baseY));
+        // 所有栏段共享同一事件 y（栏首行 y 最小值）→ events 稳定 sort 保持栏 1→栏 2→栏 3 顺序
+        const nonEmpty = colGroups.filter(g => g.length);
+        const colMinY = nonEmpty.length ? Math.min.apply(null, nonEmpty.map(g => g[0].baseY)) : 0;
+        prebuiltParagraphs = [];
+        for (const g of colGroups) {
+          if (!g.length) continue;
+          const lines = g.map(grp => {
+            const sorted = grp.items.slice().sort((a, b) => a.x - b.x);
+            return { text: sorted.map(s => s.text).join(" "), x: sorted[0].x, y: grp.baseY, h: Math.max.apply(null, sorted.map(s => s.h)) };
+          });
+          lines._evY = colMinY;
+          prebuiltParagraphs.push(lines);
+        }
+        // preserved（标题/页脚等单栏行）各自独立成段，按自身 y 参与 events 排序
+        for (const l of preserved) prebuiltParagraphs.push([l]);
       }
 
       if (!proseOnly.length && !tableSlots.length && !imageSpans.length) {
@@ -183,19 +195,21 @@
         return;
       }
 
-      const paragraphs = [];
-      let curPara = proseOnly.length ? [proseOnly[0]] : [];
-      for (let i = 1; i < proseOnly.length; i++) {
-        const gap = proseOnly[i].y - proseOnly[i - 1].y;
-        if (gap > paraGap) { paragraphs.push(curPara); curPara = [proseOnly[i]]; }
-        else { curPara.push(proseOnly[i]); }
+      const paragraphs = prebuiltParagraphs || [];
+      if (!prebuiltParagraphs) {
+        let curPara = proseOnly.length ? [proseOnly[0]] : [];
+        for (let i = 1; i < proseOnly.length; i++) {
+          const gap = proseOnly[i].y - proseOnly[i - 1].y;
+          if (gap > paraGap) { paragraphs.push(curPara); curPara = [proseOnly[i]]; }
+          else { curPara.push(proseOnly[i]); }
+        }
+        if (curPara.length) paragraphs.push(curPara);
       }
-      if (curPara.length) paragraphs.push(curPara);
 
-      // 渲染事件按 y 排序穿插
+      // 渲染事件按 y 排序穿插（多栏预构建段用共享 _evY 保持栏序，其余段用首行 y）
       const events = [];
       for (const slot of tableSlots) events.push({ y: slot.minY, kind: "table", html: slot.html });
-      for (const para of paragraphs) events.push({ y: para[0].y, kind: "para", para });
+      for (const para of paragraphs) events.push({ y: (para._evY !== undefined ? para._evY : para[0].y), kind: "para", para });
       // 图片事件：每张图按 y 坐标插入序列（图片不打乱列表/段落逻辑）
       for (const img of imageSpans) {
         // 归一化尺寸：PDF 页面宽度 ≈ 0.86 in DOCX（A4 有效区），高度 ≈ 11 in
@@ -278,29 +292,21 @@
     return (c1 + c2) / 2;
   }
 
-  // 把 preserved（y 降序的单栏 prose 行）按 y 插回 reordered（左栏→右栏顺序）
-  // preserved 里 y 比 reordered[0].y 大的 → 插到头部；比最后一个小的 → 尾部
-  function insertPreserved(reordered, preserved) {
-    if (!preserved.length) return reordered;
-    const all = [];
-    let ri = 0, pi = 0;
-    // 头部 preserved（y 最大的，如标题）
-    while (pi < preserved.length && (ri >= reordered.length || preserved[pi].y >= reordered[ri].y)) {
-      all.push(preserved[pi++]);
-    }
-    // reordered 里穿插 preserved（但不打乱左→右顺序，preserved 只插在「左栏段→右栏段」分界处或外部）
-    for (; ri < reordered.length; ri++) {
-      all.push(reordered[ri]);
-      // 如果当前是最后一个左栏行（ri+1 不在左栏 baseY 范围）→ 右栏开始前插入 preserved
-      if (ri + 1 < reordered.length && reordered[ri].y > reordered[ri + 1].y) {
-        while (pi < preserved.length && preserved[pi].y <= reordered[ri].y && preserved[pi].y >= reordered[ri + 1].y) {
-          all.push(preserved[pi++]);
-        }
-      }
-    }
-    // 尾部 preserved（y 最小的，如底部 prose）
-    while (pi < preserved.length) all.push(preserved[pi++]);
-    return all;
+  // 多栏分隔点检测（泛化版）：递归二分 K-means，最多三栏（2 个分隔点）
+  // 返回 []（单栏）/ [sep]（双栏）/ [sep1,sep2]（三栏），升序
+  // 输入建议用 items 级 x（rowLines flatMap），真实多栏排版栏内基线对齐时
+  // 合并行 x 全等于左栏起点会退化成单峰；items 级 x 峰更稳。
+  function detectColumnSeps(xs) {
+    if (!xs || xs.length < 10) return [];
+    const sep = detectColumnSep(xs);
+    if (sep == null) return [];
+    const seps = [sep];
+    // 左右子集各再试分一次（depth=1，最多三栏；单栏子集因 dist<0.15 防抖被拒）
+    const left = xs.filter(x => x < sep);
+    const right = xs.filter(x => x >= sep);
+    if (left.length >= 10) { const s2 = detectColumnSep(left); if (s2 != null) seps.push(s2); }
+    if (right.length >= 10) { const s3 = detectColumnSep(right); if (s3 != null) seps.push(s3); }
+    return seps.sort((a, b) => a - b);
   }
 
   // 检测行文本的列表类型：null / "ordered" / "unordered"
@@ -679,6 +685,7 @@
     _esc: esc, _medianH: medianH, _splitCells: splitCells, _csvCell: csvCell,
     _estimateWidth: estimateWidth, _lineItems: lineItems, _isTableLike: isTableLike,
     _detectSeparators: detectSeparators, _lineToCells: lineToCells, _clusterTableBlocks: clusterTableBlocks,
+    _detectColumnSeps: detectColumnSeps,
     _imgUtils };
   OS.PdfConvert = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

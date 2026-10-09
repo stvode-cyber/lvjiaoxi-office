@@ -1,4 +1,4 @@
-﻿# 踩坑台账（Growth Ledger · 分级版）
+# 踩坑台账（Growth Ledger · 分级版）
 
 > **分级规则**：L1 模块聚合坑（3+ 条同模块子坑，根因相似） / L2 独立实例坑 / archived 历史归档
 > **升级触发**：同模块 L2 实例 ≥ 3 条 → 新建 L1 聚合，原 L2 移进子坑列表
@@ -327,3 +327,14 @@
 - **预防**：发布脚本默认值会随时间漂移 — 发布前先探活 host + 确认私钥名；PortableGit 环境没有 rsync，scp 是兜底
 - **关联文件**：scripts/publish-latest.sh, scripts/publish-desktop-feed.js
 - **修复验证**：远端 ls 三个产物齐 + sha256 双侧一致 + latest.yml HTTPS 200
+
+---
+
+## [P1] [L2|pdf-multicol-table-y-flipped] PDF→DOCX 表格/多栏栏内行序上下颠倒（y 方向假设错误）✅
+
+- **现象**：PDF→DOCX 表格行序、多栏栏内行序在真实 PDF 里是上下颠倒的（表头跑到表格底部、栏内从底往上读）
+- **根因**：renderTableBlock 和双栏重排 colGroups 都按 baseY **降序**排（注释写"表头 y 最大先渲染"，假设 y-up）；但 extractAllPagesSpans 的 y = pdf.js transform[5]/vp.height 是 **y-down**（顶 0 底 1，实锤：批注渲染 `el.style.top = a.y*bh` 直接当 CSS 像素）。prose/events 升序正确，表格/多栏降序方向相反。原作者用降序的真实原因是让栏内 gap 为负、粘合成一整段保栏间顺序 —— 用"栏内颠倒"换"栏间正确"
+- **修复**：① renderTableBlock / colGroups 全部改 baseY **升序**（y 小=顶部先渲染）② 多栏段落改为预构建（每栏一整段，不走 y-gap 合并，避免栏切换 y 回落粘连 + 栏内拆段导致 events 交错）③ 所有栏段共享同一事件 y（colMinY）→ events 稳定 sort 保栏 1→2→3 顺序 ④ preserved（标题等）独立成段按自身 y 穿插，insertPreserved 删除
+- **预防**：碰 PDF 坐标系先确认 y 方向 —— 实锤方法看批注/文本层渲染怎么用（top=y*h 即 y-down）；凡"排序方向 + 注释声称的方向"与坐标系不符，先怀疑 pre-existing bug 再动手
+- **关联文件**：app/js/modules/pdf-convert.js（renderTableBlock L77-87、多栏重排 L155-191、events 构造 L209-212）
+- **修复验证**：_pdf_convert_3col_test.js B3「栏内阅读序 L1 在 L10 前」+ D2-D3 表格不被误吞，106/106 全绿

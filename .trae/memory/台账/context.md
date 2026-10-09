@@ -7,15 +7,15 @@
 
 ## 🎯 交付快照（新 AI 读这里就够了）
 
-**当前阶段**：v1.1.6 稳定化 + 新功能迭代 — PDF→DOCX 图片嵌入已打通（operator list CTM 提取 + 600×800 像素归一化）
+**当前阶段**：v1.1.6 稳定化 + 新功能迭代 — PDF→DOCX 三栏版面还原已落地（递归二分 K-means + 多栏段落预构建，顺带修复表格/多栏 y 方向颠倒）
 
 | 项 | 值 |
 |---|---|
-| 测试基线 | **105/105 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **12:29**（含 PDF→DOCX 图片嵌入，已发布到 VPS） |
+| 测试基线 | **106/106 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **12:29**（含 PDF→DOCX 图片嵌入，已发布到 VPS；三栏版面未打包） |
 | 发布状态 | ✅ 已上传 lujax.fun/releases（sha256 双侧一致）；nginx 443 已补 /releases location，feed 恢复 200；本机网络 SNI 干扰拉不了（老毛病，其它网络正常） |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
-| 台账状态 | decisions.md 38 条（最新：PDF→DOCX 图片嵌入），issues.md 25 条（最新 L2：图片专属页丢弃已修✅） |
+| 台账状态 | decisions.md 40 条（最新：PDF→DOCX 三栏版面还原），issues.md 27 条（最新 L2：表格/多栏 y 方向颠倒已修✅） |
 
 ---
 
@@ -156,6 +156,14 @@ npm run dist:local       # 打 Setup.exe（electron-builder 需装好）
 ---
 
 ## 📋 变更日志（2026-10-09 顶部追加）
+
+- **[2026-10-09] PDF→DOCX 三栏版面还原 + y 方向颠倒修复**
+  - detectColumnSeps 递归二分 K-means（最多三栏），检测输入改 items 级 x（基线对齐场景可检出）
+  - 跨栏判定 some→every（防单栏+2 列表格被误吞）
+  - 多栏段落预构建（每栏一整段 + 共享 colMinY 事件 y 保栏序），insertPreserved 删除
+  - **顺带修复**：renderTableBlock / colGroups baseY 降序→升序 — 原假设 y-up 实际 y-down（批注 top=y*bh 实锤），表格/多栏栏内行序在真实 PDF 一直颠倒（issues#27）
+  - _pdf_convert_3col_test.js 17 断言（三栏 + 双栏回归 + 单栏回归 + 表格共存）
+  - 测试 106/106 绿 / sw.js CACHE v28→v29 / 四端已同步
 
 - **[2026-10-09] PPTX 背景 Round 2 + 密码重置 + 台账交接准备**
   - 新增 slideLayout 预解析 + 三层继承链（slide → layout → master）
