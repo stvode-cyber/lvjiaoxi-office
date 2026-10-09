@@ -735,6 +735,7 @@
           <div class="sheet-scroll"><table class="sheet"></table></div>
           <div class="sheet-bottombar">
             <div class="sheet-tabs"><div class="sheet-tabs-list"></div><button class="sheet-add" title="新建工作表">＋</button><span class="st-sum"></span><span class="st-sel"></span><span class="st-info"></span></div>
+            <div class="sheet-footer"></div>
           </div>
           <div class="sheet-charts" hidden></div>
         </div>

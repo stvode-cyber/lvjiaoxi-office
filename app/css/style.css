@@ -542,11 +542,19 @@ table.sheet td.merged{background:var(--bg)}
 table.sheet td.merged-center{text-align:center}
 table.sheet td.merged-hidden{display:none}
 table.sheet td.invalid-cell{outline:2px solid #d13438;outline-offset:-2px;background:#fde7e9}
-.sheet-bottombar{border-top:1px solid var(--rule);background:var(--chrome)}
-.sheet-tabs{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--chrome)}
-.sheet-tabs-list{display:flex;gap:4px;flex:1;overflow:auto}
+.sheet-bottombar{display:flex;align-items:center;border-top:1px solid var(--rule);background:var(--chrome);min-height:32px}
+.sheet-tabs{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--chrome);flex:1 1 auto;min-width:0}
+.sheet-tabs-list{display:flex;gap:4px;overflow:auto}
 .sheet-tabs .st-info{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap}
 .sheet-tabs .st-sum,.sheet-tabs .st-sel{display:none}
+.sheet-footer{display:flex;align-items:center;gap:8px;padding:0 12px;font-size:11px;color:var(--muted);border-left:1px solid var(--rule);background:var(--chrome);white-space:nowrap;flex:0 0 auto}
+.sheet-footer .sb-item{display:inline-flex;align-items:center;gap:4px}
+.sheet-footer .sb-spacer{flex:1 1 auto;min-width:8px}
+.sheet-footer .sb-zoom{display:inline-flex;align-items:center;gap:4px}
+.sheet-footer .sb-zoom button{border:1px solid var(--rule);background:var(--bg);color:var(--ink);width:20px;height:20px;border-radius:3px;cursor:pointer;font-size:12px;line-height:1}
+.sheet-footer .sb-zoom button:hover{border-color:var(--accent);color:var(--accent)}
+.sheet-footer .sb-zoomval{min-width:36px;text-align:center;cursor:pointer;padding:0 4px;border-radius:3px}
+.sheet-footer .sb-zoomval:hover{background:var(--hover)}
 .sheet-tab{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;white-space:nowrap;line-height:1.6}
 .sheet-tab:hover{border-color:var(--accent)}
 .sheet-tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}

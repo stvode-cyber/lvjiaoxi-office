@@ -556,7 +556,9 @@
     const info = OS.TYPE_INFO[t.doc.type] || { name: t.doc.type };
     const comp = OS.COMPAT[t.doc.compat];
     const sb = $("#statusbar");
-    sb.innerHTML = `
+    const isSheet = t.doc.type === "spreadsheet";
+    sb.hidden = isSheet;  // spreadsheet 模块隐藏全局 footer，用模块内 bottombar
+    const html = `
       <span class="sb-item">${info.name}</span>
       <span class="sb-item">${OS.util.fmtSize(t.doc.size || 0)}</span>
       ${comp ? `<span class="sb-item" style="color:${comp.color.replace('var(--ok)','#0e7c3a').replace('var(--warn)','#b9700f').replace('var(--danger)','#c4312b')}">${comp.label}</span>` : ""}
@@ -570,13 +572,22 @@
         <span class="sb-zoomval" id="zb-val" title="重置为 100%">${zoom}%</span>
         <button id="zb-in" title="放大">＋</button>
       </span>`;
-    sb.querySelector("#zb-out").onclick = () => applyZoom(-10);
-    sb.querySelector("#zb-in").onclick = () => applyZoom(10);
-    sb.querySelector("#zb-val").onclick = () => { zoom = 100; applyZoom(0); };
-    const tasksBtn = sb.querySelector("#sb-tasks-btn");
+    sb.innerHTML = html;
+    // spreadsheet: 同步到模块内 bottombar
+    if (isSheet) {
+      const sf = document.querySelector(".sheet-footer");
+      if (sf) { sf.innerHTML = html; sf.hidden = false; }
+    }
+    const zbOut = document.querySelector("#zb-out") || document.querySelector(".sheet-footer #zb-out");
+    const zbIn = document.querySelector("#zb-in") || document.querySelector(".sheet-footer #zb-in");
+    const zbVal = document.querySelector("#zb-val") || document.querySelector(".sheet-footer #zb-val");
+    if (zbOut) zbOut.onclick = () => applyZoom(-10);
+    if (zbIn) zbIn.onclick = () => applyZoom(10);
+    if (zbVal) zbVal.onclick = () => { zoom = 100; applyZoom(0); };
+    const tasksBtn = document.querySelector("#sb-tasks-btn") || document.querySelector(".sheet-footer #sb-tasks-btn");
     if (tasksBtn) {
       tasksBtn.onclick = () => OS.Tasks && OS.Tasks.togglePanel();
-      OS.Tasks && OS.Tasks.setBadgeEl(sb.querySelector("#sb-tasks"));
+      OS.Tasks && OS.Tasks.setBadgeEl(document.querySelector("#sb-tasks") || document.querySelector(".sheet-footer #sb-tasks"));
     }
   }
 
