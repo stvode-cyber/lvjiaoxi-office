@@ -474,6 +474,7 @@
      PPTX -> Presentation slides
      ============================================================ */
   async function parsePptx(zip) {
+    console.time("[PPTX] parsePptx 总耗时");
     // 安全取 zip 条目 — 大文件/特殊格式下 zip.file() 可能返回 null
     const safeFile = (name) => zip.file(name);
     // 幻灯片尺寸（EMU → 像素）
@@ -494,6 +495,7 @@
     const fx = W / sldW, fy = H / sldH;
 
     // ========== 1. 预读所有 slide rels + 预取 ppt/media 图片转 data URI ==========
+    console.time("[PPTX] 1. media + rels 预读");
     const mediaMap = {};   // rId -> { path, dataUrl }
     const allRels = {};    // slidePath -> { rId -> target }
     const mediaFiles = Object.keys(zip.files).filter(n => /^ppt\/media\//.test(n));
@@ -510,39 +512,63 @@
       else if (/\.webp$/.test(mp)) mime = "image/webp";
       else if (/\.mp3$/.test(mp)) mime = "audio/mpeg";
       else if (/\.mp4$/.test(mp)) mime = "video/mp4";
-      // base64 编码
-      let bin = "";
-      for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-      try { mediaMap[mp] = "data:" + mime + ";base64," + btoa(bin); } catch (e) { mediaMap[mp] = ""; }
+      // base64 编码（chunk 分割避免 O(N²) 字符串拼接）
+      try {
+        let bin = "";
+        const CHUNK = 8192;
+        for (let i = 0; i < u8.length; i += CHUNK) {
+          bin += String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + CHUNK, u8.length)));
+        }
+        mediaMap[mp] = "data:" + mime + ";base64," + btoa(bin);
+      } catch (e) { mediaMap[mp] = ""; }
     }));
 
-    // 预读所有 rels（slide + slideLayout + slideMaster — blipFill 图片背景需要 layout/master 的 rels）
+    // 预读所有 rels + 预解析 layout 背景（全部并行）
     const slideRels = Object.keys(zip.files).filter(n => /^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(n)).sort();
-    for (const rp of slideRels) {
-      const relF = zip.file(rp);
-      if (!relF) continue;
-      const relXml = await relF.async("string");
-      const slideName = rp.replace("ppt/slides/_rels/", "").replace(".rels", ""); // slide1.xml
-      allRels[slideName] = parseRels(relXml);
-    }
-    // slideLayout rels
     const layoutRels = Object.keys(zip.files).filter(n => /^ppt\/slideLayouts\/_rels\/slideLayout\d+\.xml\.rels$/.test(n)).sort();
-    for (const rp of layoutRels) {
-      const relF = zip.file(rp);
-      if (!relF) continue;
-      const relXml = await relF.async("string");
-      const key = rp.replace("ppt/slideLayouts/_rels/", "").replace(".rels", ""); // slideLayout1.xml
-      allRels[key] = parseRels(relXml);
-    }
-    // slideMaster rels
     const masterRels = Object.keys(zip.files).filter(n => /^ppt\/slideMasters\/_rels\/slideMaster\d+\.xml\.rels$/.test(n)).sort();
-    for (const rp of masterRels) {
-      const relF = zip.file(rp);
-      if (!relF) continue;
-      const relXml = await relF.async("string");
-      const key = rp.replace("ppt/slideMasters/_rels/", "").replace(".rels", ""); // slideMaster1.xml
-      allRels[key] = parseRels(relXml);
-    }
+    const layoutFiles = Object.keys(zip.files).filter(n => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n)).sort((a, b) => (+/slideLayout(\d+)/.exec(a)[1]) - (+/slideLayout(\d+)/.exec(b)[1]));
+
+    await Promise.all([
+      // slide rels
+      ...slideRels.map(async rp => {
+        const relF = zip.file(rp);
+        if (!relF) return;
+        const relXml = await relF.async("string");
+        const slideName = rp.replace("ppt/slides/_rels/", "").replace(".rels", "");
+        allRels[slideName] = parseRels(relXml);
+      }),
+      // slideLayout rels
+      ...layoutRels.map(async rp => {
+        const relF = zip.file(rp);
+        if (!relF) return;
+        const relXml = await relF.async("string");
+        const key = rp.replace("ppt/slideLayouts/_rels/", "").replace(".rels", "");
+        allRels[key] = parseRels(relXml);
+      }),
+      // slideMaster rels
+      ...masterRels.map(async rp => {
+        const relF = zip.file(rp);
+        if (!relF) return;
+        const relXml = await relF.async("string");
+        const key = rp.replace("ppt/slideMasters/_rels/", "").replace(".rels", "");
+        allRels[key] = parseRels(relXml);
+      }),
+      // layout 背景预解析
+      ...layoutFiles.map(async lf => {
+        try {
+          const lxd = parseXML(await zip.file(lf).async("string"));
+          const lbg = first(lxd.documentElement, "bg");
+          const layoutName = lf.split("/").pop();
+          const c = extractBgFillColor(lbg, allRels[layoutName], "ppt/slideLayouts/");
+          // 写回 allRels 旁路：用 _bg_ 前缀存布局背景
+          if (!allRels._layoutBg) allRels._layoutBg = {};
+          allRels._layoutBg[layoutName] = c || null;
+        } catch (_) {}
+      })
+    ]);
+    const layoutBgMap = allRels._layoutBg || {};
+    console.timeEnd("[PPTX] 1. media + rels 预读");
 
     // ========== 2. 读 slideMaster 的背景（用于继承回退） ==========
     let masterBg = "#ffffff";
@@ -552,23 +578,6 @@
       const mbg = first(smd.documentElement, "bg");
       const c = extractBgFillColor(mbg, allRels["slideMaster1.xml"], "ppt/slideMasters/");
       if (c) masterBg = c;
-    }
-
-    // ========== 2.5 预解析所有 slideLayout 的背景 ==========
-    // PPTX 背景继承链：slide 自己的 bg → slideLayout bg → slideMaster bg → 默认白
-    // slideLayout 文件列表
-    const layoutBgMap = {}; // "slideLayout1.xml" -> "#2196f3"
-    const layoutFiles = Object.keys(zip.files)
-      .filter(n => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n))
-      .sort((a, b) => (+/slideLayout(\d+)/.exec(a)[1]) - (+/slideLayout(\d+)/.exec(b)[1]));
-    for (const lf of layoutFiles) {
-      try {
-        const lxd = parseXML(await zip.file(lf).async("string"));
-        const lbg = first(lxd.documentElement, "bg");
-        const layoutName = lf.split("/").pop(); // "slideLayout1.xml"
-        const c = extractBgFillColor(lbg, allRels[layoutName], "ppt/slideLayouts/");
-        layoutBgMap[layoutName] = c || null;
-      } catch (_) {}
     }
 
     // ========== 3. 遍历每张 slide ==========
@@ -902,6 +911,7 @@
       } catch (e) { /* 不阻断导入 */ }
     }
 
+    console.timeEnd("[PPTX] parsePptx 总耗时");
     return { type: "presentation", data: { slides, comments }, compat: "B", note: `PPTX 已导入 ${slides.length} 页（基础兼容：文本/图片/形状/位置/样式保留${comments.length ? "；批注 " + comments.length + " 条" : ""}）` };
   }
 
