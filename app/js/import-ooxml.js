@@ -111,13 +111,24 @@
      DOCX -> Writer HTML
      ============================================================ */
   async function parseDocx(zip) {
-    const docXml = await zip.file("word/document.xml").async("string");
-    const relsXml = zip.file("word/_rels/document.xml.rels") ? await zip.file("word/_rels/document.xml.rels").async("string") : null;
+    console.time("[DOCX] parseDocx 总耗时");
+    console.time("[DOCX] 1. I/O 预读");
+    // document.xml + rels + comments + numbering 4 路 I/O 并行
+    const [docXml, relsXml, commentDefs, numFmt] = await Promise.all([
+      zip.file("word/document.xml").async("string"),
+      zip.file("word/_rels/document.xml.rels") ? zip.file("word/_rels/document.xml.rels").async("string") : Promise.resolve(null),
+      parseComments(zip),
+      buildNumbering(zip)
+    ]);
     const rels = parseRels(relsXml);
-    const numFmt = await buildNumbering(zip);
-    const commentDefs = await parseComments(zip);
+    console.timeEnd("[DOCX] 1. I/O 预读");
+
+    console.time("[DOCX] 2. XML 解析 + 图片预读");
     const d = parseXML(docXml);
-    await prefetchDocxImages(d, rels, zip);   // 预读内嵌图片到 IMG_EMBED，供 runToHtml 生成 <img>
+    await prefetchDocxImages(d, rels, zip);
+    console.timeEnd("[DOCX] 2. XML 解析 + 图片预读");
+
+    console.time("[DOCX] 3. DOM 遍历");
     const body = first(d.documentElement, "body");
     if (!body) throw new Error("未找到文档正文");
 
@@ -156,6 +167,8 @@
       });
     });
 
+    console.timeEnd("[DOCX] 3. DOM 遍历");
+    console.timeEnd("[DOCX] parseDocx 总耗时");
     return { type: "writer", data: { html: html || "<p>（空文档）</p>", comments }, compat: "B", note: "DOCX 已导入（基本兼容：标题/格式/列表/表格/链接/批注保留）" };
   }
 
@@ -393,17 +406,25 @@
      XLSX -> Spreadsheet cells
      ============================================================ */
   async function parseXlsx(zip) {
+    console.time("[XLSX] parseXlsx 总耗时");
+    console.time("[XLSX] 1. I/O 预读");
+    // sharedStrings + sheet1 并行预读
     let shared = [];
     const sf = zip.file("xl/sharedStrings.xml");
-    if (sf) {
-      const d = parseXML(await sf.async("string"));
-      shared = all(d.documentElement, "si").map(si => all(si, "t").map(t => t.textContent).join(""));
-    }
-    // 仅导入第一个工作表（套件当前为单表模型）
     const sheetFile = zip.file("xl/worksheets/sheet1.xml") || firstZip(zip, "xl/worksheets/sheet");
     if (!sheetFile) throw new Error("未找到工作表");
-    const d = parseXML(await sheetFile.async("string"));
+    const [sharedXml, sheetXml] = await Promise.all([
+      sf ? sf.async("string") : Promise.resolve(null),
+      sheetFile.async("string")
+    ]);
+    console.timeEnd("[XLSX] 1. I/O 预读");
+    if (sharedXml) {
+      const d = parseXML(sharedXml);
+      shared = all(d.documentElement, "si").map(si => all(si, "t").map(t => t.textContent).join(""));
+    }
+    const d = parseXML(sheetXml);
     const cells = {};
+    console.time("[XLSX] 2. 单元格遍历");
     let maxC = 1, maxR = 1;
     all(d.documentElement, "c").forEach(c => {
       const ref = attr(c, "r"); if (!ref) return;
@@ -467,6 +488,8 @@
       } catch (e) { /* 批注解析失败不阻断导入 */ }
     }
 
+    console.timeEnd("[XLSX] 2. 单元格遍历");
+    console.timeEnd("[XLSX] parseXlsx 总耗时");
     return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles: {}, comments }, compat: "B", note };
   }
 

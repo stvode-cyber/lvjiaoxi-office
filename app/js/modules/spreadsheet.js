@@ -1282,27 +1282,68 @@
       td.focus();
       document.execCommand("selectAll", false, null);
     }
+    // ===== Excel 兼容快捷键辅助函数 =====
+    function findDataEdge(row, col, d) {
+      const has = (r, c) => { const cell = data.cells[FE.idxToCol(c) + r]; return cell && (cell.v !== undefined && cell.v !== "" || cell.f); };
+      let r = row, c = col;
+      if (has(r, c)) { while (true) { const nr = r + d[0], nc = c + d[1]; if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS || !has(nr, nc)) break; r = nr; c = nc; } }
+      else { while (true) { const nr = r + d[0], nc = c + d[1]; if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) break; r = nr; c = nc; if (has(r, c)) { while (true) { const nr2 = r + d[0], nc2 = c + d[1]; if (nr2 < 1 || nr2 > ROWS || nc2 < 1 || nc2 > COLS || !has(nr2, nc2)) break; r = nr2; c = nc2; } break; } } }
+      return { row: r, col: c };
+    }
+    function findDataMax() { let mR = 1, mC = 1; for (const ref in data.cells) { const p = FE.parseRef(ref); if (!p) continue; if (p.row > mR) mR = p.row; if (p.col > mC) mC = p.col; } return { row: mR, col: mC }; }
+    function fillDown() { const rg = rangeRect(); if (!rg || rg.r1 === rg.r2) { OS.toast("请选择多行区域", "warn"); return; } snapshot(); let count = 0; for (let c = rg.c1; c <= rg.c2; c++) { const src = data.cells[FE.idxToCol(c) + rg.r1]; if (!src) continue; for (let r = rg.r1 + 1; r <= rg.r2; r++) { const ref = FE.idxToCol(c) + r; const dR = r - rg.r1; if (src.f) writeCell(ref, FE.adjustFormula(src.f, dR, 0)); else writeCell(ref, String(src.v === undefined ? "" : src.v)); count++; } } recompute(); applyFmt(); ctx.markDirty(); if (count) OS.toast("已向下填充 " + count + " 个单元格", "ok"); }
+    function fillRangeWithCurrent() { const rg = rangeRect(); if (!rg) return; const src = data.cells[selected]; if (!src) return; const sp = FE.parseRef(selected); if (!sp) return; snapshot(); for (let r = rg.r1; r <= rg.r2; r++) for (let c = rg.c1; c <= rg.c2; c++) { const ref = FE.idxToCol(c) + r; if (ref === selected) continue; const dR = r - sp.row, dC = c - sp.col; if (src.f) writeCell(ref, FE.adjustFormula(src.f, dR, dC)); else writeCell(ref, String(src.v === undefined ? "" : src.v)); } recompute(); applyFmt(); ctx.markDirty(); }
+    function selectCol(col) { anchor = FE.idxToCol(col) + 1; selected = FE.idxToCol(col) + ROWS; paint(); updateStatus(); }
+    function selectRow(row) { anchor = "A" + row; selected = FE.idxToCol(COLS) + row; paint(); updateStatus(); }
+
     table.addEventListener("keydown", e => {
       const td = e.target.closest("td[data-ref]");
       if (!td) return;
       const ref = td.dataset.ref;
       const pr = FE.parseRef(ref);
-      if (e.key === "Enter") { e.preventDefault(); commitCell(td); move(pr.row + 1, pr.col); }
-      else if (e.key === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
-      else if (e.key.startsWith("Arrow")) {
-        e.preventDefault();
-        const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
-        if (e.shiftKey) {
-          const nr = Math.max(1, Math.min(ROWS, pr.row + d[0])), nc = Math.max(1, Math.min(COLS, pr.col + d[1]));
-          selected = FE.idxToCol(nc) + nr; paint(); updateStatus();
-        } else {
-          commitCell(td); move(pr.row + d[0], pr.col + d[1]);
-        }
+      const editing = td.getAttribute("contenteditable") === "true";
+      const ctrl = e.ctrlKey || e.metaKey;
+      const k = e.key;
+
+      // ===== 编辑模式下只拦截特定键 =====
+      if (editing) {
+        if (k === "Escape") { e.preventDefault(); td.removeAttribute("contenteditable"); recompute(); }
+        else if (k === "Enter" && !ctrl) { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
+        else if (k === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
+        else if (ctrl && k === "Enter") { e.preventDefault(); commitCell(td); fillRangeWithCurrent(); }
+        return;
       }
-      else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+
+      // ===== 非编辑模式 =====
+      if (k === "F2") { e.preventDefault(); td.setAttribute("contenteditable", "true"); td.focus(); const s = window.getSelection(), r = document.createRange(); r.selectNodeContents(td); r.collapse(false); s.removeAllRanges(); s.addRange(r); }
+      else if (k === "Enter") { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
+      else if (k === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
+      else if (k.startsWith("Arrow")) {
+        e.preventDefault();
+        const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[k];
+        if (ctrl && e.shiftKey) { const edge = findDataEdge(pr.row, pr.col, d); selected = FE.idxToCol(edge.col) + edge.row; paint(); updateStatus(); }
+        else if (ctrl) { const edge = findDataEdge(pr.row, pr.col, d); commitCell(td); move(edge.row, edge.col); }
+        else if (e.shiftKey) { const nr = Math.max(1, Math.min(ROWS, pr.row + d[0])), nc = Math.max(1, Math.min(COLS, pr.col + d[1])); selected = FE.idxToCol(nc) + nr; paint(); updateStatus(); }
+        else { commitCell(td); move(pr.row + d[0], pr.col + d[1]); }
+      }
+      else if (k === "Home") { e.preventDefault(); if (ctrl) { commitCell(td); move(1, 1); } else { commitCell(td); move(pr.row, 1); } }
+      else if (k === "End" && ctrl) { e.preventDefault(); const edge = findDataMax(); commitCell(td); move(edge.row, edge.col); }
+      else if (k === "PageDown") { e.preventDefault(); commitCell(td); move(Math.min(ROWS, pr.row + 20), pr.col); }
+      else if (k === "PageUp") { e.preventDefault(); commitCell(td); move(Math.max(1, pr.row - 20), pr.col); }
+      else if (ctrl && k === " ") { e.preventDefault(); selectCol(pr.col); }
+      else if (e.shiftKey && k === " ") { e.preventDefault(); selectRow(pr.row); }
+      else if (ctrl && (k === "b" || k === "B")) { e.preventDefault(); setStyle({ bold: !(data.styles[selected] && data.styles[selected].bold) }); }
+      else if (ctrl && (k === "i" || k === "I")) { e.preventDefault(); setStyle({ italic: !(data.styles[selected] && data.styles[selected].italic) }); }
+      else if (ctrl && (k === "u" || k === "U")) { e.preventDefault(); setStyle({ underline: !(data.styles[selected] && data.styles[selected].underline) }); }
+      else if (ctrl && (k === "d" || k === "D")) { e.preventDefault(); fillDown(); }
+      else if (ctrl && k === "Enter") { e.preventDefault(); fillRangeWithCurrent(); }
+      else if (ctrl && k === ";") { e.preventDefault(); commit(ref, new Date().toLocaleDateString()); recompute(); }
+      else if (ctrl && e.shiftKey && (k === ";" || k === ":")) { e.preventDefault(); commit(ref, new Date().toLocaleTimeString()); recompute(); }
+      else if (ctrl && k === "1") { e.preventDefault(); OS.toast("单元格格式面板开发中", "info"); }
+      else if (k === "Escape") { td.removeAttribute("contenteditable"); recompute(); }
+      else if (k.length === 1 && !ctrl && !e.metaKey && !e.altKey) {
         if (td.getAttribute("contenteditable") !== "true") { td.setAttribute("contenteditable", "true"); td.textContent = ""; td.focus(); }
       }
-      else if (e.key === "Escape") { td.removeAttribute("contenteditable"); recompute(); }
     });
     function commitCell(td) {
       if (td.getAttribute("contenteditable") === "true") {
@@ -1646,7 +1687,9 @@
           id: "home", label: "开始", groups: [
             {
               label: "字体", items: [
-                { kind: "btn", glyph: "B", title: "加粗", onClick: () => setStyle({ bold: !(data.styles[selected] && data.styles[selected].bold) }) },
+                { kind: "btn", glyph: "B", title: "加粗 (Ctrl+B)", onClick: () => setStyle({ bold: !(data.styles[selected] && data.styles[selected].bold) }) },
+                { kind: "btn", glyph: "I", title: "斜体 (Ctrl+I)", onClick: () => setStyle({ italic: !(data.styles[selected] && data.styles[selected].italic) }) },
+                { kind: "btn", glyph: "U", title: "下划线 (Ctrl+U)", onClick: () => setStyle({ underline: !(data.styles[selected] && data.styles[selected].underline) }) },
                 { kind: "color", title: "字体颜色", onInput: v => setStyle({ color: v }) },
                 { kind: "color", title: "填充色", label: "填充", onInput: v => setStyle({ bg: v }) }
               ]
@@ -1816,7 +1859,9 @@
         const s = data.styles[ref];
         if (s.color) td.style.color = s.color;
         if (s.bg) td.style.background = s.bg;
-        if (s.bold) td.style.fontWeight = "700";
+        if (s.bold) td.style.fontWeight = "700"; else if (s.bold === false) td.style.fontWeight = "400";
+        if (s.italic) td.style.fontStyle = "italic"; else if (s.italic === false) td.style.fontStyle = "normal";
+        if (s.underline) td.style.textDecoration = "underline"; else if (s.underline === false) td.style.textDecoration = "none";
         if (s.align) td.style.textAlign = s.align;
       }
     }
