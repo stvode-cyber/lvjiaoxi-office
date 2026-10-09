@@ -542,10 +542,11 @@ table.sheet td.merged{background:var(--bg)}
 table.sheet td.merged-center{text-align:center}
 table.sheet td.merged-hidden{display:none}
 table.sheet td.invalid-cell{outline:2px solid #d13438;outline-offset:-2px;background:#fde7e9}
-.sheet-statusbar{display:flex;gap:16px;padding:4px 12px;border-top:1px solid var(--rule);font-size:12px;color:var(--muted);background:var(--chrome)}
+.sheet-bottombar{display:flex;align-items:stretch;border-top:1px solid var(--rule);background:var(--chrome)}
+.sheet-statusbar{display:flex;gap:16px;padding:4px 12px;font-size:12px;color:var(--muted);background:var(--chrome);border-left:1px solid var(--rule);align-items:center}
 .sheet-charts{display:flex;gap:16px;flex-wrap:wrap;padding:14px 16px;border-top:1px solid var(--rule);background:var(--bg2);overflow:auto;max-height:42%}
 .sheet-charts[hidden]{display:none}
-.sheet-tabs{display:flex;align-items:center;gap:4px;padding:4px 8px;border-top:1px solid var(--rule);background:var(--chrome);flex:0 0 auto}
+.sheet-tabs{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--chrome);flex:1 1 auto;min-width:0}
 .sheet-tabs-list{display:flex;gap:4px;flex:1;overflow:auto}
 .sheet-tab{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;white-space:nowrap;line-height:1.6}
 .sheet-tab:hover{border-color:var(--accent)}

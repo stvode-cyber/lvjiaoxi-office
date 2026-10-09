@@ -733,8 +733,10 @@
       <div class="sheet-body">
         <div class="sheet-main">
           <div class="sheet-scroll"><table class="sheet"></table></div>
-          <div class="sheet-statusbar"><span class="st-sum"></span><span class="st-sel"></span><span class="st-info"></span></div>
-          <div class="sheet-tabs"><div class="sheet-tabs-list"></div><button class="sheet-add" title="新建工作表">＋</button></div>
+          <div class="sheet-bottombar">
+            <div class="sheet-tabs"><div class="sheet-tabs-list"></div><button class="sheet-add" title="新建工作表">＋</button></div>
+            <div class="sheet-statusbar"><span class="st-sum"></span><span class="st-sel"></span><span class="st-info"></span></div>
+          </div>
           <div class="sheet-charts" hidden></div>
         </div>
         <div class="sheet-cmt-panel hidden">
@@ -2280,8 +2282,10 @@
       genBtn.style.cssText = "padding:8px;background:var(--accent,#2563eb);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;";
       wrap.appendChild(panel);
 
-      // 收起/展开
-      let collapsed = false;
+      // 收起/展开（默认收起）
+      let collapsed = true;
+      panel.querySelector(".sheet-ai-body").style.display = "none";
+      panel.querySelector(".sheet-ai-close").textContent = "▴";
       panel.querySelector(".sheet-ai-close").onclick = () => {
         collapsed = !collapsed;
         panel.querySelector(".sheet-ai-body").style.display = collapsed ? "none" : "flex";
