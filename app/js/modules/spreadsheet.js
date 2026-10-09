@@ -1856,6 +1856,7 @@
       applyFmt(); applyCondFormat(); ctx.markDirty();
     }
     function applyFmt() {
+      const bCss = st => ({ hair: "1px solid", thin: "1px solid", medium: "2px solid", thick: "3px solid", dashed: "1px dashed", mediumDashed: "2px dashed", dotted: "1px dotted", double: "3px double", dashDot: "1px dashed", mediumDashDot: "2px dashed", dashDotDot: "1px dashed", slantDashDot: "1px dashed" }[st] || "1px solid");
       for (const ref in data.styles) {
         const td = table.querySelector(`td[data-ref="${ref}"]`); if (!td) continue;
         const s = data.styles[ref];
@@ -1865,6 +1866,13 @@
         if (s.italic) td.style.fontStyle = "italic"; else if (s.italic === false) td.style.fontStyle = "normal";
         if (s.underline) td.style.textDecoration = "underline"; else if (s.underline === false) td.style.textDecoration = "none";
         if (s.align) td.style.textAlign = s.align;
+        if (s.border) {
+          ["left", "right", "top", "bottom"].forEach(side => {
+            const side2 = side.charAt(0).toUpperCase() + side.slice(1);
+            const b = s.border[side];
+            td.style["border" + side2] = b ? `${bCss(b.style)} ${b.color || "#333"}` : "";
+          });
+        }
       }
     }
     applyFmt();

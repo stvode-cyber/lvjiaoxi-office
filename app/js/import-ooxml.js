@@ -425,7 +425,8 @@
     }
 
     // ====== 解析 styles.xml ======
-    const fonts = [], fills = [], cellXfs = [];
+    const fonts = [], fills = [], borders = [], cellXfs = [];
+    const sideColor = el => { if (!el) return null; const c = first(el, "color"); const rgb = c ? attr(c, "rgb") : null; return rgb && rgb.length >= 8 ? "#" + rgb.substring(2).toLowerCase() : null; };
     if (stylesXml) {
       const sd = parseXML(stylesXml);
       all(first(sd.documentElement, "fonts") || sd.documentElement, "font").forEach(f => {
@@ -443,12 +444,24 @@
           fg: (() => { if (!pf) return null; const c = first(pf, "fgColor"); if (!c) return null; const rgb = attr(c, "rgb"); return rgb && rgb.length >= 8 ? "#" + rgb.substring(2).toLowerCase() : null; })()
         });
       });
+      // borders: <border><left style="thin"><color rgb="FF000000"/></left>...</border>
+      all(first(sd.documentElement, "borders") || sd.documentElement, "border").forEach(b => {
+        const bd = {};
+        ["left", "right", "top", "bottom"].forEach(side => {
+          const el = first(b, side);
+          const st = el ? attr(el, "style") : null;
+          if (st) bd[side] = { style: st, color: sideColor(el) };
+        });
+        borders.push(bd);
+      });
       all(first(sd.documentElement, "cellXfs") || sd.documentElement, "xf").forEach(xf => {
         cellXfs.push({
           fontId: +(attr(xf, "fontId") || 0),
           fillId: +(attr(xf, "fillId") || 0),
+          borderId: +(attr(xf, "borderId") || 0),
           applyFont: attr(xf, "applyFont") === "1",
-          applyFill: attr(xf, "applyFill") === "1"
+          applyFill: attr(xf, "applyFill") === "1",
+          applyBorder: attr(xf, "applyBorder") === "1"
         });
       });
     }
@@ -494,6 +507,12 @@
           if (xf.applyFill) {
             const fill = fills[xf.fillId] || {};
             if (fill.pattern === "solid" && fill.fg) st.bg = fill.fg;
+          }
+          if (xf.applyBorder) {
+            const bd = borders[xf.borderId] || {};
+            const sides = {};
+            ["left", "right", "top", "bottom"].forEach(side => { if (bd[side]) sides[side] = bd[side]; });
+            if (Object.keys(sides).length) st.border = sides;
           }
           if (Object.keys(st).length) styles[ref] = st;
         }
