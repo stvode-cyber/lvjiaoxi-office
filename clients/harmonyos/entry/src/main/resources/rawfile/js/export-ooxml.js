@@ -282,6 +282,7 @@
       if (p.i) r.push("<w:i/>");
       if (p.u) r.push('<w:u w:val="single"/>');
       if (p.hlink) r.push('<w:rStyle w:val="Hyperlink"/>');
+      if (p.fontFamily) r.push('<w:rFonts w:ascii="' + esc(p.fontFamily) + '" w:hAnsi="' + esc(p.fontFamily) + '"/>');
       if (p.color) r.push('<w:color w:val="' + esc(p.color.replace(/^#/, "")) + '"/>');
       if (p.sz) r.push('<w:sz w:val="' + p.sz + '"/>');
       return r.length ? "<w:rPr>" + r.join("") + "</w:rPr>" : "";
@@ -302,6 +303,7 @@
         if (/underline/i.test(m["text-decoration"] || "")) np.u = true;
         if (m["color"]) np.color = m["color"].replace(/^#/, "");
         if (m["font-size"]) { const px = /([\d.]+)px/.exec(m["font-size"]); if (px) np.sz = Math.round(parseFloat(px[1]) * 2); }
+        if (m["font-family"]) np.fontFamily = m["font-family"].replace(/^['"]|['"]$/g, "");
       }
       return np;
     }

@@ -1,4 +1,16 @@
 ﻿
+
+---
+
+## [2026-10-09] PDF→DOCX 字体/字号/粗斜体/颜色还原：fontMap（commonObjs）+ colorRuns（opList setFillRGBColor）+ 段内 inline span 分组
+
+- **选了啥**：① `_textSpansFromTC` 扩展支持 fontMap + colorRuns 参数，span 新增 fontReal/bold/italic/color/fontSize 字段；② 新增 `_colorRunsFromOps` 纯函数：遍历 pdf.js operator list 维护「当前填充色」状态机（setFillRGBColor/Gray/CMYK 转 #rrggbb），按 showText/showSpacedText 顺序记录 colorRuns；③ `extractAllPagesSpans` 增加 `extractFontMap`：从 page.commonObjs 异步取每个 fontName 的 {name, bold, italic}，5s 总超时兜底防挂死；④ `pdfToDocxHtml` 渲染段内分组：连续同 fontReal+bold+italic+color+fontSize 的 spans 合并为一组，输出 `<span style="font-family:...;font-size:Npx;color:#...">text</span>`，bold/italic 用 `<b>`/`<i>` 包裹；⑤ `buildDocx.mergeProps` 加 font-family 解析输出 `<w:rFonts w:ascii="..." w:hAnsi="..."/>`；⑥ `clusterLines` 保留全部样式字段（之前 map 把 span 简化成只有 text/x/y/h，丢样式）
+- **为啥**：project_memory 列为下一个开发任务；之前 pdfToDocxHtml 只输出结构标签 `<p>`/`<h1>`/`<table>`，无 inline style，转换后文档丢失原 PDF 的字体名、字号、粗体/斜体、文字颜色。dump 实锤：pdf.js textContent item 只有 fontName（内部名 g_d0_f1）+ transform[3]=fontSize，无 color/style 字段；真实字体名+粗斜体要从 `page.commonObjs.get(fontName, cb)` 异步取；颜色不在 textContent 里，要从 operator list 的 setFillRGBColor 走查（pdf.js 把 0..1 输入 normalize 成 0..255 存）
+- **配对策略**：过滤空 str 后的 textContent items 与 colorRuns 1:1 顺序对齐——pdf.js 给每段 text 前会 emit 一个空 str item（仅设 text matrix，hasEOL=true）；过滤空 str 后数量应等于 showText 调用数；数量不等就降级 color=null 不强配（避免错位）
+- **已知边界**：表格 cell 文本不还原样式（lineToCells 返回纯字符串，本轮不动）；段内多字号混合按 inline span 分组渲染（行内混排可还原）；CMYK 公式按 PDF 标准 R=255×(1-C)×(1-K)；非主流颜色空间（Pattern/DeviceN/setFillColor）降级为 null；段落对齐暂不还原
+- **关联文件**：app/js/modules/pdf-convert.js（textSpansFromTC/colorRunsFromOps L405-461、renderLineInline/renderParaInline L35-69、clusterLines 保留字段 L74-93、pdfToDocxHtml 段渲染 L292-318）、app/js/modules/pdf.js（extractAllPagesSpans L131-161、extractFontMap L165-189）、app/js/export-ooxml.js（mergeProps/propsToRPr L279-309）、_pdf_style_test.js（36 断言）、app/sw.js CACHE v30→v31
+- **决策人**：用户「按这个方案开始 PDF 转换模块的字体和样式还原」拍板
+
 ---
 
 ## [2026-10-09] PDF 提取层坐标系实锤修正：y-up→y-down 提取层翻转 + 矩阵右乘 + Form XObject 嵌套图片递归（覆盖 #40 坐标系定论错误部分）

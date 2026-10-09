@@ -128,17 +128,27 @@
       } catch (e) { OS.toast("PDF 解析失败：" + e.message, "err"); emptyState(); }
     }
 
-    // —— 文本提取（textContent → {text, x, y, w, h} spans 数组）——
+    // —— 文本提取（textContent → {text, x, y, w, h, fontReal, bold, italic, color, fontSize} spans 数组）——
+    // 样式还原：每页先并行取 textContent + operatorList；从 commonObjs 取字体真实名+粗斜体，
+    // 从 opList 的 setFillRGBColor/Gray/CMYK 走查提文字颜色（按 showText 顺序配对）。
     async function extractAllPagesSpans() {
       if (!pdfDoc) return null;
+      const cv = OS.PdfConvert;
+      const OPS = global.pdfjsLib && global.pdfjsLib.OPS;
       const pages = [];
       for (let p = 1; p <= pdfDoc.numPages; p++) {
         const page = await pdfDoc.getPage(p);
         const vp = page.getViewport({ scale: 1.0 });
         const tc = await page.getTextContent();
-        // 归一化（含 y-up→y-down 翻转）统一走 pdf-convert 纯函数，node 可测
-        const spans = (OS.PdfConvert && OS.PdfConvert._textSpansFromTC)
-          ? OS.PdfConvert._textSpansFromTC(tc.items, vp.width, vp.height)
+        let fontMap = null, colorRuns = null;
+        try {
+          const opList = await page.getOperatorList();
+          if (cv && cv._colorRunsFromOps && OPS) colorRuns = cv._colorRunsFromOps(opList.fnArray, opList.argsArray, OPS);
+          fontMap = await extractFontMap(page, tc.items);
+        } catch (e) { /* 样式提取失败降级纯文本，不阻断 */ }
+        // 归一化（含 y-up→y-down 翻转 + 字体/字号/粗斜体/颜色）走 pdf-convert 纯函数，node 可测
+        const spans = (cv && cv._textSpansFromTC)
+          ? cv._textSpansFromTC(tc.items, vp.width, vp.height, fontMap, colorRuns)
           : [];
         // 图片提取（失败不阻断文本，单页图片异常只丢图不丢字）
         try {
@@ -148,6 +158,34 @@
         pages.push(spans);
       }
       return pages;
+    }
+
+    // 字体真实名+粗斜体提取：从 page.commonObjs 异步取每个 fontName 的 font 对象
+    // 失败/超时降级为 null（下游降级为不带样式），单个字体异常不影响其它
+    function extractFontMap(page, items) {
+      return new Promise((resolve) => {
+        if (!page || !page.commonObjs || !Array.isArray(items)) return resolve(null);
+        const fids = new Set();
+        for (const it of items) if (it && it.fontName) fids.add(it.fontName);
+        if (!fids.size) return resolve(null);
+        const map = {};
+        let pending = fids.size;
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(map); } };
+        const timer = setTimeout(finish, 5000); // 5s 总超时兜底防挂死
+        for (const fid of fids) {
+          try {
+            const v = page.commonObjs.get(fid, (d) => {
+              if (d && (d.name || d.bold || d.italic)) map[fid] = { name: d.name, bold: d.bold, italic: d.italic };
+              if (--pending === 0) { clearTimeout(timer); finish(); }
+            });
+            if (v) {
+              if (v.name || v.bold || v.italic) map[fid] = { name: v.name, bold: v.bold, italic: v.italic };
+              if (--pending === 0) { clearTimeout(timer); finish(); }
+            }
+          } catch (e) { if (--pending === 0) { clearTimeout(timer); finish(); } }
+        }
+      });
     }
 
     // —— 图片提取（operator list 遍历 → {image, x, y, w, h} spans）——

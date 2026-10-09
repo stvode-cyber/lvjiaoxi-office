@@ -5,8 +5,8 @@
            （与 app/js/modules/pdf.js 文本层、app/js/modules/pdf-text.js 完全一致）
    - 纯逻辑：按 y 聚类成行 → 行内按 x 排序 → 大字号行判为标题
    - 生成 Writer 可编辑 HTML → OS.Exporter.buildDocx 成 DOCX
-   - 已知边界：文本 + 图片 + 双栏/三栏版面 + 表格识别；字体/样式不还原，旋转图片
-             按轴对齐近似取框；Form XObject 嵌套图片支持（透明度组 form 不递归）。
+   - 已知边界：文本 + 图片 + 双栏/三栏版面 + 表格识别；字体/字号/粗斜体/颜色还原（段内分组
+             inline span）；旋转图片按轴对齐近似取框；Form XObject 嵌套图片支持（透明度组 form 不递归）。
    - 不依赖 pdf.js / jsdom，可在 node 直跑单测（clusterLines / pdfToDocxHtml）。
    ============================================================ */
 (function (global) {
@@ -20,6 +20,54 @@
       .replace(/>/g, "&gt;");
   }
 
+  // 行内样式 → CSS inline style 字符串（font-family/font-size/color）
+  // font-size: PDF 磅值转 px（pt × 96/72），与 buildDocx mergeProps 的 px 解析对齐
+  function inlineStyle(g) {
+    const parts = [];
+    if (g && g.fontReal) parts.push("font-family:'" + String(g.fontReal).replace(/'/g, "") + "'");
+    if (g && g.fontSize) parts.push("font-size:" + Math.round(g.fontSize * 96 / 72) + "px");
+    if (g && g.color) parts.push("color:" + g.color);
+    return parts.join(";");
+  }
+
+  // 一行 spans → inline span HTML（按样式分组：连续同 font/bold/italic/color/size 合并）
+  // bold/italic 用 <b>/<i> 标签包裹（buildDocx mergeProps 已识别）
+  function renderLineInline(line) {
+    if (!line) return "";
+    if (Array.isArray(line.items) && line.items.length) {
+      const groups = [];
+      let cur = null;
+      for (const s of line.items) {
+        const key = [s.fontReal || "", s.bold ? "b" : "", s.italic ? "i" : "", s.color || "", s.fontSize || ""].join("|");
+        if (!cur || cur.key !== key) {
+          cur = { key, items: [], fontReal: s.fontReal, bold: s.bold, italic: s.italic, color: s.color, fontSize: s.fontSize };
+          groups.push(cur);
+        }
+        cur.items.push(s.text);
+      }
+      return groups.map(g => {
+        const text = esc(g.items.join(" "));
+        let open = "", close = "";
+        if (g.bold) { open += "<b>"; close = "</b>" + close; }
+        if (g.italic) { open += "<i>"; close = "</i>" + close; }
+        const st = inlineStyle(g);
+        return st ? open + '<span style="' + st + '">' + text + "</span>" + close : open + text + close;
+      }).join("");
+    }
+    return esc(line.text || "");
+  }
+
+  // 多行段落 → inline HTML（行间用 <br> 分隔）
+  function renderParaInline(para) {
+    if (!Array.isArray(para) || !para.length) return "";
+    const out = [];
+    for (let i = 0; i < para.length; i++) {
+      out.push(renderLineInline(para[i]));
+      if (i < para.length - 1) out.push("<br>");
+    }
+    return out.join("");
+  }
+
   // 单行聚类：把一页的 span 按阅读顺序（y 升序、行内 x 升序）合并为行
   // 返回 [{text, x, y, h}]（行级：已合并文本、记录行首 x、行 y、行内最大字号 h）
   // 改进：同行基线抖动容差+软换行合并（同段落内换行保留为一个段落）
@@ -27,12 +75,21 @@
     if (!Array.isArray(spans)) return [];
     const items = spans
       .filter(s => s && typeof s.text === "string" && s.text.trim().length)
-      .map(s => ({
-        text: s.text,
-        x: typeof s.x === "number" && isFinite(s.x) ? s.x : 0,
-        y: typeof s.y === "number" && isFinite(s.y) ? s.y : 0,
-        h: (typeof s.h === "number" && s.h > 0) ? s.h : 0.015
-      }))
+      .map(s => {
+        // 保留全部样式字段（fontReal/bold/italic/color/fontSize），下游 renderLineInline 用
+        const o = {
+          text: s.text,
+          x: typeof s.x === "number" && isFinite(s.x) ? s.x : 0,
+          y: typeof s.y === "number" && isFinite(s.y) ? s.y : 0,
+          h: (typeof s.h === "number" && s.h > 0) ? s.h : 0.015
+        };
+        if (s.fontReal) o.fontReal = s.fontReal;
+        if (s.bold) o.bold = true;
+        if (s.italic) o.italic = true;
+        if (s.color) o.color = s.color;
+        if (s.fontSize) o.fontSize = s.fontSize;
+        return o;
+      })
       .sort((a, b) => a.y - b.y || a.x - b.x);
 
     const lines = [];
@@ -55,7 +112,7 @@
       const sorted = line.items.slice().sort((a, b) => a.x - b.x);
       const text = sorted.map(s => s.text).join(" ");
       const maxH = sorted.reduce((m, s) => Math.max(m, s.h), 0);
-      return { text: text, x: sorted[0].x, y: line.baseY, h: maxH };
+      return { text: text, x: sorted[0].x, y: line.baseY, h: maxH, items: sorted };
     });
   }
 
@@ -180,7 +237,7 @@
           if (!g.length) continue;
           const lines = g.map(grp => {
             const sorted = grp.items.slice().sort((a, b) => a.x - b.x);
-            return { text: sorted.map(s => s.text).join(" "), x: sorted[0].x, y: grp.baseY, h: Math.max.apply(null, sorted.map(s => s.h)) };
+            return { text: sorted.map(s => s.text).join(" "), x: sorted[0].x, y: grp.baseY, h: Math.max.apply(null, sorted.map(s => s.h)), items: sorted };
           });
           lines._evY = colMinY;
           prebuiltParagraphs.push(lines);
@@ -242,8 +299,8 @@
         if (inList && !isHeading) { blocks.push(`</${listType}>`); inList = false; listType = null; }
         if (isHeading) {
           const tag = isH1 ? "h1" : (isH2 ? "h2" : "h3");
-          blocks.push(`<${tag}>${esc(firstLine.text)}</${tag}>`);
-          for (let li = 1; li < para.length; li++) blocks.push(`<p>${esc(para[li].text)}</p>`);
+          blocks.push(`<${tag}>${renderLineInline(firstLine)}</${tag}>`);
+          for (let li = 1; li < para.length; li++) blocks.push(`<p>${renderLineInline(para[li])}</p>`);
           continue;
         }
         const listMatch = detectListType(firstLine.text);
@@ -251,13 +308,14 @@
           const isOrdered = listMatch === "ordered";
           const lt = isOrdered ? "ol" : "ul";
           if (!inList || listType !== lt) { if (inList) blocks.push(`</${listType}>`); blocks.push(`<${lt}>`); inList = true; listType = lt; }
-          const itemText = para.map(l => esc(l.text)).join("<br>");
-          const cleanText = itemText.replace(/^(<[^>]+>)?\s*(?:[•·●\-*]|\d+[\.\)]|[a-zA-Z][\.\)]|\(?\d+\))\s*/, "$1");
-          blocks.push(`<li>${cleanText}</li>`);
+          const itemHtml = renderParaInline(para);
+          // 去掉列表符号（标记字符由 detectListType 识别，这里只在 inline html 开头清理标记）
+          const cleanHtml = itemHtml.replace(/^(<[^>]+>)?\s*(?:[•·●\-*]|\d+[\.\)]|[a-zA-Z][\.\)]|\(?\d+\))\s*/, "$1");
+          blocks.push(`<li>${cleanHtml}</li>`);
           continue;
         }
-        if (para.length === 1) { blocks.push(`<p>${esc(firstLine.text)}</p>`); }
-        else { const joined = para.map(l => esc(l.text)).join("<br>"); if (joined.trim()) blocks.push(`<p>${joined}</p>`); }
+        if (para.length === 1) { blocks.push(`<p>${renderLineInline(firstLine)}</p>`); }
+        else { const joined = renderParaInline(para); if (joined.trim()) blocks.push(`<p>${joined}</p>`); }
       }
       if (inList) { blocks.push(`</${listType}>`); inList = false; listType = null; }
       if (pi < pages.length - 1) blocks.push(`<div class="page-break"></div>`);
@@ -399,22 +457,66 @@
   // pdf.js textContent items → 归一化文本 spans（与 pdf.js extractAllPagesSpans 同一套）
   // 坐标系：pdf.js transform 是用户空间 y-up（底 0 顶 vpH），这里翻转为 y-down（顶 0 底 1），
   // 与下游所有升序排序（clusterLines/colGroups/renderTableBlock/events）的「顶→底」约定一致。
-  function textSpansFromTC(items, vpW, vpH) {
+  // 样式还原：fontMap（fontName → {name,bold,italic}）从 commonObjs 取；colorRuns 是按
+  // showText 顺序记录的「当前填充色」数组（来自 _colorRunsFromOps）。
+  // 配对：过滤空 str 后的 items 与 colorRuns 1:1 顺序对齐——数量不等就全 null 不强配。
+  function textSpansFromTC(items, vpW, vpH, fontMap, colorRuns) {
     const spans = [];
     if (!Array.isArray(items) || !vpW || !vpH) return spans;
-    for (const it of items) {
-      if (!it || !it.str || !it.str.trim()) continue;
+    // 预过滤：pdf.js 会给空 str item（仅设 text matrix，hasEOL=true），与 showText 不是 1:1
+    const realItems = items.filter(it => it && it.str && it.str.trim());
+    const useColors = Array.isArray(colorRuns) && colorRuns.length === realItems.length;
+    let ci = 0;
+    for (const it of realItems) {
       const t = it.transform || [1, 0, 0, 1, 0, 0];
       const fontH = Math.abs(t[3]) || 10;
+      const fi = (fontMap && it.fontName && fontMap[it.fontName]) || {};
       spans.push({
         text: it.str,
         x: (t[4] || 0) / vpW,
         y: 1 - (t[5] || 0) / vpH,
         w: (it.width || fontH) / vpW,
-        h: fontH / vpH
+        h: fontH / vpH,
+        fontSize: fontH,           // 原始 PDF 字号（磅，pt）
+        fontReal: fi.name || null, // 真实字体名（如 "Helvetica-Bold"），无则 null
+        bold: !!fi.bold,
+        italic: !!fi.italic,
+        color: useColors ? colorRuns[ci].color : null  // #rrggbb 或 null
       });
+      ci++;
     }
     return spans;
+  }
+
+  // 遍历 pdf.js operator list 提取「每个 showText/showSpacedText 调用时的当前填充色」。
+  // 时序：setFillRGBColor → setFont → moveText/transform → showText。
+  // 文字颜色属于图形状态，会持续到下一个 setFill 才变；pdf.js 把 setFillRGBColor 的 0..1
+  // 输入 normalize 成 0..255 存（dump 实锤），这里转 hex。
+  // 支持 RGB/Gray/CMYK；其它颜色空间（Pattern/DeviceN）color=null 降级。
+  function colorRunsFromOps(fnArray, argsArray, OPS) {
+    const runs = [];
+    if (!Array.isArray(fnArray) || !OPS) return runs;
+    let color = null;
+    const toHex = (r, g, b) => "#" + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
+    for (let i = 0; i < fnArray.length; i++) {
+      const fn = fnArray[i], args = argsArray[i];
+      // pdf.js 颜色 args 可能是 Array 也可能是 typed array / arguments，统一用下标读
+      if (fn === OPS.setFillRGBColor && args && args.length >= 3) {
+        color = toHex(args[0], args[1], args[2]);
+      } else if (fn === OPS.setFillGray && args && args.length >= 1) {
+        const g = args[0]; color = toHex(g, g, g);
+      } else if (fn === OPS.setFillCMYKColor && args && args.length >= 4) {
+        // CMYK → RGB（PDF 标准公式：R = 255×(1-C)×(1-K) 等）
+        const c = args[0], m = args[1], y = args[2], k = args[3];
+        color = toHex(255 * (1 - c) * (1 - k), 255 * (1 - m) * (1 - k), 255 * (1 - y) * (1 - k));
+      } else if (fn === OPS.setFillColor || fn === OPS.setFillColorN) {
+        // 非主流颜色空间无法稳定提色，降级（不输出颜色）
+        color = null;
+      } else if (fn === OPS.showText || fn === OPS.showSpacedText) {
+        runs.push({ color: color });
+      }
+    }
+    return runs;
   }
 
   // 遍历 pdf.js operator list，算出每张图片的归一化矩形（y-down，与 textSpansFromTC 一致）。
@@ -747,7 +849,7 @@
     _estimateWidth: estimateWidth, _lineItems: lineItems, _isTableLike: isTableLike,
     _detectSeparators: detectSeparators, _lineToCells: lineToCells, _clusterTableBlocks: clusterTableBlocks,
     _detectColumnSeps: detectColumnSeps,
-    _textSpansFromTC: textSpansFromTC, _walkImageRects: walkImageRects,
+    _textSpansFromTC: textSpansFromTC, _colorRunsFromOps: colorRunsFromOps, _walkImageRects: walkImageRects,
     _imgUtils };
   OS.PdfConvert = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
