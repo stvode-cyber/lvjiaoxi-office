@@ -526,13 +526,31 @@
       allRels[slideName] = parseRels(relXml);
     }
 
-    // ========== 2. 读 slideMaster / slideLayout 的背景（用于继承回退） ==========
+    // ========== 2. 读 slideMaster 的背景（用于继承回退） ==========
     let masterBg = "#ffffff";
     const sm = zip.file("ppt/slideMasters/slideMaster1.xml");
     if (sm) {
       const smd = parseXML(await sm.async("string"));
-      const mbg = first(first(smd.documentElement, "bg"), "srgbClr");
-      if (mbg) masterBg = "#" + attr(mbg, "val");
+      const mbg = first(smd.documentElement, "bg");
+      const c = extractBgFillColor(mbg);
+      if (c) masterBg = c;
+    }
+
+    // ========== 2.5 预解析所有 slideLayout 的背景 ==========
+    // PPTX 背景继承链：slide 自己的 bg → slideLayout bg → slideMaster bg → 默认白
+    // slideLayout 文件列表
+    const layoutBgMap = {}; // "slideLayout1.xml" -> "#2196f3"
+    const layoutFiles = Object.keys(zip.files)
+      .filter(n => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n))
+      .sort((a, b) => (+/slideLayout(\d+)/.exec(a)[1]) - (+/slideLayout(\d+)/.exec(b)[1]));
+    for (const lf of layoutFiles) {
+      try {
+        const lxd = parseXML(await zip.file(lf).async("string"));
+        const lbg = first(lxd.documentElement, "bg");
+        const c = extractBgFillColor(lbg);
+        const layoutName = lf.split("/").pop(); // "slideLayout1.xml"
+        layoutBgMap[layoutName] = c || null;
+      } catch (_) {}
     }
 
     // ========== 3. 遍历每张 slide ==========
@@ -568,6 +586,41 @@
         };
         return map[attr(scheme, "val")] || "#888888";
       }
+      return null;
+    }
+
+    // 工具：从 <p:bg> / <p:bgPr> 节点提取背景色（覆盖 PPTX 所有标准背景类型）
+    // PPTX 背景结构：<p:bg><p:bgPr>{solidFill|gradFill|blipFill|noFill}</p:bgPr></p:bg>
+    // 或引用：<p:bg><p:bgRef idx="N"><a:schemeClr val="xxx"/></p:bgRef></p:bg>
+    function extractBgFillColor(bgNode) {
+      if (!bgNode) return null;
+      // 路径1：bgPr 直接填充（solidFill / gradFill / noFill）
+      const bgPr = first(bgNode, "bgPr");
+      const fillHost = bgPr || bgNode;
+      // solidFill
+      const solid = first(fillHost, "solidFill");
+      if (solid) { const c = extractFillColor(solid); if (c) return c; }
+      // gradFill 渐变 → 取第一个 stop 的颜色
+      const grad = first(fillHost, "gradFill");
+      if (grad) {
+        const gsLst = first(grad, "gsLst");
+        if (gsLst && gsLst.children && gsLst.children.length) {
+          const firstGs = gsLst.children[0];
+          const c = extractFillColor(firstGs);
+          if (c) return c;
+        }
+      }
+      // bgRef 引用（idx 指向 theme/slideLayout，简化处理：直接在里面找颜色）
+      const bgRef = first(bgNode, "bgRef");
+      if (bgRef) {
+        const c = extractFillColor(bgRef);
+        if (c) return c;
+      }
+      // 兜底：深度搜 srgbClr / schemeClr
+      const srgb = first(bgNode, "srgbClr");
+      if (srgb) return "#" + attr(srgb, "val");
+      const scheme = first(bgNode, "schemeClr");
+      if (scheme) return extractFillColor(scheme.parentElement || bgNode);
       return null;
     }
 
@@ -699,24 +752,27 @@
     for (const name of slideEntries) {
       const sd = parseXML(await zip.file(name).async("string"));
       const sld = first(sd.documentElement, "sld") || sd.documentElement;
-      // 背景：slide 自己的 <p:bg> → masterBg → 默认白
-      let bgColor = masterBg;
-      const bgNode = first(sld, "bg");
-      if (bgNode) {
-        const solidBg = first(bgNode, "solidFill");
-        const srgbBg = first(bgNode, "srgbClr");
-        if (solidBg) {
-          const c = extractFillColor(solidBg);
-          if (c) bgColor = c;
-        } else if (srgbBg) {
-          bgColor = "#" + attr(srgbBg, "val");
-        }
-        // blipFill 图片背景跳过（简化）
-      }
 
-      // 取 slide 自己的 rels
+      // 取 slide 自己的 rels（提前，背景 fallback 链路需要）
       const relsKey = name.replace("ppt/slides/", ""); // slide1.xml
       const rels = allRels[relsKey] || {};
+
+      // 背景继承链：slide 自己的 bg → slideLayout bg → slideMaster bg → 默认白
+      let bgColor = masterBg;
+      const bgNode = first(sld, "bg");
+      const slideOwnBg = extractBgFillColor(bgNode);
+      if (slideOwnBg) {
+        bgColor = slideOwnBg; // slide 自己设了 → 最高优先级
+      } else {
+        // fallback：从 rels 找 slideLayout → 查预解析的 layoutBgMap
+        let layoutBg = null;
+        for (const target of Object.values(rels)) {
+          const m = target.match(/slideLayouts\/(slideLayout\d+\.xml)/);
+          if (m) { layoutBg = layoutBgMap[m[1]]; break; }
+        }
+        if (layoutBg) bgColor = layoutBg;
+      }
+      console.log("[PPTX-BG]", name, "slideBg?", !!bgNode, "slideBgExtracted:", slideOwnBg || "null", "layoutBg:", (() => { for (const t of Object.values(rels)) { const m=t.match(/slideLayouts\/(slideLayout\d+\.xml)/); if(m) return layoutBgMap[m[1]] || "null"; } return "no-layout-rel"; })(), "master:", masterBg, "→ final:", bgColor);
 
       // spTree（注意：PPTX 里 spTree 可能多层嵌套 <p:spTree><a:spTree>，需要取最深一层）
       let cSld = first(sld, "cSld");

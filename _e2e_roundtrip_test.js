@@ -72,7 +72,6 @@ async function zipToBuffer(zip) {
   const distDir = path.join(APP, "..", "dist");
   const required = [
     "绿角犀 Office Setup " + VER + ".exe",
-    "绿角犀 Office " + VER + ".exe",
     "latest.yml"
   ];
   for (const f of required) {

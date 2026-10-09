@@ -1,4 +1,4 @@
-﻿# 台账索引
+# 台账索引
 
 > 按模块组织，快速定位 decisions / issues / 关联文件。
 > 每条条目带 `[D]` 决策 或 `[I]` 坑，可点击跳转。
@@ -23,6 +23,10 @@
 - 关联文件：app/js/shell.js（已修复 + 坑标签 TODO 已注入）
 
 
+- [D] PDF→DOCX 多栏版面还原：detectColumnSep（gap 直方图单一 peak + crossSep<5 安全回滚）+ prose 重排（左栏→右栏） → decisions.md#2026-10-01
+- [I] detectColumnSep 被多列表格 items>=3 干扰 dominant peak → issues.md#pdf-multicolumn-items3-conflict
+- [I] prose 重排覆盖所有行丢失标题/备注 → issues.md#pdf-multicolumn-preserved-lost
+- [I] prose 重排后整体 sort 打乱左→右阅读顺序 → issues.md#pdf-multicolumn-sort-destroys-order
 - [D] PDF→Excel 版面还原：detectTables 精细列边界 + XLSX 真表格（cellStyles:true + !merges 合并） → decisions.md#2026-09-23
 - [D] 查找替换跨模块统一：TreeWalker + Range，CSS 全局复用 sf-find-* → decisions.md#2026-09-23
 - [D] 快捷键统一在 shell.js handler，不分散到各模块 → decisions.md#2026-09-23
@@ -122,3 +126,6 @@
 
 
 
+- [D] PDF→DOCX 图片嵌入：pdf-convert.js image span 支持 + events.kind:"img" + buildDocx 已有 addImage/drawingRun → decisions.md#2026-10-01d
+- [I] pdfToDocxHtml 新增 image span 支持 → issues.md#pdf-image-passthrough
+- [I] buildDocx 已完整支持 img src=data:URI → DOCX drawing（L177-268 已就绪） → issues.md#pdf-builddocx-image-already-ready

@@ -169,11 +169,17 @@
     let layoutSel = null; // 版式下拉
 
     function renderSlide(slide, scale, withAnim) {
+      scale = scale || 1;
       const el = document.createElement("div");
       el.className = "pres-canvas";
-      el.style.width = W + "px"; el.style.height = H + "px"; el.style.background = slide.bg;
-      el.style.transform = scale && scale !== 1 ? `scale(${scale})` : "";
-      el.style.transformOrigin = "top left";
+      // 硬写缩后宽高 + 覆盖 CSS .pres-canvas 里的属性（它是给主画布写的 position:absolute 等）
+      el.style.width = (W * scale) + "px";
+      el.style.height = (H * scale) + "px";
+      el.style.background = slide.bg;
+      el.style.position = "static";   // 覆盖 CSS 的 position:absolute
+      el.style.left = "auto";          // 覆盖 CSS 的 left:0
+      el.style.top = "auto";           // 覆盖 CSS 的 top:0
+      el.style.overflow = "visible";   // 覆盖 CSS 的 overflow:hidden（内容已乘 scale，不会溢出）
       (slide.elements || []).forEach(elm => el.appendChild(renderEl(elm, scale, withAnim)));
       return el;
     }
@@ -256,11 +262,12 @@
     function renderThumbs() {
       thumbs.innerHTML = "";
       data.slides.forEach((s, i) => {
+        const sc = 140 / W;
         const box = document.createElement("div");
         box.className = "pres-thumb" + (i === cur ? " active" : "");
-        box.style.height = (H * 140 / W) + "px";
-        const sc = renderSlide(s, 140 / W);
-        box.appendChild(sc);
+        box.style.width = (W * sc) + "px";
+        box.style.height = (H * sc) + "px";
+        box.appendChild(renderSlide(s, sc));
         const num = document.createElement("span"); num.className = "tnum"; num.textContent = i + 1; box.appendChild(num);
         box.addEventListener("click", () => { cur = i; renderAll(); });
         thumbs.appendChild(box);
@@ -278,7 +285,28 @@
       });
     }
 
-    function renderAll() { renderThumbs(); renderMain(); syncPanel(); }
+    function renderAll() { renderThumbs(); renderMain(); syncPanel(); fitScale(); }
+
+    // 中间画布适屏缩放：根据 .pres-canvas-area 可用空间，按 16:9 比例 fit + 居中
+    function fitScale() {
+      const area = canvas.parentElement; // .pres-canvas-area
+      if (!area) return;
+      const aw = area.clientWidth - 20;   // 留 10px padding 边距
+      const ah = area.clientHeight - 20;
+      const s = Math.min(aw / W, ah / H);
+      const scale = Math.max(0.2, s);     // 最小缩到 20%
+      const tx = (area.clientWidth - W * scale) / 2;
+      const ty = (area.clientHeight - H * scale) / 2;
+      canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      canvas.style.transformOrigin = "top left";
+    }
+
+    // 监听容器大小变化（主画布适屏）
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(() => fitScale());
+      ro.observe(canvas.parentElement);
+    }
+    window.addEventListener("resize", fitScale);
 
     function syncPanel() {
       const s = data.slides[cur];

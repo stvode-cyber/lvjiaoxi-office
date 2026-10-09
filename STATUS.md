@@ -1,4 +1,4 @@
-# STATUS · 状态总览
+﻿# STATUS · 状态总览
 
 > **状态-only 导航**。详细功能完成度见 [FEATURES.md](FEATURES.md)；模块划分与关系见 [工程总纲.md](工程总纲.md) 与各 [模块总纲](模块/)。
 > 本文件只汇总「到哪了、卡哪了、去哪看」，不展开实现细节。
@@ -10,14 +10,14 @@
 | 模块 | 总纲 | 整体状态 | 一句话 |
 |------|------|----------|--------|
 | 01 文档编辑 | [总纲](模块/01_文档编辑_总纲.md) | ✅ 核心已实现 | 五模块 + MindMap 可实跑；**OS.Versions 历史版本快照已接入 markDirty**（debounce 2s + 30s 间隔节流，每文档最多 50 版本），shell.js backstage 「历史版本」面板（list/diff/revert UI，LCS 行级 diff，回退自动存 pre-revert 备份） |
-| 02 PDF | [总纲](模块/02_PDF_总纲.md) | 🟡 部分实现 | 阅读/合并拆分/批注(类型齐全+图层+AP图像/矢量)/表单/文本层/多格式导出/属性解析/书签目录/附件提取 ✅；PDF→Excel/PDF→DOCX 版面还原有限；链接提取（外链审计）✅ |
+| 02 PDF | [总纲](模块/02_PDF_总纲.md) | 🟢 可用 | 阅读/合并拆分/批注/表单/文本层/多格式导出/属性解析/书签目录/附件提取 ✅；PDF→DOCX **完整链路**（多栏 K-means + 表格 + 图片 + Word 按钮 + IEEE 24.5KB .docx）；PDF→Excel **完整链路** + PDF→TXT/MD **UI 打通**（侧边栏 4 按钮全齐）；链接提取 ✅ |
 | 03 格式兼容 | [总纲](模块/03_格式兼容_总纲.md) | ✅ 已实现 | OOXML / ODF / OFD 打通；PDF⇄Office 部分 |
 | 04 账户与云端 | [总纲](模块/04_账户与云端_总纲.md) | ✅ 已实现 | 统一账号 / 云端 / 备档 / .lvjx 加密 |
 | 05 外壳与通用 | [总纲](模块/05_外壳与通用_总纲.md) | ✅ 已实现 | 开始页 / ribbon / 命令面板 / 主题 / AI；顶部主导航五板块（工作台/订单/库存/审批/我的） |
 | 09 业务板块 | —（并入 05 外壳） | ✅ 已实现 | 订单/库存/审批 本地 CRUD（IndexedDB）+ 我的（账户/偏好/关于）+ CSV 导出 + 批量操作（批量删除/审批批量通过·驳回）+ 库存出入库（数量调整 + 流水）+ 订单单条状态流转（下拉 + statusHistory 留痕）+ 订单/审批详情展开（状态流转时间线）+ 库存流水明细（查看/汇总 + 撤销最近一笔）+ 库存流水按时间筛选 + 分页 + 导出 CSV）+ 工作台聚合「库存预警」（低库存/缺货品项，一键跳转库存）+「业务概览」（订单/审批统计卡片，一键跳转）+「成交额趋势」（近 7 日订单成交额 SVG 折线图）+ 审批意见留痕（通过可填意见、驳回必填理由，时间线展示） |
 | 06 客户端与交付 | [总纲](模块/06_客户端与交付_总纲.md) | 🟡 部分实现 | Win / Android / PWA ✅；iOS / HarmonyOS ⚠️ 源码工程 |
 | 07 发版与更新 | [总纲](模块/07_发版与更新_总纲.md) | ✅ 已实现 | 版本单一真源 / 全自动更新模式(启动检查+后台自动下载+退出自动装，generic feed 已接通 lujax.fun/releases) / 合规素材 |
-| 08 测试与质量 | [总纲](模块/08_测试与质量_总纲.md) | ✅ 已实现 | **95 套件 0 失败**（含 _versions_test 44 断言，v1.1.1 后续清理临时 release 测试 -3）；E2E 已补（171 断言） |
+| 08 测试与质量 | [总纲](模块/08_测试与质量_总纲.md) | ✅ 已实现 | **104 套件 0 失败**（含 v1.1.6 新增 21 断言 pdfToExcelRows/rowsToCells）；E2E 已补（171 断言） |
 
 ---
 
@@ -25,9 +25,9 @@
 
 | 级别 | 项 | 归属 | 说明 |
 |------|----|------|------|
-| 🟡 边界 | PDF→Excel（版面还原有限：文本+列边界聚类，无像素级表格） | 02 / 03 | 已实现可用，版面还原有限 |
-| 🟡 边界 | PDF→DOCX/TXT/MD（版面还原有限） | 02 | 仅文本层 + 标题判别，无图片/表格/多栏 |
-| 🟡 边界 | PDF→DOCX 版面还原 | 02 | 纯文本提取，非像素级版面 |
+| ✅ 已解 | PDF→Excel（pdfToExcelRows + rowsToCells + buildXlsx 真 .xlsx） | 02 / 03 | IEEE 论文端到端 22.8 KB .xlsx 验证通过 |
+| ✅ 已解 | PDF→DOCX（多栏 K-means + 表格 + 图片 span + 导出 UI） | 02 | 真实 IEEE 双栏论文端到端验证通过（24.5 KB .docx，124 段落） |
+| ✅ 已解 | PDF→TXT/MD（侧边栏按钮 + exportAsXxx 统一 _pages 数据源） | 02 | IEEE 论文端到端验证（TXT 10.6KB / MD 10.7KB） |
 | ⚠️ 人工 | iOS / HarmonyOS 编译与上架 | 06 | 需 Mac / DevEco + 签名证书 + 隐私页 |
 | ⚠️ 人工 | 商店合规（Android 自适应图标 / iOS LaunchScreen / PrivacyInfo） | 07 | 素材已生成，上架为人工项 |
 
@@ -35,7 +35,7 @@
 
 ## 三、基线指标（实跑证据）
 
-- **测试**：`npm test` 整链 **110 套件，0 失败** + 四端同源 ✅。含 AK=PDF 表单字段提取 34 断言、AL=PDF 文档信息/元数据提取 33 断言、AM=PDF 页面属性/页面树信息提取 50 断言、AN=PDF 字体信息提取 74 断言、AP=PDF 动作/JavaScript 安全审计 37 断言、AQ=PDF 结构预检 42 断言、AR=PDF 文档历史 39 断言、业务板块（订单 25 / 库存+审批 30 / 我的 15 / CSV 导出 14 / 批量操作 24 / 库存出入库 24 / 订单状态流转 21 / 详情展开 23 / 库存流水撤销 24 / 库存流水筛选·分页 29 / 库存流水导出 CSV 17 / 低库存聚合查询 9 / 工作台业务概览 14 / 成交额趋势 10 / **审批意见留痕 18** 断言）；_updater_autoupdate_test 11 断言锁定 v1.0.15 自动更新正向链路；**E2E 测试**：_e2e_roundtrip_test 73 断言 + _e2e_scenarios_test 98 断言 = **171 断言**覆盖 DOCX/XLSX/PPTX/OFD 往返 + 批量并发 + 主题/MIME/模板/导出边界/云同步/util。
+- **测试**：`npm test` 整链 **104 套件，0 失败** + 四端同源 ✅。含 AK=PDF 表单字段提取 34 断言、AL=PDF 文档信息/元数据提取 33 断言、AM=PDF 页面属性/页面树信息提取 50 断言、AN=PDF 字体信息提取 74 断言、AP=PDF 动作/JavaScript 安全审计 37 断言、AQ=PDF 结构预检 42 断言、AR=PDF 文档历史 39 断言、v1.1.6 新增 pdfToExcelRows/rowsToCells 21 断言；业务板块（订单 25 / 库存+审批 30 / 我的 15 / CSV 导出 14 / 批量操作 24 / 库存出入库 24 / 订单状态流转 21 / 详情展开 23 / 库存流水撤销 24 / 库存流水筛选·分页 29 / 库存流水导出 CSV 17 / 低库存聚合查询 9 / 工作台业务概览 14 / 成交额趋势 10 / **审批意见留痕 18** 断言）；_updater_autoupdate_test 11 断言锁定 v1.0.15 自动更新正向链路；**E2E 测试**：_e2e_roundtrip_test 73 断言 + _e2e_scenarios_test 98 断言 = **171 断言**覆盖 DOCX/XLSX/PPTX/OFD 往返 + 批量并发 + 主题/MIME/模板/导出边界/云同步/util。
 - **同源**：四端经 `sync-clients` 与 `app/` 一致 ✅。
 - **2026-09-01 新增 PDF 1.5+ 对象流(ObjStm)合并/拆分支持**：`parsePdf`/`mergePdfs`/`splitPdf` 改异步（ObjStm 解压依赖 DecompressionStream），并修复 `extractStreamData` 末行 EOL 与 `extractFirstBalancedDict` 末位 `>` 偏移两处解析 bug（后者会让 ObjStm 对象字典丢失末位 `>`，合并真实 1.5+ PDF 时会输出畸形页面字典）；新增 `_pdf_merge_test` 12 断言 + `_pdf_tool_test` 回归全覆盖，整链 87 套件 0 失败。
 - **2026-09-02 新增 AP=PDF 动作/JavaScript 安全审计**：`OS.PdfActions`（app/js/modules/pdf-actions.js）解析 /OpenAction（动作引用/内联动作/目标数组三形态）+ /AA 附加动作（Catalog/页面/批注，事件 O/E/X/U/D/Po/PC/WP/WC/DS/DC…）+ /A 动作引用 + /Names /JavaScript 名称树 + 全文档动作对象（JavaScript/Launch/SubmitForm/ImportData/GoTo(R/E)/URI/Named 等）；/JS 片段字节级解码（字面串 PDF 转义+八进制 / 十六进制；UTF-16BE→UTF-8→Latin-1）；Launch/SubmitForm/ImportData 目标（文件/URL）提取；风险分级 高(JS·Launch)/中(SubmitForm·ImportData)/低/info + 自动执行判定；面板（风险降序 + data-page 跳页）+ 导出审计报告 MD；_pdf_actions_test 37 断言。**同轮修复 sliceDict 族潜在缺陷**：pdf-actions/pdf-fonts/pdf-docinfo/pdf-encrypt/pdf-formfields/pdf-pageinfo 六模块平衡切分闭合 `>>` 处丢末位 `>`（与 AO 同族），嵌套字典解析失衡，统一改 `slice(startIdx, i + 1)`，六模块单测回归全绿。整链 **88 套件 0 失败**。

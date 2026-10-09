@@ -119,19 +119,18 @@ let updateDownloadUrl = ""; // github 回退通道下，供安装失败兜底打
         updateDownloadUrl = "";
       }
       autoUpdater.on("update-available", (info) => {
-        if (win && !win.isDestroyed()) win.webContents.send("updater:available",
-          { version: info.version, releaseDate: info.releaseDate, notes: info.releaseNotes });
+        BrowserWindow.getAllWindows().forEach(w => !w.isDestroyed() && w.webContents.send("updater:available",
+          { version: info.version, releaseDate: info.releaseDate, notes: info.releaseNotes }));
       });
       autoUpdater.on("download-progress", (p) => {
-        if (win && !win.isDestroyed()) win.webContents.send("updater:progress", Math.round((p && p.percent) || 0));
+        BrowserWindow.getAllWindows().forEach(w => !w.isDestroyed() && w.webContents.send("updater:progress", Math.round((p && p.percent) || 0)));
       });
       autoUpdater.on("update-downloaded", (info) => {
-        if (win && !win.isDestroyed()) win.webContents.send("updater:downloaded", { version: info.version });
+        BrowserWindow.getAllWindows().forEach(w => !w.isDestroyed() && w.webContents.send("updater:downloaded", { version: info.version }));
       });
       autoUpdater.on("error", (e) => {
-        // 安装被拦（如未签名的 Windows 安装包）时，把发布页地址一并带回，渲染端可兜底打开
         const msg = String(e && e.message || e);
-        if (win && !win.isDestroyed()) win.webContents.send("updater:error", msg, updateDownloadUrl);
+        BrowserWindow.getAllWindows().forEach(w => !w.isDestroyed() && w.webContents.send("updater:error", msg, updateDownloadUrl));
       });
       // 自动更新模式：启动即检查（无需等待前端 IPC；前端 checkNow 仅作补充轮询）
       autoUpdater.checkForUpdates().catch(e => console.info("[Main] 操作失败:", e));
@@ -167,41 +166,34 @@ const server = http.createServer((req, res) => {
   });
 });
 
-// 文件关联：待打开文档队列（窗口未就绪前先缓存，did-finish-load 后统一推送前端）
-let pendingFiles = [];
-let webReady = false;
+// 多窗口管理：每个 BrowserWindow 带自己的 __state = { pendingFiles: [], webReady: false }
+const windows = new Set();
 
-function openFileAt(p) {
-  // 零成本预检：statSync 拿 size，超上限直接跳过 — 避免读超大文件进内存
+// 单文件读取 + base64（异步，绝不阻塞主进程！）
+async function readFilePayloadAsync(p) {
   try {
-    if (!p || typeof p !== "string") return Promise.resolve();
-    const st = fs.statSync(p);
-    if (!st.isFile()) return Promise.resolve();
-    if (st.size > MAX_OPEN_BYTES) { console.warn("openFileAt 跳过超大文件:", p, "(" + Math.round(st.size / 1024 / 1024) + "MB)"); return Promise.resolve(); }
-  } catch (e) { return Promise.resolve(); /* 文件不存在/无权限 — 跳过 */ }
-  // ★ 异步读：用 Promise 包装 fs.readFile，不阻塞 main 事件循环
-  return new Promise((resolve) => {
-    fs.readFile(p, (err, buf) => {
-      if (err) { console.error("openFileAt 读取失败:", p, err.message); resolve(); return; }
-      const payload = {
-        path: p,
-        name: path.basename(p),
-        ext: path.extname(p).toLowerCase(),
-        base64: buf.toString("base64")
-      };
-      if (win && !win.isDestroyed() && webReady) win.webContents.send("app:open-file", payload);
-      else pendingFiles.push(payload);
-      resolve();
-    });
-  });
+    if (!p || typeof p !== "string") return null;
+    const st = await fs.promises.stat(p);
+    if (!st.isFile()) return null;
+    if (st.size > MAX_OPEN_BYTES) { console.warn("readFilePayloadAsync 跳过超大文件:", p, "(" + Math.round(st.size / 1024 / 1024) + "MB)"); return null; }
+  } catch (e) { return null; }
+  let buf; try { buf = await fs.promises.readFile(p); } catch(e) { console.error("readFilePayloadAsync 读取失败:", p, e.message); return null; }
+  return { path: p, name: path.basename(p), ext: path.extname(p).toLowerCase(), base64: buf.toString("base64") };
 }
 
-function flushPendingFiles() {
+// 给指定窗口发送文件（窗口就绪 → 直接发；未就绪 → 入该窗口 pendingFiles）
+function dispatchFileTo(win, payload) {
   if (!win || win.isDestroyed()) return;
-  while (pendingFiles.length) win.webContents.send("app:open-file", pendingFiles.shift());
+  if (win.__state.webReady) win.webContents.send("app:open-file", payload);
+  else win.__state.pendingFiles.push(payload);
 }
 
-let win;
+// 刷某个窗口的 pending queue
+function flushWindowPending(win) {
+  if (!win || win.isDestroyed()) return;
+  while (win.__state.pendingFiles.length) win.webContents.send("app:open-file", win.__state.pendingFiles.shift());
+}
+
 // 中文菜单栏（替代 Electron 默认英文 File/Edit/View/Window/Help）
 function createAppMenu(targetWin) {
   const about = () => {
@@ -270,15 +262,16 @@ function createAppMenu(targetWin) {
   ]);
 }
 
-function createWindow() {
+function createWindow(initialPaths) {
   __phase("createWindow() enter");
-  win = new BrowserWindow({
+  const w = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 960,
     minHeight: 640,
     icon: path.join(ROOT, "icons", "icon.ico"),
     title: "绿角犀 Office",
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -286,68 +279,89 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js")
     }
   });
-  __phase("BrowserWindow.new resolved");
-  win.loadURL("http://127.0.0.1:" + PORT + "/");
-  __phase("loadURL() resolved");
-  win.setMenu(createAppMenu(win));
-  win.once("did-finish-load", () => { webReady = true; flushPendingFiles(); __phase("did-finish-load ← render ready"); });
-  win.on("closed", () => { win = null; });
+  w.__state = { pendingFiles: [], webReady: false }; // 每个窗口自己的 state
+  windows.add(w);
 
-  // 🩺 诊断：render 的 console 重定向到文件，就算 render 冻住了也能看到最后一行
+  __phase("BrowserWindow.new resolved");
+  w.loadURL("http://127.0.0.1:" + PORT + "/");
+  __phase("loadURL() resolved");
+  w.setMenu(createAppMenu(w));
+  w.setMenuBarVisibility(false);
+  w.once("did-finish-load", () => { w.__state.webReady = true; flushWindowPending(w); __phase("did-finish-load ← render ready"); });
+  w.on("closed", () => { windows.delete(w); });
+
+  // ★ 异步预读：读取文件不阻塞主进程，read 好后直接 dispatch
+  if (Array.isArray(initialPaths) && initialPaths.length) {
+    Promise.all(initialPaths.map(p => readFilePayloadAsync(p))).then(payloads => {
+      payloads.forEach(payload => { if (payload) dispatchFileTo(w, payload); });
+    }).catch(e => console.error("[createWindow] 预读失败:", e.message));
+  }
+
+  // 🩺 诊断：render 的 console 重定向到文件（每窗口独立日志）
   try {
     const diagDir = path.join(app.getPath('userData'), 'diag');
     require('fs').mkdirSync(diagDir, { recursive: true });
     const logFile = path.join(diagDir, 'render-console.log');
-    const fs = require('fs');
-    // 每次启动清空
-    fs.writeFileSync(logFile, `\n===== NEW SESSION ${new Date().toISOString()} =====\n`, 'utf8');
-    win.webContents.on('console-message', (evt, level, msg, line, sourceId) => {
+    const fs2 = require('fs');
+    fs2.appendFileSync(logFile, `\n===== NEW WINDOW ${new Date().toISOString()} =====\n`, 'utf8');
+    w.webContents.on('console-message', (evt, level, msg, line, sourceId) => {
       const ts = new Date().toISOString();
       const tag = ['VERBOSE','INFO','WARN','ERROR'][level] || 'INFO';
       const src = line ? `(${sourceId.split('/').pop()}:${line})` : '';
       const line1 = `[${ts}][${tag}] ${msg} ${src}\n`;
-      try { fs.appendFileSync(logFile, line1); } catch(_) {}
-      if (level >= 2) console.log('[RENDER-ERR]', msg); // error 也打到 main 控制台
+      try { fs2.appendFileSync(logFile, line1); } catch(_) {}
+      if (level >= 2) console.log('[RENDER-ERR]', msg);
     });
-    win.webContents.on('render-process-gone', (evt, details) => {
+    w.webContents.on('render-process-gone', (evt, details) => {
       const crashFile = path.join(diagDir, 'crash.log');
       const entry = `\n[${new Date().toISOString()}] render-process-gone! reason=${details.reason}, exitCode=${details.exitCode}\n`;
-      try { fs.appendFileSync(crashFile, entry); } catch(_) {}
+      try { fs2.appendFileSync(crashFile, entry); } catch(_) {}
       console.error('[MAIN] 💥 render process gone!', details.reason, 'exitCode:', details.exitCode);
     });
     console.log('[DIAG] console redirect →', logFile);
   } catch(e) { console.error('[DIAG] setup failed:', e.message); }
+  return w;
 }
 
 app.whenReady().then(() => {
   __phase("app.whenReady resolved ← Chromium ready");
-  // 单实例：已在运行的实例不再重复起服务；双击/默认打开方式的文件转交首实例的 second-instance 处理
+  // 单实例 + 多窗口：共享一个 HTTP server；新文件关联 → second-instance 开新窗口
   if (!app.requestSingleInstanceLock()) { __logCrash("[QUIT] singleInstanceLock failed → app.quit()"); app.quit(); return; } __logCrash("[OK] singleInstanceLock acquired");
   __phase("after singleInstanceLock");
   server.listen(PORT, "127.0.0.1", () => { __logCrash("[OK] server.listen success");
-    if (PORT === 0) PORT = server.address().port; // 固定为实际随机端口，供后续窗口复用
+    if (PORT === 0) PORT = server.address().port;
     __phase("server.listen callback");
-    __logCrash("[CALL] createWindow()"); createWindow();
+    // 首个窗口 + 命令行携带的初始文件
+    const initialPaths = extractFilePaths(process.argv);
+    __logCrash("[CALL] createWindow(" + initialPaths.length + " files)");
+    createWindow(initialPaths.length ? initialPaths : null);
     __phase("createWindow returned");
-    setupAutoUpdater(); // 配置电子静默更新（无 feed/无依赖时自动跳过）
+    setupAutoUpdater();
     __phase("setupAutoUpdater done");
-    // 文件关联：双击文档 / 命令行携带路径启动时，把文件推给前端打开（窗口未就绪前先入队）
-    extractFilePaths(process.argv).forEach(openFileAt);
-    __phase("after openFileAt");
   });
-  // 已运行实例收到新文件关联请求（Windows 下双击第二个文档时）
+  // 双击第二个文档 → 开新窗口（保留单实例锁，但不再把文件塞给旧窗口）
   app.on("second-instance", (e, argv) => {
-    extractFilePaths(argv).forEach(openFileAt);
-    if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.focus(); }
+    const paths = extractFilePaths(argv);
+    if (paths.length) createWindow(paths);
+    else { const f = BrowserWindow.getFocusedWindow(); if (f) { if (f.isMinimized()) f.restore(); f.focus(); } }
   });
-  // macOS 拖入文件到 Dock 图标
-  app.on("open-file", (e, p) => { e.preventDefault(); openFileAt(p); });
-  // 渲染层就绪握手：前端初始化完成后通知主进程，把文件队列刷给前端（不依赖易失效的 did-finish-load）
-  ipcMain.handle("app:renderer-ready", () => { webReady = true; flushPendingFiles(); });
-  // 前端兜底拉取：返回且清空排队中的文件（启动瞬间双击的文档）
-  ipcMain.handle("app:pending-files", () => {
-    const q = pendingFiles.splice(0, pendingFiles.length);
-    return q;
+  // macOS 拖入文件到 Dock → 给 focused window；没窗口就新开
+  app.on("open-file", (e, p) => {
+    e.preventDefault();
+    const focused = BrowserWindow.getFocusedWindow();
+    if (focused) { const payload = readFilePayload(p); if (payload) dispatchFileTo(focused, payload); }
+    else createWindow([p]);
+  });
+  // 渲染层就绪握手（window-specific，通过 sender 定位）
+  ipcMain.handle("app:renderer-ready", (evt) => {
+    const w = BrowserWindow.fromWebContents(evt.sender);
+    if (w && w.__state) { w.__state.webReady = true; flushWindowPending(w); }
+  });
+  // 前端兜底拉取 pending files（同样 window-specific）
+  ipcMain.handle("app:pending-files", (evt) => {
+    const w = BrowserWindow.fromWebContents(evt.sender);
+    if (w && w.__state) return w.__state.pendingFiles.splice(0, w.__state.pendingFiles.length);
+    return [];
   });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

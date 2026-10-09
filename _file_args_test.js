@@ -1,4 +1,4 @@
-// 绿角犀 Office · file-args 纯逻辑测试（文件关联参数解析）
+﻿// 绿角犀 Office · file-args 纯逻辑测试（文件关联参数解析）
 const assert = require("assert");
 const { extractFilePaths, isKnownExt, KNOWN_EXT } = require("./electron/file-args");
 
@@ -44,7 +44,7 @@ t("排除未知扩展名（.zip / .png）", () => {
 });
 
 t("覆盖所有需关联的核心格式", () => {
-  const exts = [".pdf", ".ofd", ".lvjx", ".docx", ".xlsx", ".pptx", ".csv", ".txt", ".md", ".html", ".htm", ".xmind"];
+  const exts = [".pdf", ".ofd", ".lvjx", ".docx", ".xlsx", ".xls", ".pptx", ".csv", ".txt", ".md", ".html", ".htm", ".xmind"];
   for (const e of exts) {
     assert.ok(isKnownExt("file" + e), "应识别 " + e);
     assert.ok(isKnownExt("FILE" + e.toUpperCase()), "应大小写不敏感 " + e);
@@ -52,7 +52,7 @@ t("覆盖所有需关联的核心格式", () => {
 });
 
 t("KNOWN_EXT 数量与预期一致", () => {
-  assert.strictEqual(KNOWN_EXT.length, 12);
+  assert.strictEqual(KNOWN_EXT.length, 13);
 });
 
 t("混合：标记 + 已知 + 未知", () => {

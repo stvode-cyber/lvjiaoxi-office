@@ -262,6 +262,7 @@ function createWindow() {
     minHeight: 640,
     icon: path.join(ROOT, "icons", "icon.ico"),
     title: "绿角犀 Office",
+    autoHideMenuBar: true, /* 隐藏菜单栏，按 Alt 临时显示；快捷键仍生效 */
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -271,6 +272,7 @@ function createWindow() {
   });
   win.loadURL("http://127.0.0.1:" + PORT + "/");
   win.setMenu(createAppMenu(win));
+  win.setMenuBarVisibility(false); /* 彻底隐藏菜单栏（保留 Menu 让快捷键继续生效） */
   win.once("did-finish-load", () => { webReady = true; flushPendingFiles(); });
   win.on("closed", () => { win = null; });
 
