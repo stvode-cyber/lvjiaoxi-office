@@ -584,8 +584,11 @@
       baseDir = baseDir || "ppt/slides/";
       // target 相对 baseDir：../media/image1.png -> ppt/media/image1.png
       let path = baseDir + target;
-      // 把任意 "xxx/../" 折叠成 "" （例："ppt/slides/../media/image.png" -> "ppt/media/image.png"）
-      path = path.replace(/\/\.\.\//g, "/");
+      // 折叠 "xxx/../" → "" （例："ppt/slides/../media/image.png" -> "ppt/media/image.png"）
+      // 用循环处理多层嵌套（a/b/../../c → c）
+      while (path.indexOf("/../") !== -1) {
+        path = path.replace(/[^/]+\/\.\.\//, "");
+      }
       const dataUrl = mediaMap[path];
       return dataUrl || null;
     }
