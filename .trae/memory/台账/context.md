@@ -226,7 +226,7 @@ npm run dist:local       # 打 Setup.exe（electron-builder 需装好）
 
 ## ⚠️ 已知遗留问题（非阻断）
 
-1. **PPTX 图片背景未处理** — `blipFill` 类型跳过了（简化），只有 solidFill/gradFill/schemeClr 有颜色
+1. **~~PPTX 图片背景未处理~~ 已修复** — `blipFill` 类型已实现（rels 预解析 slideLayout/slideMaster + resolveMediaByRels 通用化 + extractBgFillColor blipFill 路径 → url(data:) 渲染）
 2. **多窗口 HTTP server 共享** — 保留了单实例锁，但多个 BrowserWindow 共享 127.0.0.1:PORT（OK，不影响）
 3. **顶层导航紧凑型小** — 如果用户反馈按钮太小，可以加"标准模式/紧凑模式"切换
 4. **侧边栏模块 tab（演示/文档/表格/PDF）没合并** — 这些是左侧 sidebar 的，不是顶部的
