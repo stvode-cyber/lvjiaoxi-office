@@ -12,8 +12,8 @@
 | 项 | 值 |
 |---|---|
 | 测试基线 | **108/108 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **12:29**（含 PDF→DOCX 图片嵌入，已发布到 VPS；字体样式还原 + 对齐推断 + 表格 cell 样式 + 三栏版面 + 坐标系修正未打包） |
-| 发布状态 | ✅ 已上传 lujax.fun/releases（sha256 双侧一致）；nginx 443 已补 /releases location，feed 恢复 200；本机网络 SNI 干扰拉不了（老毛病，其它网络正常） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **15:15**（含 PDF→DOCX 全链路：三栏版面 + 字体/字号/粗斜体/颜色还原 + 段落对齐推断 + 表格 cell 内联样式 + 坐标系修正 + Form XObject 嵌套图片 + 图片嵌入） |
+| 发布状态 | ❌ VPS 待重新上传（本机网络 SSH 超时 + HTTPS SNI 干扰，老毛病）；dist 包已就绪，换网络后跑 `scripts/publish-latest.bat` |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
 | 台账状态 | decisions.md 44 条（最新 #44：表格 cell 内联样式还原 lineToCells keepItems + lineItems 保留样式，覆盖 #42/#43 表格 cell 已知边界），issues.md 28 条（最新 L2：提取层坐标系两坑已修✅，覆盖 #27 坐标系定论） |
 

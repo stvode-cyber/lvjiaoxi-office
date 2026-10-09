@@ -619,3 +619,20 @@ owrap; gap:1px（按钮全横向排）
 - **关联文件**：import-ooxml.js L539-554(layout 预解析) + L756-775(继承链)
 - **决策人**：用户日志 + AI 修复
 - **验证**：104/104 绿 + dist 重打 + 已装
+
+---
+
+## [2026-10-09] PPTX 背景 Round 3 — blipFill 图片背景（最后一块拼图）
+
+- **选了啥**：extractBgFillColor 加 blipFill 处理路径 + 预解析 slideLayout/slideMaster 的 rels + resolveMediaByRels 通用化（baseDir 参数）
+- **为啥**：之前只覆盖 solidFill/gradFill/bgRef/srgbClr/schemeClr，blipFill（整张幻灯片用图片做背景）跳过了，context.md 已知边界标注"PPTX 图片背景未处理"
+- **实现细节**：
+  1. rels 预解析扩展：原来只预解析 ppt/slides/_rels，现在同时预解析 ppt/slideLayouts/_rels 和 ppt/slideMasters/_rels，统一存进 allRels（key 分别是 slideLayout1.xml / slideMaster1.xml）
+  2. resolveMediaByRels 从写死 "ppt/slides/" 改成接受 baseDir 参数，用 path.replace(/\/\.\.\//g, "/") 通用折叠相对路径
+  3. extractBgFillColor 加两个可选参数 rels + baseDir，在 gradFill 之后、bgRef 之前加 blipFill 路径：blipFill → <a:blip r:embed="rIdX"/> → attr() 拿 rId → resolveMediaByRels 拿 dataUrl → 返回 "url(" + dataUrl + ")"
+  4. 渲染端零改动：presentation.js 里 el.style.background = slide.bg 直接支持 url(data:...) 形式
+  5. 3 处调用点同步更新：slideMaster → allRels[slideMaster1.xml] + "ppt/slideMasters/"；slideLayout 预解析 → allRels[layoutName] + "ppt/slideLayouts/"；slide 循环 → rels + "ppt/slides/"
+- **为啥之前没做**：blipFill 需要 rels 才能找到图片，之前 layout/master 的 rels 没预解析，只存了 slide 的
+- **关联文件**：app/js/import-ooxml.js L519-545(rels 扩展) + L579-591(resolveMediaByRels 通用化) + L617-657(extractBgFillColor 加 blipFill) + L553/L569/L795(调用点)
+- **决策人**：AI 开发
+- **验证**：108/108 绿

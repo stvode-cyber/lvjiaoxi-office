@@ -516,7 +516,7 @@
       try { mediaMap[mp] = "data:" + mime + ";base64," + btoa(bin); } catch (e) { mediaMap[mp] = ""; }
     }));
 
-    // 预读所有 slide _rels 关系
+    // 预读所有 rels（slide + slideLayout + slideMaster — blipFill 图片背景需要 layout/master 的 rels）
     const slideRels = Object.keys(zip.files).filter(n => /^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(n)).sort();
     for (const rp of slideRels) {
       const relF = zip.file(rp);
@@ -525,6 +525,24 @@
       const slideName = rp.replace("ppt/slides/_rels/", "").replace(".rels", ""); // slide1.xml
       allRels[slideName] = parseRels(relXml);
     }
+    // slideLayout rels
+    const layoutRels = Object.keys(zip.files).filter(n => /^ppt\/slideLayouts\/_rels\/slideLayout\d+\.xml\.rels$/.test(n)).sort();
+    for (const rp of layoutRels) {
+      const relF = zip.file(rp);
+      if (!relF) continue;
+      const relXml = await relF.async("string");
+      const key = rp.replace("ppt/slideLayouts/_rels/", "").replace(".rels", ""); // slideLayout1.xml
+      allRels[key] = parseRels(relXml);
+    }
+    // slideMaster rels
+    const masterRels = Object.keys(zip.files).filter(n => /^ppt\/slideMasters\/_rels\/slideMaster\d+\.xml\.rels$/.test(n)).sort();
+    for (const rp of masterRels) {
+      const relF = zip.file(rp);
+      if (!relF) continue;
+      const relXml = await relF.async("string");
+      const key = rp.replace("ppt/slideMasters/_rels/", "").replace(".rels", ""); // slideMaster1.xml
+      allRels[key] = parseRels(relXml);
+    }
 
     // ========== 2. 读 slideMaster 的背景（用于继承回退） ==========
     let masterBg = "#ffffff";
@@ -532,7 +550,7 @@
     if (sm) {
       const smd = parseXML(await sm.async("string"));
       const mbg = first(smd.documentElement, "bg");
-      const c = extractBgFillColor(mbg);
+      const c = extractBgFillColor(mbg, allRels["slideMaster1.xml"], "ppt/slideMasters/");
       if (c) masterBg = c;
     }
 
@@ -547,8 +565,8 @@
       try {
         const lxd = parseXML(await zip.file(lf).async("string"));
         const lbg = first(lxd.documentElement, "bg");
-        const c = extractBgFillColor(lbg);
         const layoutName = lf.split("/").pop(); // "slideLayout1.xml"
+        const c = extractBgFillColor(lbg, allRels[layoutName], "ppt/slideLayouts/");
         layoutBgMap[layoutName] = c || null;
       } catch (_) {}
     }
@@ -558,13 +576,16 @@
       .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
       .sort((a, b) => (+/slide(\d+)/.exec(a)[1]) - (+/slide(\d+)/.exec(b)[1]));
 
-    // 工具：从 rId 找 media base64
-    function resolveMediaByRels(rels, rId) {
+    // 工具：从 rId 找 media base64（baseDir 决定相对路径解析根目录：slides / slideLayouts / slideMasters）
+    function resolveMediaByRels(rels, rId, baseDir) {
       if (!rels || !rId) return null;
       const target = rels[rId];
       if (!target) return null;
-      // target 相对 slide：../media/image1.png -> ppt/media/image1.png
-      const path = ("ppt/slides/" + target).replace(/ppt\/slides\/\.\.\//, "ppt/");
+      baseDir = baseDir || "ppt/slides/";
+      // target 相对 baseDir：../media/image1.png -> ppt/media/image1.png
+      let path = baseDir + target;
+      // 把任意 "xxx/../" 折叠成 "" （例："ppt/slides/../media/image.png" -> "ppt/media/image.png"）
+      path = path.replace(/\/\.\.\//g, "/");
       const dataUrl = mediaMap[path];
       return dataUrl || null;
     }
@@ -589,12 +610,13 @@
       return null;
     }
 
-    // 工具：从 <p:bg> / <p:bgPr> 节点提取背景色（覆盖 PPTX 所有标准背景类型）
+    // 工具：从 <p:bg> / <p:bgPr> 节点提取背景值（颜色字符串 或 "url(data:图片base64)"）
     // PPTX 背景结构：<p:bg><p:bgPr>{solidFill|gradFill|blipFill|noFill}</p:bgPr></p:bg>
     // 或引用：<p:bg><p:bgRef idx="N"><a:schemeClr val="xxx"/></p:bgRef></p:bg>
-    function extractBgFillColor(bgNode) {
+    // blipFill 需要 rels + baseDir 从 rId 找 media 图片
+    function extractBgFillColor(bgNode, rels, baseDir) {
       if (!bgNode) return null;
-      // 路径1：bgPr 直接填充（solidFill / gradFill / noFill）
+      // 路径1：bgPr 直接填充（solidFill / gradFill / blipFill / noFill）
       const bgPr = first(bgNode, "bgPr");
       const fillHost = bgPr || bgNode;
       // solidFill
@@ -608,6 +630,16 @@
           const firstGs = gsLst.children[0];
           const c = extractFillColor(firstGs);
           if (c) return c;
+        }
+      }
+      // blipFill 图片背景 → 从 rels 找 rId → mediaMap 拿 data URL
+      const blipFill = first(fillHost, "blipFill");
+      if (blipFill && rels) {
+        const blip = first(blipFill, "blip");
+        if (blip) {
+          const rId = attr(blip, "embed"); // attr() 自动处理 r:embed 命名空间
+          const dataUrl = resolveMediaByRels(rels, rId, baseDir);
+          if (dataUrl) return "url(" + dataUrl + ")";
         }
       }
       // bgRef 引用（idx 指向 theme/slideLayout，简化处理：直接在里面找颜色）
@@ -760,7 +792,7 @@
       // 背景继承链：slide 自己的 bg → slideLayout bg → slideMaster bg → 默认白
       let bgColor = masterBg;
       const bgNode = first(sld, "bg");
-      const slideOwnBg = extractBgFillColor(bgNode);
+      const slideOwnBg = extractBgFillColor(bgNode, rels, "ppt/slides/");
       if (slideOwnBg) {
         bgColor = slideOwnBg; // slide 自己设了 → 最高优先级
       } else {
