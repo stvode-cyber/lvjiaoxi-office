@@ -539,7 +539,50 @@
     const JSZip = global.JSZip;
     const zip = new JSZip();
     const data = doc.data || {};
-    const sheets = (data.sheets && data.sheets.length) ? data.sheets : [ { name: "Sheet1", cells: data.cells || {}, charts: data.charts || [] } ];
+    const sheets = (data.sheets && data.sheets.length) ? data.sheets : [ { name: "Sheet1", cells: data.cells || {}, styles: data.styles || {}, merge: data.merge || [], charts: data.charts || [] } ];
+
+    // ====== 样式收集（跨 sheet 共享一份 styles.xml）======
+    const fontDefs = [{}];                       // 0 = 默认字体
+    const fillDefs = [{ pattern: "none" }, { pattern: "gray125" }];  // Excel 惯例：0=none 1=gray125
+    const borderDefs = [{}];                     // 0 = 无边框
+    const xfs = [{ fontId: 0, fillId: 0, borderId: 0 }];
+    const xfMap = {};
+    function xfId(font, bg, border) {
+      const fk = JSON.stringify(font || {}), bk = JSON.stringify(border || {});
+      const key = fk + "|" + (bg || "") + "|" + bk;
+      if (xfMap[key] != null) return xfMap[key];
+      let fontId = 0;
+      if (font && Object.keys(font).length) {
+        const exist = fontDefs.findIndex(f => JSON.stringify(f) === fk);
+        if (exist >= 0) fontId = exist; else { fontId = fontDefs.length; fontDefs.push(font); }
+      }
+      let fillId = 0;
+      if (bg) {
+        const exist = fillDefs.findIndex(f => f.pattern === "solid" && f.fg === bg);
+        if (exist >= 0) fillId = exist; else { fillId = fillDefs.length; fillDefs.push({ pattern: "solid", fg: bg }); }
+      }
+      let borderId = 0;
+      if (border && Object.keys(border).length) {
+        const exist = borderDefs.findIndex(b => JSON.stringify(b) === bk);
+        if (exist >= 0) borderId = exist; else { borderId = borderDefs.length; borderDefs.push(border); }
+      }
+      const idx = xfs.length;
+      xfs.push({ fontId, fillId, borderId, applyFont: fontId > 0, applyFill: fillId > 0, applyBorder: borderId > 0 });
+      xfMap[key] = idx;
+      return idx;
+    }
+    function styleSAttr(sh, ref) {
+      const st = (sh.styles || {})[ref];
+      if (!st) return { sAttr: "", hasStyle: false };
+      const hasStyle = !!(st.bold || st.italic || st.underline || st.color || st.bg || st.border);
+      if (!hasStyle) return { sAttr: "", hasStyle: false };
+      const font = {};
+      if (st.bold) font.bold = true;
+      if (st.italic) font.italic = true;
+      if (st.underline) font.underline = true;
+      if (st.color) font.color = st.color;
+      return { sAttr: ' s="' + xfId(font, st.bg, st.border) + '"', hasStyle: true };
+    }
 
     const sst = []; const sstMap = {};
     function sid(s) { if (sstMap[s] != null) return sstMap[s]; const id = sst.length; sst.push(s); sstMap[s] = id; return id; }
@@ -586,17 +629,21 @@
         let cellsXml = "";
         cols.forEach(c => {
           const cell = row[c]; const ref = c + r;
+          const { sAttr, hasStyle } = styleSAttr(sh, ref);
           if (cell && cell.f != null && cell.f !== "") {
             let val = "";
             try { if (OS.FormulaEngine) val = OS.FormulaEngine.run(cell.f, getCellVal); } catch (e) {}
             const sv = (typeof val === "number") ? val : (val == null ? "" : String(val));
-            cellsXml += '<c r="' + ref + '"><f>' + esc(cell.f.replace(/^=/, "")) + "</f><v>" + esc(sv) + "</v></c>";
+            cellsXml += '<c r="' + ref + '"' + sAttr + '><f>' + esc(cell.f.replace(/^=/, "")) + "</f><v>" + esc(sv) + "</v></c>";
           } else {
             const v = cell ? cell.v : undefined;
-            if (v == null || v === "") return;
-            if (typeof v === "number") cellsXml += '<c r="' + ref + '"><v>' + v + "</v></c>";
-            else if (typeof v === "boolean") cellsXml += '<c r="' + ref + '" t="b"><v>' + (v ? 1 : 0) + "</v></c>";
-            else cellsXml += '<c r="' + ref + '" t="s"><v>' + sid(String(v)) + "</v></c>";
+            if (v == null || v === "") {
+              if (hasStyle) cellsXml += '<c r="' + ref + '"' + sAttr + "/>";
+              return;
+            }
+            if (typeof v === "number") cellsXml += '<c r="' + ref + '"' + sAttr + '><v>' + v + "</v></c>";
+            else if (typeof v === "boolean") cellsXml += '<c r="' + ref + '"' + sAttr + ' t="b"><v>' + (v ? 1 : 0) + "</v></c>";
+            else cellsXml += '<c r="' + ref + '"' + sAttr + ' t="s"><v>' + sid(String(v)) + "</v></c>";
           }
         });
         if (cellsXml) rowsXml += '<row r="' + r + '">' + cellsXml + "</row>";
@@ -627,9 +674,15 @@
           commentsXml + "</comments>";
       }
 
+      const merges = sh.merge || [];
+      const mergeXml = merges.length
+        ? '<mergeCells count="' + merges.length + '">' + merges.map(m => '<mergeCell ref="' + esc(m) + '"/>').join("") + "</mergeCells>"
+        : "";
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheetData>' + rowsXml + "</sheetData>" +
+        mergeXml +
         (chartParts ? '<drawing r:id="rIdD"/>' : "") +
         (hasCmt ? '<legacyDrawing r:id="rIdC"/>' : "") + "</worksheet>";
 
@@ -654,13 +707,37 @@
       '<sst xmlns="' + X.w + '" count="' + sst.length + '" uniqueCount="' + sst.length + '">' +
       sst.map(s => "<si><t>" + esc(s) + "</t></si>").join("") + "</sst>";
 
+    const rgbAttr = c => ' rgb="FF' + String(c).replace("#", "").toUpperCase() + '"';
+    const fontsXml = '<fonts count="' + fontDefs.length + '">' + fontDefs.map(f => {
+      let x = "<font>";
+      if (f.bold) x += "<b/>";
+      if (f.italic) x += "<i/>";
+      if (f.underline) x += "<u/>";
+      if (f.color) x += "<color" + rgbAttr(f.color) + "/>";
+      x += '<sz val="11"/><name val="Calibri"/></font>';
+      return x;
+    }).join("") + "</fonts>";
+    const fillsXml = '<fills count="' + fillDefs.length + '">' + fillDefs.map(f => {
+      if (f.pattern === "solid" && f.fg) return '<fill><patternFill patternType="solid"><fgColor' + rgbAttr(f.fg) + '/><bgColor indexed="64"/></patternFill></fill>';
+      return '<fill><patternFill patternType="' + (f.pattern || "none") + '"/></fill>';
+    }).join("") + "</fills>";
+    const bordersXml = '<borders count="' + borderDefs.length + '">' + borderDefs.map(b => {
+      const side = s => {
+        const bd = b[s];
+        return bd ? "<" + s + ' style="' + esc(bd.style) + '">' + (bd.color ? "<color" + rgbAttr(bd.color) + "/>" : "") + "</" + s + ">" : "<" + s + "/>";
+      };
+      return "<border>" + side("left") + side("right") + side("top") + side("bottom") + "<diagonal/></border>";
+    }).join("") + "</borders>";
+    const cellXfsXml = '<cellXfs count="' + xfs.length + '">' + xfs.map(x =>
+      '<xf numFmtId="0" fontId="' + x.fontId + '" fillId="' + x.fillId + '" borderId="' + x.borderId + '" xfId="0"' +
+      (x.applyFont ? ' applyFont="1"' : "") + (x.applyFill ? ' applyFill="1"' : "") + (x.applyBorder ? ' applyBorder="1"' : "") + "/>"
+    ).join("") + "</cellXfs>";
+
     const stylesXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-      '<styleSheet xmlns="' + X.w + '"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
-      '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>' +
-      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<styleSheet xmlns="' + X.w + '">' + fontsXml + fillsXml + bordersXml +
       '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-      '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>';
+      cellXfsXml + "</styleSheet>";
 
     const workbookXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
