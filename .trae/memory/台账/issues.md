@@ -338,3 +338,14 @@
 - **预防**：碰 PDF 坐标系先确认 y 方向 —— 实锤方法看批注/文本层渲染怎么用（top=y*h 即 y-down）；凡"排序方向 + 注释声称的方向"与坐标系不符，先怀疑 pre-existing bug 再动手
 - **关联文件**：app/js/modules/pdf-convert.js（renderTableBlock L77-87、多栏重排 L155-191、events 构造 L209-212）
 - **修复验证**：_pdf_convert_3col_test.js B3「栏内阅读序 L1 在 L10 前」+ D2-D3 表格不被误吞，106/106 全绿
+
+---
+
+## [P1] [L2|pdf-extract-coords-assumed] PDF 提取层坐标系两坑：y 方向实锤方法错误 + 矩阵乘法顺序错误（覆盖 #27 坐标系定论部分）✅
+
+- **现象**：① 真实 PDF 走 PDF→DOCX 全文/表格/多栏全部上下反序（#27 修复后反而更反）② pdf-lib drawImage 生成的 PDF 图片提取矩形飞出页面（x=8.3、y=-36）
+- **根因**：① #27 用「批注渲染 top=y*bh」当 y-down 实锤——但批注 y 来自 DOM 指针事件，与文本提取坐标系无关；真实 pdf.js textContent transform[5] 是用户空间 **y-up**（drawText y=740 → transform[5]=740 实锤），extractAllPagesSpans 没翻转，下游全按 y-down 升序排 → 真实数据全反。② multiplyM(args, ctm) 左乘只在单条 cm 碰巧正确（单位阵可交换），PDF/Canvas 语义是右乘 postmultiply（CTM_new = CTM × m），pdf-lib 的 平移→缩放 多步 cm 链顺序一错就算飞
+- **修复**：① 提取层翻转 y = 1 - t[5]/vp.height，归一化下沉纯函数 _textSpansFromTC（#27 的升序方向在 y-down 数据下才真正成立）② walkImageRects 全部右乘 multiplyM(ctm, m)，Form XObject Matrix 同样右乘 ③ 图片矩形 y 翻 y-down
+- **预防**：凡坐标系/矩阵约定，**禁止用间接证据实锤**（批注坐标 ≠ 提取坐标）——必须端到端实测（pdf-lib 生成已知坐标 PDF → 真实解析链路验证）；矩阵顺序用「多步非交换链」验证，单步恒等场景验不出来
+- **关联文件**：app/js/modules/pdf-convert.js L400-460、app/js/modules/pdf.js L138-181、_pdf_3col_e2e_test.js
+- **修复验证**：_pdf_3col_e2e_test.js 12 断言（真实三栏栏序+栏内序、单栏行序、form 嵌套图矩形、表格表头在上），107/107 全绿

@@ -136,19 +136,10 @@
         const page = await pdfDoc.getPage(p);
         const vp = page.getViewport({ scale: 1.0 });
         const tc = await page.getTextContent();
-        const spans = [];
-        for (const it of tc.items) {
-          if (!it.str || !it.str.trim()) continue;
-          const t = it.transform || [1, 0, 0, 1, 0, 0];
-          const fontH = Math.abs(t[3]) || 10;
-          spans.push({
-            text: it.str,
-            x: (t[4] || 0) / vp.width,
-            y: (t[5] || 0) / vp.height,
-            w: (it.width || fontH) / vp.width,
-            h: fontH / vp.height
-          });
-        }
+        // 归一化（含 y-up→y-down 翻转）统一走 pdf-convert 纯函数，node 可测
+        const spans = (OS.PdfConvert && OS.PdfConvert._textSpansFromTC)
+          ? OS.PdfConvert._textSpansFromTC(tc.items, vp.width, vp.height)
+          : [];
         // 图片提取（失败不阻断文本，单页图片异常只丢图不丢字）
         try {
           const imgSpans = await extractPageImages(page, vp);
@@ -161,38 +152,29 @@
 
     // —— 图片提取（operator list 遍历 → {image, x, y, w, h} spans）——
     // 原理：paintImageXObject 把图片画在 CTM 下的单位正方形上，
-    // 跟踪 save/restore/transform 栈算出每张图在页面用户空间的矩形，
-    // 归一化后与文本 span 同坐标系（x=e/vpW, y=f/vpH），供 pdfToDocxHtml 穿插排版。
+    // 跟踪 save/restore/transform + Form XObject 栈算出每张图在页面用户空间的矩形，
+    // 归一化并翻转 y-down 后与文本 span 同坐标系（顶 0 底 1），供 pdfToDocxHtml 穿插排版。
     // 像素归一化到 600×800 页网格（与 pdf-convert 的 wAttr/hAttr 约定一致），
     // 保证 buildDocx 从 PNG 头读到的尺寸就是目标显示尺寸。
     async function extractPageImages(page, vp) {
       const out = [];
       const U = OS.PdfConvert && OS.PdfConvert._imgUtils;
-      if (!U || !global.pdfjsLib || !global.pdfjsLib.OPS) return out;
+      const W = OS.PdfConvert && OS.PdfConvert._walkImageRects;
+      if (!U || !W || !global.pdfjsLib || !global.pdfjsLib.OPS) return out;
       const OPS = global.pdfjsLib.OPS;
       const opList = await page.getOperatorList();
-      let ctm = [1, 0, 0, 1, 0, 0];
-      const stack = [];
-      for (let i = 0; i < opList.fnArray.length; i++) {
-        const fn = opList.fnArray[i];
-        const args = opList.argsArray[i];
-        if (fn === OPS.save) { stack.push(ctm.slice()); continue; }
-        if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); continue; }
-        if (fn === OPS.transform) { ctm = U.multiplyM(args, ctm); continue; }
-        const isXObj = fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject;
-        const isInline = fn === OPS.paintInlineImageXObject;
-        if (!isXObj && !isInline) continue;
-        const rect = U.imageRect(ctm, vp.width, vp.height);
-        if (!rect) continue;
-        const px = U.targetPx(rect.w, rect.h);
+      // CTM 走查（含 Form XObject 嵌套矩阵叠加 + y-down 翻转）在纯函数里完成
+      const hits = W(opList.fnArray, opList.argsArray, OPS, vp.width, vp.height);
+      for (const hit of hits) {
+        const px = U.targetPx(hit.w, hit.h);
         if (!px) continue; // 小图标/项目符号跳过
         try {
-          // XObject：args[0] 是 objId，从 page.objs 取（callback 形式等未解析对象）
-          // Inline：args[0] 直接是图像对象
-          const img = isInline ? args[0] : await resolvePageObj(page, args[0]);
+          // XObject：hit.id 是 objId，从 page.objs 取（callback 形式等未解析对象）
+          // Inline：hit.inline 直接是图像对象
+          const img = hit.inline ? hit.inline : await resolvePageObj(page, hit.id);
           if (!img) continue;
           const dataUrl = imageObjToDataUrl(img, px.tw, px.th);
-          if (dataUrl) out.push({ image: dataUrl, x: rect.x, y: rect.y, w: rect.w, h: rect.h });
+          if (dataUrl) out.push({ image: dataUrl, x: hit.x, y: hit.y, w: hit.w, h: hit.h });
         } catch (e) { /* 单张图失败跳过 */ }
       }
       return out;

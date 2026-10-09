@@ -1,4 +1,14 @@
+﻿
+---
 
+## [2026-10-09] PDF 提取层坐标系实锤修正：y-up→y-down 提取层翻转 + 矩阵右乘 + Form XObject 嵌套图片递归（覆盖 #40 坐标系定论错误部分）
+
+- **选了啥**：① extractAllPagesSpans 文本 y 改 `1 - t[5]/vp.height`（y-up→y-down，顶 0 底 1）；② 归一化下沉为 pdf-convert 纯函数 `_textSpansFromTC` / `_walkImageRects`（node 可测）；③ walkImageRects 支持 Form XObject 嵌套图片（paintFormXObjectBegin args[0]=form Matrix 右乘进 CTM，Begin/End 入栈配平，嵌套表单任意深度）；④ 矩阵乘法从**左乘改右乘**（multiplyM(ctm, m)，与 PDF/Canvas postmultiply 语义一致）；⑤ 图片矩形 y 同步翻 y-down（顶边 = 1-(e+max(0,d))/vpH）
+- **为啥**：真实三栏 PDF 端到端实测（pdf-lib 生成→pdf.js 真实解析）实锤：pdf.js textContent transform 是用户空间 **y-up**（drawText y=740 → transform[5]=740），不归一则真实 PDF 全文/表格/多栏全部反序。#40 的"y-down 实锤"（批注 top=y*bh）是错的——批注 y 来自 DOM 指针事件，与文本提取坐标系无关；按错误实锤把降序改升序后，真实 PDF 反而全反。矩阵左乘 multiplyM(args, ctm) 只在单条 cm 碰巧正确（I 可交换），pdf-lib drawImage 的 平移→缩放 多步 cm 链直接算飞出页
+- **备选方案**：下游所有排序改降序适配 y-up——排除，所有合成测试已是 y-down 约定，翻转提取层一处对齐全部
+- **已知边界**：透明度组（Group/SMask）form 不递归；旋转图片按轴对齐近似取框
+- **关联文件**：app/js/modules/pdf-convert.js（_textSpansFromTC/_walkImageRects L400-460）、app/js/modules/pdf.js（extractAllPagesSpans L138-142、extractPageImages L159-181）、_pdf_3col_e2e_test.js（12 断言）、app/sw.js CACHE v29→v30
+- **决策人**：用户「执行吧」拍板
 ---
 
 

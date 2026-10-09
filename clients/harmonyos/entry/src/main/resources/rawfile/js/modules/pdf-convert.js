@@ -5,9 +5,8 @@
            （与 app/js/modules/pdf.js 文本层、app/js/modules/pdf-text.js 完全一致）
    - 纯逻辑：按 y 聚类成行 → 行内按 x 排序 → 大字号行判为标题
    - 生成 Writer 可编辑 HTML → OS.Exporter.buildDocx 成 DOCX
-   - 已知边界：仅文本层提取，无版面/分栏/表格/图片/字体还原，质量有限；
-             适合以段落文字为主的 PDF（论文、报告、书籍）。属 PDF⇄Office 的
-             「PDF→DOCX / 文本 / Markdown」文本提取（部分实现）。
+   - 已知边界：文本 + 图片 + 双栏/三栏版面 + 表格识别；字体/样式不还原，旋转图片
+             按轴对齐近似取框；Form XObject 嵌套图片支持（透明度组 form 不递归）。
    - 不依赖 pdf.js / jsdom，可在 node 直跑单测（clusterLines / pdfToDocxHtml）。
    ============================================================ */
 (function (global) {
@@ -350,6 +349,7 @@
 
   // CTM → 归一化图片矩形（与文本 span 同坐标系：x=e/vpW, y=f/vpH）
   // 图片画在单位正方形 [0,1]² 上：宽=|(a,b)|，高=|(c,d)|（取绝对值容忍翻转）
+  // 注意：返回的 y 是 PDF 用户空间（y-up）底角值，y-down 翻转在 walkImageRects 里做
   function imageRect(ctm, vpW, vpH) {
     if (!ctm || ctm.length < 6 || !vpW || !vpH) return null;
     const w = Math.hypot(ctm[0], ctm[1]) / vpW;
@@ -392,6 +392,67 @@
       }
     } else {
       return null;
+    }
+    return out;
+  }
+
+  // pdf.js textContent items → 归一化文本 spans（与 pdf.js extractAllPagesSpans 同一套）
+  // 坐标系：pdf.js transform 是用户空间 y-up（底 0 顶 vpH），这里翻转为 y-down（顶 0 底 1），
+  // 与下游所有升序排序（clusterLines/colGroups/renderTableBlock/events）的「顶→底」约定一致。
+  function textSpansFromTC(items, vpW, vpH) {
+    const spans = [];
+    if (!Array.isArray(items) || !vpW || !vpH) return spans;
+    for (const it of items) {
+      if (!it || !it.str || !it.str.trim()) continue;
+      const t = it.transform || [1, 0, 0, 1, 0, 0];
+      const fontH = Math.abs(t[3]) || 10;
+      spans.push({
+        text: it.str,
+        x: (t[4] || 0) / vpW,
+        y: 1 - (t[5] || 0) / vpH,
+        w: (it.width || fontH) / vpW,
+        h: fontH / vpH
+      });
+    }
+    return spans;
+  }
+
+  // 遍历 pdf.js operator list，算出每张图片的归一化矩形（y-down，与 textSpansFromTC 一致）。
+  // 覆盖 Form XObject 嵌套：pdf.js 把 form 子内容内联展开在 paintFormXObjectBegin/End 之间，
+  // Begin 携带 form Matrix（args[0]）需右乘进 CTM（multiplyM(ctm, fm)，与 OPS.transform 同序）；
+  // Begin/End 自身入栈/出栈一对，嵌套表单靠栈配平。
+  // 返回 [{ id(objId)|inline(图像对象), x, y, w, h }]，id/inline 二选一供调用方取像素。
+  function walkImageRects(fnArray, argsArray, OPS, vpW, vpH) {
+    const out = [];
+    if (!fnArray || !argsArray || !OPS || !vpW || !vpH) return out;
+    let ctm = [1, 0, 0, 1, 0, 0];
+    const stack = [];
+    for (let i = 0; i < fnArray.length; i++) {
+      const fn = fnArray[i], args = argsArray[i];
+      if (fn === OPS.save) { stack.push(ctm.slice()); continue; }
+      if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); continue; }
+      // PDF/Canvas 矩阵是右乘（postmultiply）：CTM_new = CTM × m。
+      // 之前左乘（m × CTM）只在「单条 cm」场景碰巧正确（I 可交换），
+      // pdf-lib drawImage 这类 平移→旋转→缩放 多步 cm 链会算飞（2026-10-09 坑）。
+      if (fn === OPS.transform) { ctm = multiplyM(ctm, args); continue; }
+      if (fn === OPS.paintFormXObjectBegin) {
+        stack.push(ctm.slice());
+        const fm = args && args[0];
+        if (Array.isArray(fm) && fm.length >= 6) ctm = multiplyM(ctm, fm);
+        continue;
+      }
+      if (fn === OPS.paintFormXObjectEnd) { if (stack.length) ctm = stack.pop(); continue; }
+      const isXObj = fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject;
+      const isInline = fn === OPS.paintInlineImageXObject;
+      if (!isXObj && !isInline) continue;
+      const w = Math.hypot(ctm[0], ctm[1]) / vpW;
+      const h = Math.hypot(ctm[2], ctm[3]) / vpH;
+      // 镜像（负 a）时左边界 = e + a
+      const x = (ctm[4] + Math.min(0, ctm[0])) / vpW;
+      // CTM y 是 y-up 底角：顶边 y-up = e + max(0,d)，翻转为 y-down 顶边
+      const y = 1 - (ctm[5] + Math.max(0, ctm[3])) / vpH;
+      if (!isFinite(x) || !isFinite(y) || !isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) continue;
+      out.push({ id: isXObj ? args[0] : null, inline: isInline ? args[0] : null, x, y, w, h });
     }
     return out;
   }
@@ -686,6 +747,7 @@
     _estimateWidth: estimateWidth, _lineItems: lineItems, _isTableLike: isTableLike,
     _detectSeparators: detectSeparators, _lineToCells: lineToCells, _clusterTableBlocks: clusterTableBlocks,
     _detectColumnSeps: detectColumnSeps,
+    _textSpansFromTC: textSpansFromTC, _walkImageRects: walkImageRects,
     _imgUtils };
   OS.PdfConvert = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

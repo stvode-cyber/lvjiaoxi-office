@@ -7,15 +7,15 @@
 
 ## 🎯 交付快照（新 AI 读这里就够了）
 
-**当前阶段**：v1.1.6 稳定化 + 新功能迭代 — PDF→DOCX 三栏版面还原已落地（递归二分 K-means + 多栏段落预构建，顺带修复表格/多栏 y 方向颠倒）
+**当前阶段**：v1.1.6 稳定化 + 新功能迭代 — PDF 提取层坐标系实锤修正（真实 PDF 全文反序修复）+ Form XObject 嵌套图片递归提取 + 真实 PDF 端到端测试落地
 
 | 项 | 值 |
 |---|---|
-| 测试基线 | **106/106 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **12:29**（含 PDF→DOCX 图片嵌入，已发布到 VPS；三栏版面未打包） |
+| 测试基线 | **107/107 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **12:29**（含 PDF→DOCX 图片嵌入，已发布到 VPS；三栏版面 + 坐标系修正未打包） |
 | 发布状态 | ✅ 已上传 lujax.fun/releases（sha256 双侧一致）；nginx 443 已补 /releases location，feed 恢复 200；本机网络 SNI 干扰拉不了（老毛病，其它网络正常） |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
-| 台账状态 | decisions.md 40 条（最新：PDF→DOCX 三栏版面还原），issues.md 27 条（最新 L2：表格/多栏 y 方向颠倒已修✅） |
+| 台账状态 | decisions.md 41 条（最新：PDF 提取层坐标系修正 + form 嵌套图片），issues.md 28 条（最新 L2：提取层坐标系两坑已修✅，覆盖 #27 坐标系定论） |
 
 ---
 
@@ -156,6 +156,15 @@ npm run dist:local       # 打 Setup.exe（electron-builder 需装好）
 ---
 
 ## 📋 变更日志（2026-10-09 顶部追加）
+
+- **[2026-10-09] PDF 提取层坐标系实锤修正 + Form XObject 嵌套图片（覆盖 #40 定论错误）**
+  - 真实三栏 PDF 端到端实测（pdf-lib 生成→pdf.js 真实解析）实锤：textContent transform 是 y-up，#40 的 y-down 实锤方法错了（批注 y 来自 DOM 指针事件）
+  - 修复：提取层 y 翻转 y-down（_textSpansFromTC）→ 真实 PDF 全文/表格/多栏反序全修；#40 的升序方向在 y-down 数据下才真正成立
+  - 矩阵左乘→右乘（postmultiply 语义）：pdf-lib 多步 cm 链图片矩形不再算飞
+  - Form XObject 嵌套图片递归提取（paintFormXObjectBegin/End 栈配平 + form Matrix 右乘叠加）
+  - 归一化下沉纯函数 _textSpansFromTC / _walkImageRects（node 可测）
+  - _pdf_3col_e2e_test.js 12 断言（首个真实 PDF 端到端套件）
+  - 测试 107/107 绿 / sw.js CACHE v29→v30 / 四端已同步
 
 - **[2026-10-09] PDF→DOCX 三栏版面还原 + y 方向颠倒修复**
   - detectColumnSeps 递归二分 K-means（最多三栏），检测输入改 items 级 x（基线对齐场景可检出）
