@@ -770,3 +770,14 @@ ameAst.name ? nameAst.name : evalNode(...)。LAMBDA 被调用时，先算参数�
 - **测试**：harness 13/13 → newfuncs 永久测试 121/121 → 109/109 全局全绿
 - **关联文件**：app/js/modules/spreadsheet.js FUNCS L961-1011
 - **决策人**：用户「继续补统计三件套 SLOPE/INTERCEPT/FORECAST.LINEAR」
+
+---
+
+## [2026-10-10] OFFSET + INDIRECT 动态范围（evalNode 特殊路径 + parseRef/parseRange 双兜底）
+
+- **选了啥**：① _evalOffsetIndirect(name, args, getCell, scope) 函数，在 evalNode func 分支顶部拦截（和 MAP/REDUCE 同级）；② _astNodeToCoords(astNode, getCell, scope) 辅助函数——先查 AST 字面量 ref/range 直接取坐标，失败再 evalNode 得字符串 → parseRange → parseRef 双层兜底；③ _coordsToArray(coords, getCell) 统一用 getCell 构造二维数组
+- **为啥**：OFFSET/INDIRECT 的 baseRef 需要坐标（不是值），FUNCS 纯函数模式拿不到坐标；AST 里 {ref:"A1"} 能直接拿坐标，但 INDIRECT("A1") 的参数 eval 后才是字符串——两种情况都要支持
+- **踩坑**：INDIRECT("A1") 单格无冒号 → parseRange 正则不匹配 → 必须加 parseRef 兜底；X999 是合法 ref（边界内）→ 返回 0 不是 #REF!；OFFSET baseRef 默认保留原尺寸做 height/width
+- **测试**：harness 14/14 → newfuncs 133/133 → 109/109 全绿；永久测试里 OFFSET/INDIRECT 需单独带数据 getCell（默认空表返回 0 无法验证）
+- **关联文件**：app/js/modules/spreadsheet.js evalNode L1329-1333 + FUNCS L1012-1014 + 新函数 L1371-1453
+- **决策人**：用户「先补 OFFSET 和 INDIRECT」

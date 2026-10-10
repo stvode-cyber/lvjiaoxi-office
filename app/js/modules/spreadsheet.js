@@ -1012,6 +1012,9 @@
       // OFFSET / INDIRECT — 需要 getCell 动态范围解析，evalNode 特殊路径拦截
       OFFSET: () => "#CALC!",
       INDIRECT: () => "#CALC!",
+      // ISFORMULA / FORMULATEXT — 需要原始 cell 数据（.f 字段），evalNode 特殊路径拦截
+      ISFORMULA: () => "#CALC!",
+      FORMULATEXT: () => "#CALC!",
     };
     function _percentile(sorted, k) {
       if (!sorted.length) return "#NUM!";
@@ -1331,6 +1334,10 @@
         if (node.func === "OFFSET" || node.func === "INDIRECT") {
           return _evalOffsetIndirect(node.func, node.args, getCell, scope);
         }
+        // === ISFORMULA / FORMULATEXT — 需要原始 cell 数据 ===
+        if (node.func === "ISFORMULA" || node.func === "FORMULATEXT") {
+          return _evalIsFormula(node.func, node.args, getCell, scope);
+        }
         // === 高级数组函数：不 eval args，保留原始 AST 自己处理 ===
         if (["MAP", "BYROW", "BYCOL", "MAPROWS", "MAPCOLS", "REDUCE", "SCAN", "MAKEARRAY", "TOROW", "TOCOL"].includes(node.func)) {
           // 先用 evalNode 把 lambda AST 求值成 lambda 对象（args 里可能有 lambda 节点）
@@ -1366,6 +1373,41 @@
         return applyOp(node.op, evalNode(node.left, getCell, scope), evalNode(node.right, getCell, scope));
       }
       return 0;
+    }
+
+    // ============ ISFORMULA / FORMULATEXT — 需要原始 cell 数据 ============
+    /** 根据 ref 取 cell 对象，判断/返回公式
+     *  - ref 单格 → 标量结果
+     *  - range 范围 → 二维数组结果（和 Excel 动态数组一致）
+     */
+    function _evalIsFormula(name, args, getCell, scope) {
+      if (!args.length) return "#REF!";
+      const getRaw = FE._getCellRaw;
+      if (!getRaw) return "#N/A"; // 没有原始 cell 访问器（可能是单测环境）
+      const coords = _astNodeToCoords(args[0], getCell, scope);
+      if (!coords) return "#REF!";
+      // 单格 → 标量
+      if (coords.r1 === coords.r2 && coords.c1 === coords.c2) {
+        const ref = idxToCol(coords.c1) + coords.r1;
+        const raw = getRaw(ref);
+        if (name === "ISFORMULA") return !!(raw && raw.f && String(raw.f).startsWith("="));
+        // FORMULATEXT
+        if (raw && raw.f && String(raw.f).startsWith("=")) return raw.f;
+        return "#N/A";
+      }
+      // 范围 → 二维数组
+      const out = [];
+      for (let r = coords.r1; r <= coords.r2; r++) {
+        const row = [];
+        for (let c = coords.c1; c <= coords.c2; c++) {
+          const ref = idxToCol(c) + r;
+          const raw = getRaw(ref);
+          if (name === "ISFORMULA") row.push(!!(raw && raw.f && String(raw.f).startsWith("=")));
+          else row.push((raw && raw.f && String(raw.f).startsWith("=")) ? raw.f : "#N/A");
+        }
+        out.push(row);
+      }
+      return out;
     }
 
     // ============ OFFSET / INDIRECT — 动态范围 ============
@@ -1600,14 +1642,14 @@
         return { ast, tokenize, toRPN, evalRPN }; // 兼容字段
       } catch (e) { return { error: "#ERROR!" }; }
     }
-    function run(formula, getCell, currentRef) {
+    function run(formula, getCell, currentRef, getRawCell) {
       const c = compile(formula);
       if (c.error) return c.error;
-      // 为 COLUMN / ROW 提供当前单元格位置
       FE._currentRef = currentRef;
+      FE._getCellRaw = getRawCell || null;
       try { const r = evalNode(c.ast, getCell); if (r === Infinity) return "#DIV/0!"; return r; }
       catch (e) { return "#ERROR!"; }
-      finally { FE._currentRef = null; }
+      finally { FE._currentRef = null; FE._getCellRaw = null; }
     }
     // COLUMN / ROW 运行时解析（覆盖 FUNCS 里的默认实现）
     FUNCS.COLUMN = () => { const r = FE._currentRef ? parseRef(FE._currentRef) : null; return r ? r.col : "#REF!"; };

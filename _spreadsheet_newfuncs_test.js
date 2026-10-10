@@ -316,6 +316,29 @@ function cells(map) { return (ref) => (ref in map ? map[ref] : ""); }
   eq("OFFSET(A1,-1,0)=#REF!", r4("=OFFSET(A1,-1,0)"), "#REF!");
 }
 
+/* =========================== 2025-10 ISFORMULA / FORMULATEXT =========================== */
+{
+  console.log("--- ISFORMULA / FORMULATEXT ---");
+
+  const RAW5 = { A1: { v: 5, f: "=1+4" }, B1: { v: 10 }, C1: { v: 3, f: "=SUM(A1:B1)" }, A2: { v: 8, f: "=A1*2" }, B2: { v: 20 }, C2: { v: 15, f: "=A2+B2" } };
+  const gc5 = ref => RAW5[ref] && RAW5[ref].v != null ? RAW5[ref].v : 0;
+  const gr5 = ref => RAW5[ref] || {};
+  const r5 = f => FE.run(f, gc5, "A1", gr5);
+
+  // ISFORMULA 单格
+  eq("ISFORMULA(A1)=true", r5("=ISFORMULA(A1)"), true);
+  eq("ISFORMULA(B1)=false", r5("=ISFORMULA(B1)"), false);
+  eq("ISFORMULA(C1)=true", r5("=ISFORMULA(C1)"), true);
+
+  // ISFORMULA 范围 → 二维
+  eq("ISFORMULA(A1:C2)二维数组", r5("=ISFORMULA(A1:C2)"), [[true,false,true],[true,false,true]]);
+
+  // FORMULATEXT
+  eq("FORMULATEXT(A1)", r5("=FORMULATEXT(A1)"), "=1+4");
+  eq("FORMULATEXT(C1)", r5("=FORMULATEXT(C1)"), "=SUM(A1:B1)");
+  eq("FORMULATEXT(B1)=#N/A", r5("=FORMULATEXT(B1)"), "#N/A");
+}
+
 /* =========================== 汇总 =========================== */
 console.log(`\n${pass} passed, ${fail} failed, ${pass + fail} total`);
 if (fail) { console.log("FAIL:\n  " + fails.join("\n  ")); process.exit(1); }
