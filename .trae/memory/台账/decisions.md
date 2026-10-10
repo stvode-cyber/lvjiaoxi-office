@@ -781,3 +781,14 @@ ameAst.name ? nameAst.name : evalNode(...)。LAMBDA 被调用时，先算参数�
 - **测试**：harness 14/14 → newfuncs 133/133 → 109/109 全绿；永久测试里 OFFSET/INDIRECT 需单独带数据 getCell（默认空表返回 0 无法验证）
 - **关联文件**：app/js/modules/spreadsheet.js evalNode L1329-1333 + FUNCS L1012-1014 + 新函数 L1371-1453
 - **决策人**：用户「先补 OFFSET 和 INDIRECT」
+
+---
+
+## [2026-10-10] ISFORMULA + FORMULATEXT（FE.run 新增 getRawCell 第 4 参数 + FE._getCellRaw 运行时注入）
+
+- **选了啥**：① FE.run(formula, getCell, currentRef, getRawCell) 新增第 4 可选参数 → FE._getCellRaw 赋值；evalNode 和 run() finally 自动清理；② _evalIsFormula 用已有的 _astNodeToCoords 拿 ref(s) → FE._getCellRaw(ref) 查 .f 字段 → "=" 开头算有公式；③ 单格返回标量、范围返回二维数组（Excel 动态数组行为）；④ 无 FE._getCellRaw 时返回 "#N/A"（安全降级，单测可手动注入）
+- **为啥**：getCell 只返回计算值，ISFORMULA/FORMULATEXT 需要原始 cell 的 .f 字段。不想改 FE.run 签名破坏现有调用（render() 里 FE.run 调用只传 3 参数），所以加可选第 4 参数
+- **踩坑**：无 getRawCell 时不能返回错误（比如 render() 里默认调用），必须安全降级 → "#N/A"；FORMULATEXT 公式字符串必须以 "=" 开头才算有效（兼容用户可能设置非公式的 f 字段）
+- **测试**：harness 8/8 → newfuncs 扩展到 140 条 → 109/109 全绿
+- **关联文件**：app/js/modules/spreadsheet.js evalNode L1337-1340 + 新函数 _evalIsFormula L1378-1411 + run() L1603-1610 + FUNCS L1015-1017
+- **决策人**：用户「继续补 ISFORMULA 和 FORMULATEXT」

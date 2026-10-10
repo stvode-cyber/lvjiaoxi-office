@@ -1009,6 +1009,64 @@
         return slope * (+xVal) + (r.my - slope * r.mx);
       },
       FORECAST: (xVal, yArr, xArr) => FUNCS["FORECAST.LINEAR"](xVal, yArr, xArr), // 别名
+      // ============ 统计分布类 ============
+      /** NORM.DIST — 正态分布 (PDF/CDF)
+       *  NORM.DIST(x, mean, sd, cumulative)
+       */
+      "NORM.DIST": (x, mean, sd, cumulative) => {
+        if (sd <= 0) return "#NUM!";
+        if (cumulative) return _normCdf(+x, +mean, +sd);
+        // PDF: 1/(σ√(2π)) * e^(-(x-μ)²/(2σ²))
+        const z = (+x - +mean) / +sd;
+        return Math.exp(-0.5 * z * z) / (+sd * Math.sqrt(2 * Math.PI));
+      },
+      /** NORM.S.DIST — 标准正态分布 (NORM.DIST(x, 0, 1, cumulative)) */
+      "NORM.S.DIST": (z, cumulative) => FUNCS["NORM.DIST"](z, 0, 1, cumulative),
+      /** BINOM.DIST — 二项分布
+       *  BINOM.DIST(k, n, p, cumulative)
+       *  大 n(>170) 用 log-space 防阶乘溢出
+       */
+      "BINOM.DIST": (k, n, p, cumulative) => {
+        k = Math.round(+k); n = Math.round(+n); p = +p;
+        if (k < 0 || k > n) return 0;
+        if (p < 0 || p > 1) return "#NUM!";
+        // log-space: PMF = C(n,k) * p^k * (1-p)^(n-k)
+        const logPmf = () => {
+          const lc = _logFactorial(n) - _logFactorial(k) - _logFactorial(n - k);
+          return Math.exp(lc + k * Math.log(p) + (n - k) * Math.log(1 - p));
+        };
+        if (!cumulative) return logPmf();
+        // CDF: 累加 PMF(0..k)
+        let sum = 0;
+        for (let i = 0; i <= k; i++) {
+          const lc = _logFactorial(n) - _logFactorial(i) - _logFactorial(n - i);
+          sum += Math.exp(lc + i * Math.log(p) + (n - i) * Math.log(1 - p));
+        }
+        return sum;
+      },
+      /** POISSON.DIST — 泊松分布
+       *  POISSON.DIST(x, mean, cumulative)
+       */
+      "POISSON.DIST": (x, mean, cumulative) => {
+        x = Math.round(+x); mean = +mean;
+        if (x < 0) return "#NUM!";
+        if (mean <= 0) return 0;
+        const logPmf = (i) => i * Math.log(mean) - mean - _logFactorial(i);
+        if (!cumulative) return Math.exp(logPmf(x));
+        let sum = 0;
+        for (let i = 0; i <= x; i++) sum += Math.exp(logPmf(i));
+        return sum;
+      },
+      /** EXPON.DIST — 指数分布
+       *  EXPON.DIST(x, lambda, cumulative)
+       *  PDF: λ * e^(-λx), CDF: 1 - e^(-λx)
+       */
+      "EXPON.DIST": (x, lambda, cumulative) => {
+        x = +x; lambda = +lambda;
+        if (x < 0 || lambda <= 0) return "#NUM!";
+        if (cumulative) return 1 - Math.exp(-lambda * x);
+        return lambda * Math.exp(-lambda * x);
+      },
       // OFFSET / INDIRECT — 需要 getCell 动态范围解析，evalNode 特殊路径拦截
       OFFSET: () => "#CALC!",
       INDIRECT: () => "#CALC!",
@@ -1016,6 +1074,41 @@
       ISFORMULA: () => "#CALC!",
       FORMULATEXT: () => "#CALC!",
     };
+
+    // ============ 统计分布数学辅助 ============
+    /** 误差函数 erf — Abramowitz & Stegun 7.1.26 近似 (精度 ~1e-7) */
+    function _erf(x) {
+      const a1 =  0.254829592, a2 = -0.284496736, a3 =  1.421413741;
+      const a4 = -1.453152027, a5 =  1.061405429, p  =  0.3275911;
+      const sign = x < 0 ? -1 : 1;
+      const ax = Math.abs(x);
+      const t = 1.0 / (1.0 + p * ax);
+      const y = 1.0 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t * Math.exp(-ax*ax);
+      return sign * y;
+    }
+    /** 正态分布 CDF: 0.5*(1 + erf((x-μ)/(σ*√2))) */
+    function _normCdf(x, mu, sd) {
+      if (sd <= 0) return "#NUM!";
+      const z = (x - mu) / sd;
+      return 0.5 * (1 + _erf(z / Math.SQRT2));
+    }
+    /** 伽马函数 log — Lanczos 近似 (n≥0) */
+    function _lgamma(x) {
+      if (x <= 0) return Infinity;
+      const g = 7;
+      const p = [0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+                 771.32342877765313, -176.61502916214059, 12.507343278686905,
+                 -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+      if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - _lgamma(1 - x);
+      x -= 1;
+      let a = p[0];
+      const t = x + g + 0.5;
+      for (let i = 1; i < p.length; i++) a += p[i] / (x + i);
+      return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+    }
+    /** 阶乘对数: lgamma(n+1) */
+    function _logFactorial(n) { return _lgamma(n + 1); }
+
     function _percentile(sorted, k) {
       if (!sorted.length) return "#NUM!";
       if (k < 0 || k > 1) return "#NUM!";

@@ -339,6 +339,44 @@ function cells(map) { return (ref) => (ref in map ? map[ref] : ""); }
   eq("FORMULATEXT(B1)=#N/A", r5("=FORMULATEXT(B1)"), "#N/A");
 }
 
+/* =========================== 2025-10 分布类函数 =========================== */
+{
+  console.log("--- NORM.DIST / NORM.S.DIST / BINOM.DIST / POISSON.DIST / EXPON.DIST ---");
+
+  const r6 = f => FE.run(f, () => 0, "A1");
+
+  // NORM.DIST
+  close("NORM.DIST(0,0,1,TRUE)=0.5", r6("=NORM.DIST(0,0,1,TRUE)"), 0.5, 1e-6);
+  close("NORM.DIST(1,0,1,TRUE)≈0.8413", r6("=NORM.DIST(1,0,1,TRUE)"), 0.8413447, 1e-6);
+  close("NORM.DIST(0,0,1,FALSE)≈0.3989", r6("=NORM.DIST(0,0,1,FALSE)"), 0.3989423, 1e-6);
+  close("NORM.DIST(0,5,2,TRUE)≈0.0062", r6("=NORM.DIST(0,5,2,TRUE)"), 0.0062097, 1e-6);
+  close("NORM.DIST(10,5,2,FALSE)≈0.0088", r6("=NORM.DIST(10,5,2,FALSE)"), 0.0087641, 1e-6);
+  eq("NORM.DIST sd=0=#NUM!", r6("=NORM.DIST(0,0,0,TRUE)"), "#NUM!");
+
+  // NORM.S.DIST
+  close("NORM.S.DIST(0,TRUE)=0.5", r6("=NORM.S.DIST(0,TRUE)"), 0.5, 1e-6);
+  close("NORM.S.DIST(1.96,TRUE)≈0.975", r6("=NORM.S.DIST(1.96,TRUE)"), 0.975, 1e-5);
+  close("NORM.S.DIST(0,FALSE)≈0.3989", r6("=NORM.S.DIST(0,FALSE)"), 0.3989423, 1e-6);
+
+  // BINOM.DIST
+  close("BINOM.DIST(2,10,0.5,FALSE)≈0.0439", r6("=BINOM.DIST(2,10,0.5,FALSE)"), 0.0439453125);
+  close("BINOM.DIST(2,10,0.5,TRUE)≈0.0547", r6("=BINOM.DIST(2,10,0.5,TRUE)"), 0.0546875);
+  close("BINOM.DIST(5,10,0.5,FALSE)≈0.2461", r6("=BINOM.DIST(5,10,0.5,FALSE)"), 0.24609375);
+  close("BINOM.DIST(10,10,0.5,TRUE)=1", r6("=BINOM.DIST(10,10,0.5,TRUE)"), 1, 1e-6);
+  eq("BINOM.DIST p越界=#NUM!", r6("=BINOM.DIST(0,5,-0.1,FALSE)"), "#NUM!");
+
+  // POISSON.DIST
+  close("POISSON.DIST(3,2,FALSE)≈0.1804", r6("=POISSON.DIST(3,2,FALSE)"), 0.18044704431548358);
+  close("POISSON.DIST(3,2,TRUE)≈0.8571", r6("=POISSON.DIST(3,2,TRUE)"), 0.8571234604985469, 1e-6);
+  close("POISSON.DIST(0,2,FALSE)=e^-2", r6("=POISSON.DIST(0,2,FALSE)"), 0.1353352832366128);
+
+  // EXPON.DIST
+  close("EXPON.DIST(1,1,FALSE)=e^-1", r6("=EXPON.DIST(1,1,FALSE)"), 0.36787944117144233);
+  close("EXPON.DIST(1,1,TRUE)=1-e^-1", r6("=EXPON.DIST(1,1,TRUE)"), 0.6321205588285577);
+  eq("EXPON.DIST(0,2,FALSE)=2", r6("=EXPON.DIST(0,2,FALSE)"), 2);
+  eq("EXPON.DIST(0,2,TRUE)=0", r6("=EXPON.DIST(0,2,TRUE)"), 0);
+}
+
 /* =========================== 汇总 =========================== */
 console.log(`\n${pass} passed, ${fail} failed, ${pass + fail} total`);
 if (fail) { console.log("FAIL:\n  " + fails.join("\n  ")); process.exit(1); }
