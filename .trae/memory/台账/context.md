@@ -7,15 +7,17 @@
 
 ## 🎯 交付快照（新 AI 读这里就够了）
 
-**当前阶段**：v1.1.6 稳定化 + 新功能迭代 — PDF→DOCX 字体/字号/粗斜体/颜色还原 + 段落对齐推断 + 表格 cell 内联样式还原全链路落地
+**当前阶段**：v1.1.6 全功能迭代收尾 — Excel 兼容快捷键 + XLSX 格式双向导入导出 + PPTX 性能优化 + 底部导航单层合并
 
 | 项 | 值 |
 |---|---|
-| 测试基线 | **108/108 全绿**（必须保持，任何改动后先跑 `node scripts/run-tests.js`） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **16:05**（含 PDF→DOCX 全链路 + PPTX blipFill 图片背景 + 三栏版面 + 字体样式还原 + 段落对齐推断 + 表格 cell 内联样式 + 坐标系修正 + Form XObject 嵌套图片 + 图片嵌入） |
-| 发布状态 | ❌ VPS 待重新上传（本机网络 SSH 超时 + HTTPS SNI 干扰，老毛病）；dist 包已就绪，换网络后跑 `scripts/publish-latest.bat` |
+| 测试基线 | **109/109 全绿**（任何改动后先跑 `node scripts/run-tests.js`） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **17:55**（含 PDF→DOCX 全链路 + PPTX blipFill + Excel 快捷键 + XLSX 格式双向 + 底部单层） |
+| 发布状态 | ❌ GitHub push + VPS 上传待执行（换网络后跑 `git push origin HEAD:main` + `git push origin v1.1.6` + `scripts/publish-latest.bat`） |
+| 版本号 | 1.1.6（源码/pubspec/dist 三处一致，铁律不能漂） |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
-| 台账状态 | decisions.md 45 条（最新 #45：PPTX blipFill 图片背景 rels 扩展 + resolveMediaByRels 通用化），issues.md 28 条（最新 L2：提取层坐标系两坑已修✅，覆盖 #27 坐标系定论） |
+| 台账状态 | decisions.md 最新 #47（XLSX 格式完整导入导出），issues.md 最新 L2 blipFill 路径折叠 + 坐标系定论 |
+| 代码待 push | **13 个 commit 本地已提交**（9c638db → 8d71db7，含 v1.1.6 tag） |
 
 ---
 
@@ -42,25 +44,94 @@ npm run cloud          # 启动云后端（localhost:PORT）
 
 ---
 
-## 📊 模块状态（2026-10-09 快照）
+## 📊 模块状态（2026-10-10 快照）
 
 | 模块 | 状态 | 备注 |
 |------|------|------|
 | Writer | ✅ | 富文本 + docx/html/md 导出 |
-| Spreadsheet | ✅ | AI 公式 + SheetJS BIFF5/8（.xls + .xlsx） |
-| Presentation | ✅ | **刚修完 PPTX 背景完整链路**（slide → layout → master 三层继承） |
+| Spreadsheet | ✅ **大幅增强** | Excel 兼容快捷键 + XLSX 格式完整双向（粗斜下/边框/填充/字色/合并）+ SheetJS BIFF5/8 |
+| Presentation | ✅ | PPTX 背景完整三层继承 + blipFill 图片背景 + base64 O(N) 性能优化 |
 | MindMap | ✅ | XMind/MD/OPML 导入 |
-| PDF | 🟢 | PDF→DOCX + PDF→Excel + OCR + makeSearchablePDF |
+| PDF | 🟢 | PDF→DOCX + PDF→Excel + 字体样式还原 + 三栏版面 + OCR |
 | AI 面板 | ✅ | BYOK 四供应商 |
-| 业务板块 | ✅ | 订单/库存/审批 |
-| Electron | ✅ | **刚修完**：多窗口 + 大文件闪退 + 隐藏菜单栏 |
+| Electron | ✅ | 多窗口 + 大文件闪退修复 + 隐藏菜单栏 + 底部单层合并 |
 | 客户端 | 🟡 | Win ✅ / Android ✅ / PWA ✅ / iOS & HarmonyOS 源码同步 |
 
 ---
 
-## 🛠 这轮核心改动（2026-10-08 ~ 09）— 必读
+## 🛠 这轮核心改动（2026-10-08 ~ 10-10）— 必读
 
-### 1. 顶部导航 4 层 → 2 层（省 ~80px）
+### 1. XLSX 格式完整双向导入导出（2026-10-10）
+
+**根因**：原来 parseXlsx 只导入 cells/values/formulas，返回 `styles: {}` 空对象，merge 字段不存在。用户反馈"打开 Excel 格式全丢了"。
+
+**导入端补了**（`import-ooxml.js` parseXlsx +65/-5）：
+- styles.xml 并行预读（第三个 Promise.all 成员）
+- fonts 解析：`<b/><i/><u/><color rgb="FFrrggbb"/>` → bold/italic/underline/color
+- fills 解析：`<patternFill patternType="solid"><fgColor rgb="..."/>` → bg
+- borders 解析：`<left/right/top/bottom style="thin"><color/></...>` → 12 种线型 + 颜色
+- cellXfs 解析：fontId/fillId/borderId + applyFont/applyFill/applyBorder 开关
+- 单元格 s 属性查 cellXfs 组合 → `styles[ref] = { bold, bg, border: {left:{style,color},...} }`
+- mergeCells 导入：`<mergeCell ref="A1:B2"/>` → merges 数组
+
+**导出端补了**（`export-ooxml.js` buildXlsx +87/-10）：
+- styles.xml 从硬编码改动态生成：fonts/fills/borders/cellXfs 全部按 cellXfs+apply* 开关写
+- 单元格加 `s="N"` 属性（xfId 去重：font+bg+border 三键拼接，相同组合复用同一个 xfId）
+- 空值但有样式的格子 → `<c ref s="N"/>`（否则边框/填充丢失）
+- mergeCells 写入 sheetXml
+
+**Excel 惯例**：fillId 0=none、1=gray125（必须保留，否则 Excel 打开报损坏）；cellStyleXfs count 固定 1；xfId 0。
+
+### 2. Excel 兼容快捷键（2026-10-10）
+
+用户要求按 Excel 兼容模式改（Enter=下移、F2=编辑、Ctrl+B/I/U=粗斜下等）。
+
+**新增快捷键**（`modules/spreadsheet.js` keydown handler 重写 +45 行）：
+
+| 快捷键 | 功能 |
+|---|---|
+| F2 | 进入编辑（保留内容，光标到末尾） |
+| Shift+Enter | 提交后上移 |
+| Ctrl+B / I / U | 粗体/斜体/下划线 |
+| Ctrl+Space | 选整列 |
+| Shift+Space | 选整行 |
+| Ctrl+Arrow | 跳数据边缘 |
+| Ctrl+Shift+Arrow | 跳数据边缘 + 扩展选区 |
+| Ctrl+D | 向下填充（**修复公式相对引用偏移**：原代码直接复制 src.f 不偏移 → 改用 FE.adjustFormula + writeCell） |
+| Ctrl+Enter | 选区批量填充 |
+| Ctrl+Home / Ctrl+End | 跳 A1 / 数据右下角 |
+| PageUp / PageDown | 翻屏 20 行 |
+| Ctrl+; / Ctrl+Shift+; | 当前日期 / 当前时间 |
+
+Ribbon 字体组原来只有 B，现在加了 I 和 U 按钮。
+
+### 3. PPTX 性能优化（2026-10-10）
+
+用户反馈"打开文件慢"，诊断后找到头号元凶：
+
+**根因**：base64 编码逐字节 `bin += String.fromCharCode(u8[i])` — O(N²) 字符串拼接（一张 2MB 图片 = 3-5 秒）。
+
+**修法**（`import-ooxml.js` parsePptx）：
+- base64：chunk 8192 + `Array.apply(null, chunk).map(String.fromCharCode).join("")` — O(N)
+- rels + layoutBg 预读从 3 个串行 for 循环 → `Promise.all` 并行
+- timing 打点：控制台搜 `[PPTX]` 看 media+rels 预读 / parsePptx 总耗时
+
+**同时修了** blipFill 路径折叠 bug（`/../` 只替换没去掉上级目录 → while 循环 + `/[^/]+\/\.\.\//` 正确折叠）+ 补 10 条 blipFill 测试。
+
+### 4. 底部导航三层合一 + 全局 footer 注入（2026-10-10）
+
+用户要"底部只要一层"。
+
+**前**：sheet-tabs（Sheet1/＋）+ sheet-statusbar（求和/平均/计数）+ 全局 footer#statusbar（就绪/缩放）= 三层。
+
+**后**：单层 `.sheet-bottombar`（sheets-tabs 左 + footer#statusbar 右）。
+- sheet-statusbar 隐藏（求和/平均留了 hidden 给内部测试用）
+- 全局 footer#statusbar 在 spreadsheet 激活时被 `injectIntoSheetBottom()` 注入到 sheet-bottombar 右边
+- 其他模块（Writer/PDF/PPT）不变，还是两层或一层（各自模块底栏 + 全局 footer）
+
+**关键文件**：`app/css/style.css`（新 `.sheet-bottombar` 样式）+ `app/js/shell.js`（模块切换时调用 showFooter 或 inject）+ `app/js/modules/spreadsheet.js`（底部 bar 渲染）
+
+### 5. 顶部导航 4 层 → 2 层（省 ~80px）— 历史（2026-10-08）
 
 | 层 | 改前 | 改后 |
 |----|------|------|
@@ -155,7 +226,18 @@ npm run dist:local       # 打 Setup.exe（electron-builder 需装好）
 
 ---
 
-## 📋 变更日志（2026-10-09 顶部追加）
+## 📋 变更日志（2026-10-10 顶部追加）
+
+- **[2026-10-10] XLSX 格式完整双向导入导出 + Excel 兼容快捷键 + PPTX 性能 + 底部导航单层**
+  - parseXlsx 补 styles.xml（fonts/fills/borders/cellXfs）+ mergeCells → 返回完整 data.styles + data.merge
+  - buildXlsx 从硬编码 styles.xml 改动态生成 + 单元格 s 属性（xfId 去重）+ 空值格子写 `<c ref s/>` + mergeCells 写入
+  - Excel 兼容快捷键（方案 A）：F2/Shift+Enter/Ctrl+B/I/U/Ctrl+Space/Shift+Space/Ctrl+Arrow/Ctrl+D/Ctrl+Enter/Ctrl+Home/End/PageUp/Down/Ctrl+;/Ctrl+Shift+;
+  - Ctrl+D 修复公式相对引用偏移（原代码直接复制 src.f，改用 FE.adjustFormula + writeCell）
+  - PPTX base64 编码 O(N²)→O(N) + rels/layoutBg 预读串行→并行
+  - blipFill 路径折叠 bug 修复 + 10 条 blipFill 测试
+  - 底部三层（sheet-tabs + sheet-statusbar + footer#statusbar）合一：单层 sheet-bottombar + 全局 footer 注入
+  - Ribbon 字体组加 I/U 按钮
+  - 测试 109/109 绿 / dist 17:55 / 13 个 commit 本地已提交（待 push）
 
 - **[2026-10-09] PDF 提取层坐标系实锤修正 + Form XObject 嵌套图片（覆盖 #40 定论错误）**
   - 真实三栏 PDF 端到端实测（pdf-lib 生成→pdf.js 真实解析）实锤：textContent transform 是 y-up，#40 的 y-down 实锤方法错了（批注 y 来自 DOM 指针事件）

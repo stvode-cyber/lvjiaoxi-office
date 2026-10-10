@@ -8,6 +8,19 @@
 
 ---
 
+## [P1] [L1|fe-case] FE evalNode 大小写敏感统一问题（3 条子坑）
+
+- **子坑数**：3 条
+- **核心根因**：Excel 公式不区分大小写，但 FE parse 把函数名 `Dbl(7)` → `"DBL"`，而 LET scope 里存的是原始大小写 `"Dbl"` → scope["DBL"] 找不到
+- **总预防规则**：FE 内部所有 scope key 统一转大写；name 节点查 scope 先查原始再查大写兜底
+- **关联文件**：app/js/modules/spreadsheet.js
+- **子坑列表**（时间倒序）：
+  - [2026-10-01] [let-scope-case] LET(a,5,a*100) OK 但 LET(Dbl,LAMBDA(...),Dbl(7)) → #NAME? → 根因：LET scope key 首字母大写 vs parse 全大写
+  - [2026-10-01] [let-name-case] 修了 LET name 大写后破坏了 name 节点查 scope（scope["A"] 找不到 node.name="a"）→ name 节点也要先大写兜底
+  - [2026-10-01] [func-scope-case] 函数调用查 scope[node.func] 时 node.func 已是大写 ✓，但要确保 LET 绑定和函数调用都用同一大小写
+
+---
+
 ## [P0] [L1|electron] Electron 运行时反复踩坑（5 条子坑）
 
 - **子坑数**：5 条

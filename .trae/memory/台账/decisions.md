@@ -636,3 +636,137 @@ owrap; gap:1px（按钮全横向排）
 - **关联文件**：app/js/import-ooxml.js L519-545(rels 扩展) + L579-591(resolveMediaByRels 通用化) + L617-657(extractBgFillColor 加 blipFill) + L553/L569/L795(调用点)
 - **决策人**：AI 开发
 - **验证**：108/108 绿
+---
+
+## [2026-10-10] 表格 P0 三件套：XLOOKUP + 删除重复值 + 数据分列
+
+- **选了啥**：① FUNCS 新增 XLOOKUP（精确/近似/通配符三种模式 + ifNotFound 默认值）；② removeDuplicates + openRemoveDupModal 弹窗（自动猜标题行），物理重排 + adjustFormula 偏移；③ textToColumns + openTextToColsModal 分隔符/固定宽度双模式 + 拆分预览 + 右侧溢出检测；④ 三者都挂 Ribbon「数据」Tab →「数据工具」group
+- **为啥**：用户反馈「表格功能和市面差太多」，竞品（Excel/WPS/ONLYOFFICE）的 5 个 P0 数据处理功能绿角犀全缺；先拿最小 3 个热手（核心代码量小，半天交付）
+- **备选方案**：先做数据透视表再补小工具 → 工期太长（500+ 行），先做小工具让用户立即"有体感改善"
+- **关联文件**：app/js/modules/spreadsheet.js（FUNCS.XLOOKUP L313-334、_wlMatch/_escRe L419-431、removeDuplicates/openRemoveDupModal L1562-1641、textToColumns/openTextToColsModal L1643-1777、Ribbon 按钮 L2052-2053）
+- **决策人**：用户「继续深化 + 联网扫竞品」
+
+---
+
+## [2026-10-10] 动态数组函数 + Spill 机制：FILTER/SORT/UNIQUE/SORTBY/TOCOL/TOROW/VSTACK/HSTACK
+
+- **选了啥**：① FUNCS 新增 8 个动态数组函数，统一返回二维数组 shape（rows, cols）；② 新增 _toRows/_toFlat 辅助函数（把任意值统一成二维）；③ getCell 遇到 Array.isArray(val) 时：主值缓存 cache[ref]=val[0][0]，同时遍历 spill 位置写 cache[spillRef]=val[i][j]，记录 spillMap[ref]={rows,cols}；④ recompute 分三步：清 cache → 预算所有带公式单元格（让 spill 先铺满 cache）→ 统一写 DOM；⑤ 旧 spill 残留检测：源单元格公式返回标量时遍历 spillMap 清旧 cache 条目；⑥ 超出网格边界显示 #SPILL!
+- **为啥**：用户要求对标 Excel 365，动态数组是 2020 年后 Excel 最重要的新功能——函数能返回一个区域，自动 spill 到相邻空白单元格，不需要 Ctrl+Shift+Enter 旧数组公式
+- **关键技术决策**：预算优先于 DOM 写入——原来的 recompute 直接遍历 td 顺序调用 getCell，动态数组的 spill 依赖先算源单元格再算覆盖位置，但 td 顺序不确定。改为先 for (ref in data.cells) 预算所有带公式单元格，让所有 spill 先写进 cache，然后统一遍历 td 时命中 cache
+- **关联文件**：app/js/modules/spreadsheet.js（FUNCS 8 个新函数 L313-461、_toRows/_toFlat L568-575、getCell 改 spill L976-1029、recompute 改预算优先 L1032-1056）
+- **决策人**：用户「继续开发动态数组函数」
+
+---
+
+## [2026-10-10] 条件格式增强：三色阶 + 数据条负值双向 + 图标集 6 预设 + 公式驱动 + 唯一值
+
+- **选了啥**：① computeCF 扩展 3 个新分支 type=scale3（三色阶 min→mid→max 双段 lerpColor）、type=icon（图标集 + percent 排名/数值阈值双模式）、type=formula（FE.run 逐行计算 + ref 偏移）；② 数据条增加负值双向渐变 hasNeg 分支 + negColor/hideText 选项，一个 linear-gradient 叠满正负条；③ 渲染层 applyCondFormat 清理 + 重写：负值条用 (50-negPct)%→50%→(50+posPct)% 六段渐变；icon 用 <span class="cf-icon">emoji</span> 前置；hideText 存 td.dataset._origText 恢复；④ openRuleModal 扩展 5 个新 UI：scale3 三色选色器、icon 6 种 emoji 预设 + 阈值模式 + 百分比/数值双路径、formula 公式输入框 + 相对引用提示 + 例子、unique 唯一值规则、bar 双色条 + hideText 复选框；⑤ Ribbon「开始 → 条件格式」split 菜单重新组织（突出显示 / 去重唯一 / 数据条 / 色阶双色三色 / 图标集 / 项目选取 / 公式驱动 / 管理规则 分组 8 项）
+- **为啥**：用户要求对标 Excel/WPS 竞品，条件格式是 Excel 核心卖点之一；原有实现只有 cell / bar（单色）/ scale（双色）/ top / dupes 5 种，缺三色阶、负值数据条、图标集、公式驱动、唯一值
+- **关联文件**：app/js/modules/spreadsheet.js（computeCF 扩展 L2447-2543、applyCondFormat 双向渐变 + icon 渲染 L2545-2587、openRuleModal 新类型 L2612-2696、Ribbon split 菜单重组 L2752-2772）
+- **决策人**：用户「继续开发条件格式增强功能」
+
+---
+
+## [2026-10-10] 公式审核追踪：extractRefs + 追踪引用/从属 + 分步求值 + 错误检查
+
+- **选了啥**：① FE.extractRefs(formula) 复用 tokenize 把 ref（单格）和 range（区域）全部拉出来，range 还展开成每个单格 ref；② tracePrecedents：活动单元格公式 → extractRefs → refs → table 里高亮这些 td（inset boxShadow 蓝框）；③ traceDependents：反向扫所有带公式的单元格，extractRefs 里包含选中 ref 的就是从属；④ stepEvaluate：FE.compile(formula).ast 拿 AST → 中序 walk（先左子树再右子树再父节点）→ 每步重新 FE.run 算中间值 → 深度缩进显示，含 ref / range / 常量 / 运算 / 函数五种节点类型；⑤ errorCheck：扫所有带公式单元格 getCell → 结果以 # 开头就进错误列表 Modal；⑥ clearTraces 清除 _auditHighlights 里所有高亮
+- **为啥**：用户对标 Excel 竞品的 P1 功能清单，公式审核追踪是 Excel「公式」Tab 核心功能——复杂公式调试必备，用户看不懂嵌套公式时一步步拆；追踪引用/从属用来定位"这个数从哪来的"
+- **关联文件**：app/js/modules/spreadsheet.js（FE.extractRefs L852-876、trace* 四个函数 + stepEvaluate + errorCheck L2739-2875、Ribbon 公式审核组 L2960-2968）
+- **决策人**：用户「继续开发公式审核追踪功能」
+
+---
+
+## [2026-10-10] 名称管理器 + 保护工作表
+
+- **选了啥**：① FE.setNameResolver：在 FE 引擎里暴露 _nameResolver 变量，evalNode 遇到 node.name 时调用它把名称翻译成 range 字符串，然后改写成 range 节点复用既有区域处理逻辑；② tokenize L617 已有 
+ame token 识别（非 ref/非函数调用/非 bool 的标识符），parsePrimary 里原来错误返回 {v:0} 改为 {name: tk.v}；③ mount 开头调用 FE.setNameResolver(name→data.names 查找)；④ commit 里加保护检查：data.protection.enabled && data.locked[ref] !== false → 拒绝写入；⑤ openProtectSheet：密码 + allowSelectLocked/Unlocked/Format/RowsCols 可选项；⑥ openLockCell：选区锁定状态切换（多数锁定就全解锁，反之亦然）；⑦ openHideFormula：公式栏隐藏状态切换；⑧ 名称管理器 CRUD + 批量创建（首列作为名称→每行引用剩余列；首行作为名称→每列引用剩余行）
+- **为啥**：用户对标 Excel 竞品的 P1 功能清单，名称管理器让公式更语义化；保护工作表让用户能把模板锁住防止误改
+- **关联文件**：app/js/modules/spreadsheet.js（FE.evalNode 加 name 分支 L774-779、FE.setNameResolver 暴露 L883-885、mount 注入名称解析器 L949-954、commit 保护检查 L1105-1112、名称管理器函数 L2900-3039、Ribbon 公式定义名称组 L3124-3168、Ribbon 审阅保护组 L3237-3243）
+- **决策人**：用户「继续开发名称管理器和保护工作表功能」
+
+---
+
+## [2026-10-10] 高级图表扩展：散点图 + 瀑布图 + 组合图
+
+- **选了啥**：① chartTypeName 加 scatter / waterfall / combo 三种新类型；② buildChartSVG 分发到三个新函数；③ scatterSVG：两列数值（第1列X第2列Y）+ 双坐标网格 + 实心圆点带数据标签；④ waterfallSVG：累计柱（running total）+ 正负双色（增长蓝/减少红）+ 总计柱（绿）+ 虚线累计连线 + 零线辅助；⑤ comboSVG：第1系列画柱 + 第2+系列画线（共用Y轴，双柱时按线系列数自动缩宽）；⑥ Ribbon「插入 → 图表」组 6 个按钮柱状/折线/饼图/散点/瀑布/组合
+- **为啥**：用户要求对标 Excel/WPS 竞品的高级图表类型，原来只有基础三种。散点图用于数据分布相关性分析，瀑布图用于看累计变化（财务/经营分析常用），组合图用于量价对比（柱看销量+线看单价）
+- **关联文件**：app/js/modules/spreadsheet.js（chartTypeName 扩展 L3457、buildChartSVG 三分支 L3546-3548、scatterSVG L3625-3668、waterfallSVG L3669-3737、comboSVG L3738-3779、Ribbon 插入图表组扩展 L3195-3201）
+- **决策人**：用户「继续开发高级图表功能」
+
+---
+
+## [2026-10-10] 假设分析：模拟运算表 + 单变量求解
+
+- **选了啥**：① runDataTable：临时覆盖输入单元格值 → getCell 重算公式 → 写回结果 → 恢复原值；单变量（一个输入单元格×N行值）双变量（两个输入单元格×M行×N列值）通用；snapshot 包裹可撤销；② goalSeek：牛顿迭代 x_{n+1}=x_n-f(x)/f'(x_n) 数值微分 + 二分法兜底（扫-1e9 到 1e9 区间端点找异号 + 二分）200次上限；求解完 prompt y/n 选择接受（snapshot 包裹，Ctrl+Z 可撤销）还是拒绝；③ Ribbon 数据→数据工具组新增「模拟运算表」「单变量求解」两个按钮
+- **为啥**：用户对标 Excel 竞品的 P2 假设分析清单
+- **关联文件**：app/js/modules/spreadsheet.js（runDataTable + _overwriteCell/_restoreCell/_computeFormulaRef L2973-3060、goalSeek + openGoalSeekModal L3061-3155、Ribbon 数据工具组新增按钮 L3460-3461）
+- **决策人**：用户「继续开发模拟运算表/单变量求解功能」
+
+---
+
+## [2026-10-10] 快速填充 Flash Fill：启发式 10 种模式
+
+- **选了啥**：① inferFlashFillPattern 对每对 (ref, sample) 按优先级试 6 类规则 → 所有样例对必须推断出同 type 且关键参数一致才通过；② applyFlashFillPattern 10 种 pattern type：prefix_suffix / split_part / combine_two / extract_num / extract_num_wrap / extract_num_index / extract_cn / extract_cn_index / take_left / take_right；③ FF_SEPARATORS 覆盖 10 种常见分隔符（,，-—_ / | · 、）；④ openFlashFillModal：参考列 + 结果列 + 样例起始行 → 🔍预览 → 显示推断模式描述 + 样例匹配 + 后续 10 行预测 → 应用填充（snapshot 包裹 Ctrl+Z 可撤销）；⑤ Ribbon 数据→数据工具组最后加「快速填充」按钮
+- **为啥**：对标 Excel 2013+ 经典功能，原来空白
+- **关联文件**：app/js/modules/spreadsheet.js（Flash Fill 核心 L3157-3328、Ribbon 按钮 L3636）
+- **决策人**：用户「继续开发快速填充功能」
+
+---
+
+## [2026-10-10] 高频基础三件套：冻结窗格 + 分类汇总 + 工作表分组
+
+- **选了啥**：① applyFreeze()：CSS sticky 动态层级（th 已有 sticky，只补 td 的 frozen-row / frozen-col / frozen-corner 三档 class + top/left style + z-index 递增）；data.freeze 数据结构 row/col 已存在，只缺实现；openFreezeMenu prompt 选 5 种模式（首行/首列/行列/当前位置/取消）；② buildSubtotal()：按某列扫描分组 + 重写 cells（原数据按组重排 + 每组末尾插入小计行 bold + 最后总计行）+ renderSubtotalOutline 分级符号（行标头前加 − / +，点击折叠隐藏 display:none）+ 汇总方式 SUM/COUNT/AVG/MIN/MAX；③ toggleSheetGroup + syncWriteToGroup：Ctrl+点击 sheet tab 加入/移出工作组，writeCell 里同步写入所有成员 + 右键菜单可设彩色标签 border-bottom；④ Ribbon 加「视图」Tab（窗口组：冻结窗格 + 分类汇总；工作组组：提示按钮）
+- **为啥**：竞品调研发现 Excel/WPS 高频基础功能完全空白——冻结窗格（表头滚不走）是最基础最常用的，分类汇总（按列分组+±折叠）是数据处理灵魂，工作表分组（多 sheet 同时改公式）是效率神器
+- **关联文件**：app/css/style.css L536-539 加 frozen-row/frozen-col/frozen-corner CSS；app/js/modules/spreadsheet.js applyFreeze+openFreezeMenu L4337-4395、buildSubtotal+renderSubtotalOutline L4397-4554、toggleSheetGroup+syncWriteToGroup+renderSheetTabs 扩展 L4556-4619、writeCell 加 syncWriteToGroup L1102、Ribbon 视图 Tab L3662-3676
+- **决策人**：用户「按方案来，先补冻结窗格、分类汇总和工作表分组」
+
+---
+
+## [2026-10-10] Excel 365 新函数补齐 10 个：GROUPBY / LET / SEQUENCE / TEXTSPLIT / CHOOSECOLS / TAKE / DROP
+
+- **选了啥**：在 FUNCS 对象尾部（L509-690 原位置是 AGGREGATE/STATISTICAL 之后，FILTER/SORT/SORTBY 之前？不，实际是 L509-690）追加 10 个新函数：① GROUPBY(groupByArray, valuesArray, fn, ifEmpty) 按字段分组+汇总（返回二维数组，支持 SUM/COUNT/AVG/MAX/MIN/PRODUCT）；② LET 简化版（args 是 evalNode 算好的值，真正变量作用域需改 evalNode，暂返回最后变量值）；③ SEQUENCE(rows, cols, start, step) 生成序列；④ TEXTSPLIT(text, delims) 多分隔符同时拆分；⑤ TEXTBEFORE/TEXTAFTER(text, delim, instance, matchMode) 分隔符前后提取；⑥ CHOOSECOLS(array, c1, c2...) / CHOOSEROWS；⑦ TAKE(array, rows, cols) 正数前取负数后取；⑧ DROP(array, rows, cols) 正数前删负数后删
+- **为啥**：竞品调研发现 Excel 365 2025 年的王炸函数——GROUPBY 替代传统透视表、SEQUENCE 自动生成编号/日期、TEXTSPLIT/TAKE/DROP 处理动态数组，是 FILTER/SORT/UNIQUE 的"兄弟函数"
+- **关联文件**：app/js/modules/spreadsheet.js FUNCS 对象尾部 L510-690 追加 10 个函数
+- **决策人**：用户「继续补 GROUPBY 和 LET 等新函数」
+
+---
+
+## [2026-10-10] LAMBDA + LET 语法级 scope 链改造
+
+- **选了啥**：evalNode 第 3 个参数 scope（默认空对象）+ LET/LAMBDA 在 evalNode 语法级处理（不进 FUNCS）+ node.name 先查 scope 再查名称解析器 + node.func 分支回退查 scope lambda。FUNCS 里 LET/LAMBDA 留占位返回 #CALC!（被 evalNode 头部拦截在 FUNCS 之前，所以不会触发）。关键坑：LET 的 name 参数是字面量 {name:"xxx"}，不能 evalNode 它（否则 scope 里还没定义就返回 #NAME?），必须先判断 
+ameAst.name ? nameAst.name : evalNode(...)。LAMBDA 被调用时，先算参数值（带 scope），然后用 closure scope + params→args 绑定造新 callScope，递归 evalNode body。
+- **为啥**：Excel 365 LET/LAMBDA 是语法级功能，不是普通函数。之前 LET 简化版只返回最后变量值，真正的 LET/LAMBDA 需要变量作用域链。
+- **关联文件**：app/js/modules/spreadsheet.js evalNode L937-1020（LET/LAMBDA/scope 链 + 调用回退）、FUNCS 对象 LET/LAMBDA 改占位 L554-555
+- **决策人**：用户「先实现 LAMBDA 自定义函数」
+
+
+---
+
+## [2026-10-10] 批量补 9 个高频 Excel 函数（纯 FUNCS，无 evalNode 改动）
+
+- **选了啥**：TRANSPOSE（数组转置）、TEXTJOIN（带分隔符拼接+忽略空值）、CHOOSE（按索引选值）、XOR（异或逻辑）、MROUND（四舍五入到指定倍数，不同符号 #NUM!）、SUMSQ（平方和）、COMBIN（组合数）、PERMUT（排列数）、CORREL（Pearson 相关系数）
+- **为啥**：9 个都是高频基础函数，纯 FUNCS 实现不需要 evalNode 改动（OFFSET/INDIRECT 需 getCell 运行时注入暂延后）；MROUND 符号不同 #NUM! 是 Excel 官方行为（-5 和 2 符号相反 → #NUM!，-5 和 -2 同号 → -6）
+- **测试**：Node.js harness 41/41 通过 + _spreadsheet_newfuncs_test.js 扩展 28 条用例 → 109/109 全绿（CDP 套件因 Electron 未启动跳过后验证）
+- **关联文件**：app/js/modules/spreadsheet.js FUNCS L794-884、_spreadsheet_newfuncs_test.js L165-222
+- **决策人**：用户「继续补其他 Excel 函数」
+
+---
+
+## [2026-10-10] 再补 5 个纯 FUNCS（HYPERLINK + COUNTUNIQUE + WRAPROWS/WRAPCOLS + ADDRESS）
+
+- **选了啥**：① HYPERLINK — 仅返回 friendlyName 或链接文本（真正的超链接是 UI 层事，FE 不负责可点击性）；② COUNTUNIQUE — 用 	ypeof+v 做 Set key 保证 1/TRUE/"1" 严格区分；③ WRAPROWS — 按 colCount 折行，不足用 #N/A 填充（Excel 官方行为），WRAPCOLS 复用 WRAPROWS + TRANSPOSE；④ ADDRESS — 4 种 absMode（绝对/混合/相对）+ sheet 名自动单引号包裹+单引号双写转义
+- **为啥**：Advisor 规划的高频纯 FUNCS 批量，实现简单（≈60 行），无 evalNode 改动；ADDRESS 里 sheet 名有空格自动加引号是 Excel 官方行为，参考之前 openpyxl HYPERLINK 踩坑经验（单引号需双写转义）
+- **测试**：Node.js harness 25/25 通过 + _spreadsheet_newfuncs_test.js 扩展 20 条 → 108/108 单文件绿 → 109/109 全局绿
+- **关联文件**：app/js/modules/spreadsheet.js FUNCS L885-960
+- **决策人**：用户「先补 HYPERLINK 和 COUNTUNIQUE 这些纯 FUNCS」
+
+---
+
+## [2026-10-10] 统计三件套 SLOPE/INTERCEPT/FORECAST.LINEAR（纯 FUNCS，共用 _linReg）
+
+- **选了啥**：① _linReg(yArr, xArr) 内部辅助函数，返回 {n, mx, my, num, dx2, dy2} 避免三处重复写 Σ；② SLOPE(y,x) 注意 Excel 参数顺序 y 在前；③ INTERCEPT(y,x) 同理 y 在前；④ FORECAST.LINEAR(x,y,xArr) 预测点 x 在前；⑤ FORECAST 作为 FORECAST.LINEAR 的别名
+- **为啥**：与已有 CORREL 完全相同的线性回归数学（Σ(x-x̄)(y-ȳ) / Σ(x-x̄)²），复用 numList 展平，n<2 → #N/A 防护 + dx2=0 → #DIV/0! 防护；把共用计算收敛到 _linReg 一个入口避免三处公式漂移（ExperienceRecall 提醒的"聚合口径统一"原则）
+- **踩坑**：SLOPE 参数顺序经典坑——Excel SLOPE(known_y's, known_x's) y 在前，容易写成 SLOPE(x, y) 导致全部测试对不上；用 SEQUENCE(1,3,6,3) 造 y=6,9,12 和 x=1,3,5 算期望值，实际 slope=1.5（不是直觉的 3）
+- **测试**：harness 13/13 → newfuncs 永久测试 121/121 → 109/109 全局全绿
+- **关联文件**：app/js/modules/spreadsheet.js FUNCS L961-1011
+- **决策人**：用户「继续补统计三件套 SLOPE/INTERCEPT/FORECAST.LINEAR」

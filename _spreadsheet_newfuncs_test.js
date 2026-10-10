@@ -40,7 +40,18 @@ function close(name, actual, expected, eps) {
   else { fail++; fails.push(name + ` — actual=${actual}, expected=${expected}`); }
 }
 function eq(name, actual, expected) {
-  if (actual === expected) pass++;
+  const equal = (a, b) => {
+    if (a === b) return true;
+    if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== "object" || a === null || b === null) return a === b;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    const ka = Object.keys(a), kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    for (const k of ka) if (!kb.includes(k) || !equal(a[k], b[k])) return false;
+    return true;
+  };
+  if (equal(actual, expected)) pass++;
   else { fail++; fails.push(name + ` — actual=${JSON.stringify(actual)}, expected=${JSON.stringify(expected)}`); }
 }
 function run(f, gc, ref) { return FE.run(f, gc || (() => ""), ref); }
@@ -152,7 +163,7 @@ function cells(map) { return (ref) => (ref in map ? map[ref] : ""); }
   close("RADIANS(180)=PI", run("=RADIANS(180)"), Math.PI);
 }
 
-/* =========================== 与既有函数共存回归 =========================== */
+/* =========================== 既有函数共存回归 =========================== */
 {
   console.log("--- 既有函数回归 ---");
   eq("IF/AND/OR 仍 OK", run('=IF(AND(1>0,2>0),"y","n")'), "y");
@@ -160,6 +171,124 @@ function cells(map) { return (ref) => (ref in map ? map[ref] : ""); }
     const gc = cells({ A1:"x", A2:"y", B1:10, B2:20 });
     return run('=VLOOKUP("y",A1:B2,2,1)', gc);
   })(), 20);
+}
+
+/* =========================== 2025-10 新增 9 函数 =========================== */
+{
+  console.log("--- TRANSPOSE / TEXTJOIN / CHOOSE / XOR / MROUND / SUMSQ / COMBIN / PERMUT / CORREL ---");
+
+  // TRANSPOSE
+  eq("TRANSPOSE 2×3→3×2", run("=TRANSPOSE(SEQUENCE(2,3,1,1))"), [[1,4],[2,5],[3,6]]);
+  eq("TRANSPOSE 3×1→1×3", run("=TRANSPOSE(SEQUENCE(3,1,1,1))"), [[1,2,3]]);
+
+  // TEXTJOIN
+  eq('TEXTJOIN(",", TRUE, "a","b","c")', run('=TEXTJOIN(",",TRUE,"a","b","c")'), "a,b,c");
+  eq('TEXTJOIN("-", FALSE, "x","","y")', run('=TEXTJOIN("-",FALSE,"x","","y")'), "x--y");
+  eq('TEXTJOIN 空分隔符', run('=TEXTJOIN("",TRUE,"a","b","c")'), "abc");
+
+  // CHOOSE
+  eq('CHOOSE(2, "apple","banana","cherry")', run('=CHOOSE(2,"apple","banana","cherry")'), "banana");
+  eq("CHOOSE(1,100,200)", run("=CHOOSE(1,100,200)"), 100);
+  eq("CHOOSE(5,1,2,3)=#VALUE!", run("=CHOOSE(5,1,2,3)"), "#VALUE!");
+  eq("CHOOSE(0,1,2)=#VALUE!", run("=CHOOSE(0,1,2)"), "#VALUE!");
+
+  // XOR
+  eq("XOR(T,F,F)=TRUE", run("=XOR(TRUE,FALSE,FALSE)"), true);
+  eq("XOR(T,T,F)=FALSE", run("=XOR(TRUE,TRUE,FALSE)"), false);
+  eq("XOR(F,F)=FALSE", run("=XOR(FALSE,FALSE)"), false);
+  eq("XOR(T,T,T)=TRUE", run("=XOR(TRUE,TRUE,TRUE)"), true);
+
+  // MROUND
+  eq("MROUND(5,2)=6", run("=MROUND(5,2)"), 6);
+  close("MROUND(5.2,0.5)=5.0", run("=MROUND(5.2,0.5)"), 5.0);
+  eq("MROUND(-5,2)=#NUM!", run("=MROUND(-5,2)"), "#NUM!");
+  eq("MROUND(5,-2)=#NUM!", run("=MROUND(5,-2)"), "#NUM!");
+  eq("MROUND(-5,-2)=-6", run("=MROUND(-5,-2)"), -6);
+  eq("MROUND(0,2)=0", run("=MROUND(0,2)"), 0);
+
+  // SUMSQ
+  eq("SUMSQ(3,4)=25", run("=SUMSQ(3,4)"), 25);
+  eq("SUMSQ(1,2,3)=14", run("=SUMSQ(1,2,3)"), 14);
+  eq("SUMSQ()=0", run("=SUMSQ()"), 0);
+
+  // COMBIN
+  eq("COMBIN(5,2)=10", run("=COMBIN(5,2)"), 10);
+  eq("COMBIN(10,3)=120", run("=COMBIN(10,3)"), 120);
+  eq("COMBIN(20,10)=184756", run("=COMBIN(20,10)"), 184756);
+  eq("COMBIN(5,0)=1", run("=COMBIN(5,0)"), 1);
+  eq("COMBIN(5,5)=1", run("=COMBIN(5,5)"), 1);
+  eq("COMBIN(5,6)=#NUM!", run("=COMBIN(5,6)"), "#NUM!");
+
+  // PERMUT
+  eq("PERMUT(5,2)=20", run("=PERMUT(5,2)"), 20);
+  eq("PERMUT(10,3)=720", run("=PERMUT(10,3)"), 720);
+  eq("PERMUT(5,0)=1", run("=PERMUT(5,0)"), 1);
+  eq("PERMUT(5,5)=120", run("=PERMUT(5,5)"), 120);
+  eq("PERMUT(5,6)=#NUM!", run("=PERMUT(5,6)"), "#NUM!");
+
+  // CORREL（用 SEQUENCE 造等长数组）
+  close("CORREL 完美正相关=1", run("=CORREL(SEQUENCE(3,1,1,1),SEQUENCE(3,1,1,1))"), 1);
+  close("CORREL 完美负相关=-1", run("=CORREL(SEQUENCE(3,1,1,1),SEQUENCE(3,1,3,-1))"), -1);
+  eq("CORREL 方差0=#DIV/0!", run("=CORREL(SEQUENCE(3,1,1,1),SEQUENCE(3,1,2,0))"), "#DIV/0!");
+}
+
+/* =========================== 2025-10 再补 5 函数 =========================== */
+{
+  console.log("--- HYPERLINK / COUNTUNIQUE / WRAPROWS / WRAPCOLS / ADDRESS ---");
+
+  // HYPERLINK
+  eq('HYPERLINK 无友好名返回链接', run('=HYPERLINK("https://a.com")'), "https://a.com");
+  eq('HYPERLINK 有友好名返回友好名', run('=HYPERLINK("https://a.com","A")'), "A");
+
+  // COUNTUNIQUE
+  eq("COUNTUNIQUE(1,2,2,3,3,3)=3", run("=COUNTUNIQUE(1,2,2,3,3,3)"), 3);
+  eq("COUNTUNIQUE 严格类型区分 1/TRUE/\"1\"", run('=COUNTUNIQUE(1,TRUE,"1",FALSE,0)'), 5);
+  eq("COUNTUNIQUE 空表=0", run("=COUNTUNIQUE()"), 0);
+  eq("COUNTUNIQUE 单值重复=1", run("=COUNTUNIQUE(1,1,1)"), 1);
+
+  // WRAPROWS
+  eq("WRAPROWS 5元素2列=3行PAD", run("=WRAPROWS(SEQUENCE(1,5,1,1),2)"), [[1,2],[3,4],[5,"#N/A"]]);
+  eq("WRAPROWS 4元素2列无PAD", run("=WRAPROWS(SEQUENCE(1,4,1,1),2,0)"), [[1,2],[3,4]]);
+  eq("WRAPROWS colCount=0=#VALUE!", run("=WRAPROWS(SEQUENCE(1,6,1,1),0)"), "#VALUE!");
+
+  // WRAPCOLS
+  eq("WRAPCOLS 6元素2行=3列", run("=WRAPCOLS(SEQUENCE(1,6,1,1),2)"), [[1,3,5],[2,4,6]]);
+  eq("WRAPCOLS 5元素3行有PAD", run("=WRAPCOLS(SEQUENCE(1,5,1,1),3)"), [[1,4],[2,5],[3,"#N/A"]]);
+
+  // ADDRESS
+  eq("ADDRESS(1,1)=$A$1", run("=ADDRESS(1,1)"), "$A$1");
+  eq("ADDRESS(5,2)=$B$5", run("=ADDRESS(5,2)"), "$B$5");
+  eq("ADDRESS(5,2,4)=B5", run("=ADDRESS(5,2,4)"), "B5");
+  eq("ADDRESS(5,2,2)=B$5", run("=ADDRESS(5,2,2)"), "B$5");
+  eq("ADDRESS(5,2,3)=$B5", run("=ADDRESS(5,2,3)"), "$B5");
+  eq("ADDRESS(2,27)=$AA$2", run("=ADDRESS(2,27)"), "$AA$2");
+  eq("ADDRESS 带sheet", run('=ADDRESS(1,1,1,TRUE,"Sheet1")'), "Sheet1!$A$1");
+  eq("ADDRESS sheet有空格加引号", run('=ADDRESS(1,1,1,TRUE,"My Sheet")'), "'My Sheet'!$A$1");
+  eq("ADDRESS(0,1)=#VALUE!", run("=ADDRESS(0,1)"), "#VALUE!");
+}
+
+/* =========================== 2025-10 统计三件套：线性回归 =========================== */
+{
+  console.log("--- SLOPE / INTERCEPT / FORECAST.LINEAR ---");
+
+  // 完美线性 y = 2x + 1: y=SEQUENCE(1,4,3,2)=3,5,7,9; x=SEQUENCE(1,4,1,1)=1,2,3,4
+  close("SLOPE y=2x+1 → 2", run("=SLOPE(SEQUENCE(1,4,3,2),SEQUENCE(1,4,1,1))"), 2);
+  close("SLOPE y=5x+5 → 5", run("=SLOPE(SEQUENCE(1,4,10,5),SEQUENCE(1,4,1,1))"), 5);
+  close("SLOPE y=1.5x+4.5 → 1.5", run("=SLOPE(SEQUENCE(1,3,6,3),SEQUENCE(1,3,1,2))"), 1.5);
+
+  close("INTERCEPT y=2x+1 → 1", run("=INTERCEPT(SEQUENCE(1,4,3,2),SEQUENCE(1,4,1,1))"), 1);
+  close("INTERCEPT y=2x+9 → 9", run("=INTERCEPT(SEQUENCE(1,4,11,2),SEQUENCE(1,4,1,1))"), 9);
+  close("INTERCEPT y=1.5x+4.5 → 4.5", run("=INTERCEPT(SEQUENCE(1,3,6,3),SEQUENCE(1,3,1,2))"), 4.5);
+
+  close("FORECAST.LINEAR(5, y=2x+1) → 11", run("=FORECAST.LINEAR(5,SEQUENCE(1,4,3,2),SEQUENCE(1,4,1,1))"), 11);
+  close("FORECAST.LINEAR(0) → 1", run("=FORECAST.LINEAR(0,SEQUENCE(1,4,3,2),SEQUENCE(1,4,1,1))"), 1);
+  close("FORECAST.LINEAR(10) → 21", run("=FORECAST.LINEAR(10,SEQUENCE(1,4,3,2),SEQUENCE(1,4,1,1))"), 21);
+  close("FORECAST 别名=FORECAST.LINEAR", run("=FORECAST(5,SEQUENCE(1,4,3,2),SEQUENCE(1,4,1,1))"), 11);
+
+  // 边界：n<2 → #N/A
+  eq("SLOPE 单数据点=#N/A", run("=SLOPE(5,1)"), "#N/A");
+  eq("INTERCEPT 单数据点=#N/A", run("=INTERCEPT(5,1)"), "#N/A");
+  eq("FORECAST.LINEAR 单数据点=#N/A", run("=FORECAST.LINEAR(5,5,1)"), "#N/A");
 }
 
 /* =========================== 汇总 =========================== */
