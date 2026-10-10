@@ -792,3 +792,14 @@ ameAst.name ? nameAst.name : evalNode(...)。LAMBDA 被调用时，先算参数�
 - **测试**：harness 8/8 → newfuncs 扩展到 140 条 → 109/109 全绿
 - **关联文件**：app/js/modules/spreadsheet.js evalNode L1337-1340 + 新函数 _evalIsFormula L1378-1411 + run() L1603-1610 + FUNCS L1015-1017
 - **决策人**：用户「继续补 ISFORMULA 和 FORMULATEXT」
+
+---
+
+## [2026-10-10] 5 个统计分布类函数（纯 FUNCS + 数学辅助 _erf / _lgamma）
+
+- **选了啥**：① _erf(x) — Abramowitz & Stegun 7.1.26 多项式近似（精度 ~1e-7），sign 处理负值；② _normCdf(x,mu,sd) — 0.5*(1+erf(z/√2))；③ _lgamma(x) — Lanczos 近似（g=7），x<0.5 反射公式；④ _logFactorial(n) — _lgamma(n+1)；⑤ 5 个 FUNCS：NORM.DIST / NORM.S.DIST / BINOM.DIST / POISSON.DIST / EXPON.DIST，全带 cumulative 标志（PDF/CDF 切换）；⑥ BINOM/POISSON 用 log-space 算 PMF → Math.exp 还原，避免 n>170 阶乘溢出
+- **为啥**：Excel 统计分布函数在数据科学/财务场景高频，纯 FUNCS 不需要 evalNode 改动；JavaScript Math 对象没有 erf/gamma → 必须自实现；_lgamma 用 Lanczos 比 Stirling 精确得多（~1e-11 vs ~1e-2）
+- **踩坑**：close() 默认容差 1e-9，erf 近似只有 ~1e-7 → 分布类测试必须传 eps=1e-6；期望值不能写太粗（0.975 vs 0.975002），必须用精确到小数点后 6-7 位的值；BINOM.DIST(10,10,0.5,TRUE)=1 浮点累加出来是 1.0000000000000004 → 也需要 1e-6
+- **测试**：harness 21/21 → newfuncs 扩展到 161 条 → 109/109 全绿
+- **关联文件**：app/js/modules/spreadsheet.js 数学辅助 L1020-1052 + FUNCS L1012-1069
+- **决策人**：用户「继续补 NORM.DIST 等分布类函数」

@@ -1067,6 +1067,71 @@
         if (cumulative) return 1 - Math.exp(-lambda * x);
         return lambda * Math.exp(-lambda * x);
       },
+      // ============ 财务函数 ============
+      /** NPV — 净现值
+       *  NPV(rate, value1, [value2], ...)
+       *  ⚠️ 时间轴契约（Excel 官方）：第一个 value 是第 1 期末（不是第 0 期），
+       *      初始投资应放在 NPV 外面：NPV(rate, CF1, CF2, ...) + CF0
+       *  NPV = Σ CF_i / (1+rate)^i   for i = 1..n
+       */
+      NPV: (rate, ...values) => {
+        const r = +rate;
+        if (r === -1) return "#DIV/0!";
+        const flat = [];
+        for (const v of values) {
+          if (Array.isArray(v)) for (const x of flat([v])) flat.push(x);
+          else flat.push(v);
+        }
+        let npv = 0;
+        for (let i = 0; i < flat.length; i++) {
+          const cf = +flat[i];
+          if (!isFinite(cf)) continue;
+          npv += cf / Math.pow(1 + r, i + 1); // i+1 = 第 1 期起
+        }
+        return npv;
+      },
+      /** IRR — 内部收益率（牛顿迭代）
+       *  IRR(values, [guess=0.1])
+       *  时间轴契约：values[0] = 第 0 期（通常是负的初始投资），values[1] = 第 1 期...
+       *  收敛条件 |Δrate| < 1e-7 或 20 次迭代
+       */
+      IRR: () => "#CALC!", // 走 evalNode 特殊路径
+      /** PV — 现值
+       *  PV(rate, nper, pmt, [fv=0], [type=0])
+       *  type=0 → 期末支付（默认）；type=1 → 期初支付
+       */
+      PV: (rate, nper, pmt, fv, type) => {
+        const r = +rate, n = +nper, p = +pmt;
+        const f = fv != null ? +fv : 0;
+        const t = type != null ? +type : 0;
+        if (r === 0) return -p * n - f;
+        const pow = Math.pow(1 + r, n);
+        let pv = -p * (1 - 1 / pow) / r - f / pow;
+        if (t === 1) pv *= (1 + r);
+        return pv;
+      },
+      /** FV — 终值 */
+      FV: (rate, nper, pmt, pv, type) => {
+        const r = +rate, n = +nper, p = +pmt;
+        const pv0 = pv != null ? +pv : 0;
+        const t = type != null ? +type : 0;
+        if (r === 0) return -p * n - pv0;
+        const pow = Math.pow(1 + r, n);
+        let fv = -pv0 * pow - p * (pow - 1) / r;
+        if (t === 1) fv *= (1 + r);
+        return fv;
+      },
+      /** PMT — 年金（等额还款） */
+      PMT: (rate, nper, pv, fv, type) => {
+        const r = +rate, n = +nper, p = +pv;
+        const f = fv != null ? +fv : 0;
+        const t = type != null ? +type : 0;
+        if (r === 0) return -(p + f) / n;
+        const pow = Math.pow(1 + r, n);
+        let pmt = -(p * pow + f) * r / (pow - 1);
+        if (t === 1) pmt /= (1 + r);
+        return pmt;
+      },
       // OFFSET / INDIRECT — 需要 getCell 动态范围解析，evalNode 特殊路径拦截
       OFFSET: () => "#CALC!",
       INDIRECT: () => "#CALC!",
@@ -1431,6 +1496,10 @@
         if (node.func === "ISFORMULA" || node.func === "FORMULATEXT") {
           return _evalIsFormula(node.func, node.args, getCell, scope);
         }
+        // === IRR — 必须特殊处理：第一个参数可能是数组/范围/独立数字 ===
+        if (node.func === "IRR") {
+          return _evalIRR(node.args, getCell, scope);
+        }
         // === 高级数组函数：不 eval args，保留原始 AST 自己处理 ===
         if (["MAP", "BYROW", "BYCOL", "MAPROWS", "MAPCOLS", "REDUCE", "SCAN", "MAKEARRAY", "TOROW", "TOCOL"].includes(node.func)) {
           // 先用 evalNode 把 lambda AST 求值成 lambda 对象（args 里可能有 lambda 节点）
@@ -1466,6 +1535,57 @@
         return applyOp(node.op, evalNode(node.left, getCell, scope), evalNode(node.right, getCell, scope));
       }
       return 0;
+    }
+
+    // ============ IRR — 现金流内部收益率 ============
+    /** evalNode 拦截 IRR：支持独立参数和范围两种写法
+     *  IRR(values, [guess=0.1])
+     *  - values 可以是 range/array（evalNode 求值后是二维数组）或独立数字参数
+     *  - guess 可选，默认 0.1
+     */
+    function _evalIRR(args, getCell, scope) {
+      if (!args.length) return "#NUM!";
+      // 收集所有 args，eval 后 flatten
+      const cfs = [];
+      let guess = 0.1;
+      for (let i = 0; i < args.length; i++) {
+        const val = evalNode(args[i], getCell, scope);
+        if (Array.isArray(val)) {
+          for (const x of flat([val])) if (isFinite(+x)) cfs.push(+x);
+        } else if (typeof val === "number" && isFinite(val)) {
+          // 最后一个独立数字可能是 guess（如果前面已经有 cfs）
+          cfs.push(val);
+        }
+      }
+      // 如果 args.length === 2 且 args[1] 是单数字（非数组/range）→ 当 guess
+      if (args.length === 2) {
+        const gVal = evalNode(args[1], getCell, scope);
+        if (typeof gVal === "number" && isFinite(gVal) && !Array.isArray(gVal)) {
+          guess = +gVal;
+          // cfs 只来自 args[0]
+          cfs.length = 0;
+          const v0 = evalNode(args[0], getCell, scope);
+          if (Array.isArray(v0)) for (const x of flat([v0])) if (isFinite(+x)) cfs.push(+x);
+          else if (isFinite(+v0)) cfs.push(+v0);
+        }
+      }
+      if (cfs.length < 2) return "#NUM!";
+      // 牛顿迭代
+      let r = guess;
+      for (let iter = 0; iter < 50; iter++) {
+        let f = 0, df = 0;
+        for (let i = 0; i < cfs.length; i++) {
+          const denom = Math.pow(1 + r, i);
+          f += cfs[i] / denom;
+          if (i > 0) df -= i * cfs[i] / Math.pow(1 + r, i + 1);
+        }
+        if (Math.abs(df) < 1e-15) return "#NUM!";
+        const dr = f / df;
+        r -= dr;
+        if (Math.abs(dr) < 1e-7) return r;
+        if (r <= -1) return "#NUM!";
+      }
+      return "#NUM!";
     }
 
     // ============ ISFORMULA / FORMULATEXT — 需要原始 cell 数据 ============
