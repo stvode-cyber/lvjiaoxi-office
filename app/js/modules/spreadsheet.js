@@ -1009,6 +1009,9 @@
         return slope * (+xVal) + (r.my - slope * r.mx);
       },
       FORECAST: (xVal, yArr, xArr) => FUNCS["FORECAST.LINEAR"](xVal, yArr, xArr), // 别名
+      // OFFSET / INDIRECT — 需要 getCell 动态范围解析，evalNode 特殊路径拦截
+      OFFSET: () => "#CALC!",
+      INDIRECT: () => "#CALC!",
     };
     function _percentile(sorted, k) {
       if (!sorted.length) return "#NUM!";
@@ -1324,6 +1327,10 @@
         return [];
       }
       if (node.func) {
+        // === OFFSET / INDIRECT — 动态范围，需要 getCell + baseRef 坐标 ===
+        if (node.func === "OFFSET" || node.func === "INDIRECT") {
+          return _evalOffsetIndirect(node.func, node.args, getCell, scope);
+        }
         // === 高级数组函数：不 eval args，保留原始 AST 自己处理 ===
         if (["MAP", "BYROW", "BYCOL", "MAPROWS", "MAPCOLS", "REDUCE", "SCAN", "MAKEARRAY", "TOROW", "TOCOL"].includes(node.func)) {
           // 先用 evalNode 把 lambda AST 求值成 lambda 对象（args 里可能有 lambda 节点）
@@ -1359,6 +1366,94 @@
         return applyOp(node.op, evalNode(node.left, getCell, scope), evalNode(node.right, getCell, scope));
       }
       return 0;
+    }
+
+    // ============ OFFSET / INDIRECT — 动态范围 ============
+    /** 把 AST 节点解析成坐标范围 { r1, c1, r2, c2 } 或 null
+     *  - ref/range 字面量节点 → 直接取坐标
+     *  - 其他 → evalNode 得字符串再 parseRange
+     */
+    function _astNodeToCoords(astNode, getCell, scope) {
+      if (!astNode) return null;
+      // 字面量 ref/range — 直接拿 AST 里的坐标
+      if (astNode.ref) {
+        const p = parseRef(astNode.ref);
+        if (!p) return null;
+        return { r1: p.row, c1: p.col, r2: p.row, c2: p.col };
+      }
+      if (astNode.range) {
+        const m = parseRange(astNode.range);
+        if (!m) return null;
+        const a = m[1] ? { col: colToIdx(m[1]), row: +m[2] } : null;
+        const b = m[3] ? { col: colToIdx(m[3]), row: +m[4] } : null;
+        if (!a) return null;
+        if (!b) return { r1: a.row, c1: a.col, r2: a.row, c2: a.col };
+        return {
+          r1: Math.min(a.row, b.row), c1: Math.min(a.col, b.col),
+          r2: Math.max(a.row, b.row), c2: Math.max(a.col, b.col)
+        };
+      }
+      // 其他（INDIRECT 结果 / 表达式）→ eval 得字符串 → 再 parse
+      let val;
+      try { val = evalNode(astNode, getCell, scope); } catch { return null; }
+      if (typeof val !== "string") return null;
+      const text = val.trim().toUpperCase();
+      // 先尝试范围 A1:B2
+      const m = parseRange(text);
+      if (m) {
+        const a = m[1] ? { col: colToIdx(m[1]), row: +m[2] } : null;
+        const b = m[3] ? { col: colToIdx(m[3]), row: +m[4] } : null;
+        if (!a) return null;
+        if (!b) return { r1: a.row, c1: a.col, r2: a.row, c2: a.col };
+        return {
+          r1: Math.min(a.row, b.row), c1: Math.min(a.col, b.col),
+          r2: Math.max(a.row, b.row), c2: Math.max(a.col, b.col)
+        };
+      }
+      // 再尝试单格 A1
+      const p = parseRef(text);
+      if (p) return { r1: p.row, c1: p.col, r2: p.row, c2: p.col };
+      return null;
+    }
+    /** 用 getCell 把坐标范围读成二维数组 */
+    function _coordsToArray(coords, getCell) {
+      const out = [];
+      for (let r = coords.r1; r <= coords.r2; r++) {
+        const row = [];
+        for (let c = coords.c1; c <= coords.c2; c++) row.push(getCell(idxToCol(c) + r));
+        out.push(row);
+      }
+      return out;
+    }
+    /** OFFSET / INDIRECT 主函数 */
+    function _evalOffsetIndirect(name, args, getCell, scope) {
+      if (name === "INDIRECT") {
+        if (!args.length) return "#REF!";
+        const refTextNode = args[0];
+        const coords = _astNodeToCoords(refTextNode, getCell, scope);
+        if (!coords) return "#REF!";
+        return _coordsToArray(coords, getCell);
+      }
+      // OFFSET(baseRef, rowOff, colOff, [height], [width])
+      if (args.length < 3) return "#CALC!";
+      const baseCoords = _astNodeToCoords(args[0], getCell, scope);
+      if (!baseCoords) return "#REF!";
+      const rowOff = +evalNode(args[1], getCell, scope);
+      const colOff = +evalNode(args[2], getCell, scope);
+      // 默认用 baseRef 尺寸
+      const baseH = baseCoords.r2 - baseCoords.r1 + 1;
+      const baseW = baseCoords.c2 - baseCoords.c1 + 1;
+      const height = args[3] != null ? +evalNode(args[3], getCell, scope) : baseH;
+      const width  = args[4] != null ? +evalNode(args[4], getCell, scope) : baseW;
+      if (height <= 0 || width <= 0) return "#REF!";
+      const newCoords = {
+        r1: baseCoords.r1 + rowOff,
+        c1: baseCoords.c1 + colOff,
+        r2: baseCoords.r1 + rowOff + height - 1,
+        c2: baseCoords.c1 + colOff + width - 1
+      };
+      if (newCoords.r1 < 1 || newCoords.c1 < 1) return "#REF!";
+      return _coordsToArray(newCoords, getCell);
     }
 
     // ============ 高级数组函数：eval 原始 args AST + 调 LAMBDA ============

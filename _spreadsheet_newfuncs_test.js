@@ -291,6 +291,31 @@ function cells(map) { return (ref) => (ref in map ? map[ref] : ""); }
   eq("FORECAST.LINEAR 单数据点=#N/A", run("=FORECAST.LINEAR(5,5,1)"), "#N/A");
 }
 
+/* =========================== 2025-10 OFFSET / INDIRECT（evalNode 特殊路径） =========================== */
+{
+  console.log("--- OFFSET / INDIRECT ---");
+
+  // INDIRECT — 需要带数据的 getCell
+  const data4 = { A1: 1, B1: 2, C1: 3, A2: 4, B2: 5, C2: 6, A3: 7, B3: 8, C3: 9 };
+  const gc4 = ref => (ref in data4 ? data4[ref] : 0);
+  const r4 = f => FE.run(f, gc4, "A1");
+
+  eq("INDIRECT 单格 A1=1", r4('=INDIRECT("A1")'), [[1]]);
+  eq("INDIRECT 单格 C2=6", r4('=INDIRECT("C2")'), [[6]]);
+  eq("INDIRECT 范围 A1:C1", r4('=INDIRECT("A1:C1")'), [[1,2,3]]);
+  eq("INDIRECT 范围 A1:C3", r4('=INDIRECT("A1:C3")'), [[1,2,3],[4,5,6],[7,8,9]]);
+  eq("INDIRECT 非法=#REF!", r4('=INDIRECT("???")'), "#REF!");
+
+  // OFFSET
+  eq("OFFSET(A1,1,0)=A2=4", r4("=OFFSET(A1,1,0)"), [[4]]);
+  eq("OFFSET(A1,0,1)=B1=2", r4("=OFFSET(A1,0,1)"), [[2]]);
+  eq("OFFSET(A1,1,1)=B2=5", r4("=OFFSET(A1,1,1)"), [[5]]);
+  eq("OFFSET(A1,1,0,2,2)=A2:B3", r4("=OFFSET(A1,1,0,2,2)"), [[4,5],[7,8]]);
+  eq("OFFSET(A1:B2,1,1)=B2:C3", r4("=OFFSET(A1:B2,1,1)"), [[5,6],[8,9]]);
+  eq("OFFSET(A1,0,-1)=#REF!", r4("=OFFSET(A1,0,-1)"), "#REF!");
+  eq("OFFSET(A1,-1,0)=#REF!", r4("=OFFSET(A1,-1,0)"), "#REF!");
+}
+
 /* =========================== 汇总 =========================== */
 console.log(`\n${pass} passed, ${fail} failed, ${pass + fail} total`);
 if (fail) { console.log("FAIL:\n  " + fails.join("\n  ")); process.exit(1); }
