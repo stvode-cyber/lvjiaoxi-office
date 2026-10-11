@@ -814,3 +814,14 @@ ameAst.name ? nameAst.name : evalNode(...)。LAMBDA 被调用时，先算参数�
 - **测试**：harness 13/14（数组字面量 FE 不支持正常）→ newfuncs 扩展到 174 → 109/109 全绿；4 次 commit 全部 push 到 main
 - **关联文件**：app/js/modules/spreadsheet.js FUNCS L1070-1098（NPV） + PV/FV/PMT L1099-1133 + IRR evalNode 拦截 L1524-1527 + _evalIRR L1540-1585
 - **决策人**：用户「先补剩余分布和财务函数」
+
+---
+
+## [2026-10-11] 最后一批 6 函数：NORM.INV/S.INV + WEIBULL.DIST + NPER + RATE
+
+- **选了啥**：① _acklamInvNorm(p) — Acklam 有理近似（精度 ~1e-9），三区间：p<0.02425 / 中间 / p>0.97575；② _normCdf(x,mu,sd) 已有，NORM.INV 委托 _acklamInvNorm + 平移缩放；③ WEIBULL.DIST — PDF/CDF 纯数学；④ NPER — **正确推导 ratio = (1+r)^-n = (PV + PMT*adj/r) / (FV + PMT*adj/r)**（第一次推错了，分子分母符号反了导致永远负数 ratio）；⑤ RATE — 数值微分代替解析导数（牛顿迭代 + 50 次 + 收敛条件 |Δr|<1e-10）
+- **为啥**：Advisor 建议最后一批后停手打包；Acklam 是业界标准反 CDF 实现（比 Abramowitz-Stegun 反函数精确一个数量级）；NPER 第一次推导踩了分母符号坑 → 必须用 PV 公式反推验证；RATE 解析导数容易写错，数值微分虽然慢一点但对 50 次迭代来说完全可接受
+- **踩坑**：NPER 第一次推导 ratio 公式分子分母符号反了 → 永远得负数 → #NUM!；PMT=PV*r 边界（NPER 无穷期）→ Excel 也返回 #NUM!，必须在测试里体现（不是 bug）；RATE(10, -1000, 10000) 我原本以为是 0.1，但实际 PMT=1000 不够还 10000 的本金，利息都付不清 → 必须用 PMT 反向算精确值 1627.45 再验证
+- **测试**：harness 13/13 → newfuncs 扩展到 188 条 → 109/109 全绿；Acklam 边界 p=0/1 正确处理（#NUM!）
+- **关联文件**：app/js/modules/spreadsheet.js Acklam L1229-1258 + FUNCS NORM.INV L1074-1081 + WEIBULL L1087-1094 + NPER L1101-1117 + RATE L1116-1143
+- **决策人**：用户「继续补剩余函数」；Advisor「最后一批后停手打包」
