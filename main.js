@@ -44,7 +44,7 @@ let updateDownloadUrl = ""; // github 回退通道下，供安装失败兜底打
   // 前端 web 根目录：开发期是 project/app，打包后位于 asar 内的 app/
   const ROOT = app.isPackaged
     ? path.join(process.resourcesPath, "app.asar", "app")
-    : path.join(__dirname, "..", "app");
+    : path.join(__dirname, "app");
 
   // 后台自动更新：渲染进程经此比对远程发布清单（仅当配置了 LVJX_UPDATE_FEED）
   ipcMain.handle("updater:check", async () => {
