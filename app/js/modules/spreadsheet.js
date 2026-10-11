@@ -2348,8 +2348,18 @@
     }
     function paint() {
       table.querySelectorAll("td.selected, td.in-range").forEach(e => e.classList.remove("selected", "in-range"));
+      table.querySelectorAll("th.head-selected").forEach(e => e.classList.remove("head-selected"));
       const rg = rangeRect(); if (!rg) return;
       const sR = FE.parseRef(selected), sC = sR ? sR.col : -1, sRR = sR ? sR.row : -1;
+      // 行列表头高光
+      if (sRR > 0) {
+        const rowHead = table.querySelector(`th.rowhead[data-row="${sRR}"]`);
+        if (rowHead) rowHead.classList.add("head-selected");
+      }
+      if (sC > 0) {
+        const colHead = table.querySelector(`th.colhead[data-col="${sC}"]`);
+        if (colHead) colHead.classList.add("head-selected");
+      }
       for (let r = rg.r1; r <= rg.r2; r++) for (let c = rg.c1; c <= rg.c2; c++) {
         const td = table.querySelector(`td[data-ref="${FE.idxToCol(c)}${r}"]`);
         if (!td) continue;
