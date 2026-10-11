@@ -483,7 +483,17 @@
       const { c: ci, r: ri } = refToRC(ref);
       maxC = Math.max(maxC, ci); maxR = Math.max(maxR, ri);
       if (f) {
-        cells[ref] = { f: "=" + (f.textContent || "").trim() };
+        const cell = { f: "=" + (f.textContent || "").trim() };
+        // 同时保存 v（Excel 缓存值），FE.run 失败时回退显示
+        if (v) {
+          let val;
+          if (t === "s") val = shared[+v.textContent] || "";
+          else if (t === "str") val = v.textContent;
+          else if (t === "b") val = v.textContent === "1" ? "TRUE" : "FALSE";
+          else val = v.textContent;
+          cell.v = isNum(val) ? Number(val) : val;
+        }
+        cells[ref] = cell;
       } else {
         let val;
         if (t === "s") val = shared[+v.textContent] || "";
@@ -521,7 +531,7 @@
 
     // mergeCells: <mergeCell ref="A1:B2"/>
     const mergeCellsEl = first(d.documentElement, "mergeCells");
-    if (mergeCellsEl) all(mergeCellsEl, "mergeCell").forEach(m => { const ref = attr(m, "ref"); if (ref && ref.includes(":")) merges.push(ref); });
+    if (mergeCellsEl) all(mergeCellsEl, "mergeCell").forEach(m => { const ref = attr(m, "ref"); if (ref && ref.includes(":")) merges.push({ range: ref, type: "merge" }); });
     const hasFmt = Object.keys(styles).length > 0;
     const hasMerge = merges.length > 0;
     const noteExtra = [hasFmt ? "格式已保留" : null, hasMerge ? `合并 ${merges.length} 处` : null].filter(Boolean).join("；");

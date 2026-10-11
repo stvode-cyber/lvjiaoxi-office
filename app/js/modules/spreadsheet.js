@@ -2107,6 +2107,11 @@
   function normalizeDoc(doc) {
     const d = doc && doc.data ? doc.data : null;
     if (!d) return blank();
+    // 兼容：字符串 merge → 对象 merge（老 parseXlsx 返回 ["A1:B2"]，新返回 [{range}]）
+    const normMerge = arr => {
+      if (!arr || !arr.length) return [];
+      return arr.map(m => typeof m === "string" ? { range: m, type: "merge" } : m);
+    };
     if (d.sheets && Array.isArray(d.sheets) && d.sheets.length) {
       if (typeof d.activeSheet !== "number" || d.activeSheet >= d.sheets.length) d.activeSheet = 0;
       if (!d.freeze) d.freeze = { row: 0, col: 0 };
@@ -2114,7 +2119,7 @@
       d.sheets.forEach((s, i) => {
         s.cells = s.cells || {}; s.styles = s.styles || {}; s.charts = s.charts || [];
         s.condFormats = s.condFormats || []; s.filters = s.filters || [];
-        s.merge = s.merge || []; s.validations = s.validations || [];
+        s.merge = normMerge(s.merge); s.validations = s.validations || [];
         if (!s.name) s.name = "Sheet" + (i + 1);
       });
       return d;
@@ -2128,7 +2133,7 @@
         rows: d.rows || 100, cols: d.cols || 16,
         cells: d.cells || {}, styles: d.styles || {}, charts: d.charts || [],
         condFormats: d.condFormats || [], filters: d.filters || [],
-        merge: d.merge || [], validations: d.validations || []
+        merge: normMerge(d.merge), validations: d.validations || []
       }]
     };
   }
@@ -2240,7 +2245,8 @@
       }
       let val;
       if (raw.f && raw.f.startsWith("=")) {
-        try { val = FE.run(raw.f, getCell, ref); } catch { val = "#ERROR!"; }
+        try { val = FE.run(raw.f, getCell, ref); }
+        catch { val = (raw.v !== undefined && raw.v !== "") ? (isNum(raw.v) ? Number(raw.v) : raw.v) : "#ERROR!"; }
       } else if (raw.v !== undefined && raw.v !== "") {
         val = isNum(raw.v) ? Number(raw.v) : raw.v;
       } else val = "";
