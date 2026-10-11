@@ -803,3 +803,14 @@ ameAst.name ? nameAst.name : evalNode(...)。LAMBDA 被调用时，先算参数�
 - **测试**：harness 21/21 → newfuncs 扩展到 161 条 → 109/109 全绿
 - **关联文件**：app/js/modules/spreadsheet.js 数学辅助 L1020-1052 + FUNCS L1012-1069
 - **决策人**：用户「继续补 NORM.DIST 等分布类函数」
+
+---
+
+## [2026-10-10] 5 个财务函数（NPV/IRR/PV/FV/PMT）+ IRR evalNode 拦截
+
+- **选了啥**：① NPV(rate, ...cf) — 时间轴契约写死注释：第一个 CF 是第 1 期末（Excel 官方），初始投资放 NPV 外面；② IRR — 必须 evalNode 拦截（FUNCS 2 形参签名会丢独立参数），_evalIRR 里 args.length===2 且 args[1] 是单数字才当 guess，其余全部当现金流；③ PV/FV/PMT — 标准 TVM 公式，type=0 期末/1 期初，r=0 边界单独处理
+- **为啥**：ExperienceRecall 警告"财务函数时间轴契约不能隐式"——NPV 的 period 约定是 Excel 反直觉行为（第一个 value 折现一期），必须在注释里显式写死；IRR 的 evalNode 拦截和 MAP/OFFSET 同模式——当函数需要"多个独立数字参数"而非 range 时，FUNCS 签名只能收固定参数，rest params 解决不了"独立参数 vs guess"的歧义
+- **踩坑**：advisor 给的 IRR 期望值 0.1371 是错的——手动用牛顿迭代验证，-10000/3000/4200/6800 收敛到 ~0.1634；IRR guess 检测启发式（args.length>=2 就 pop 最后一个）错了 → 只有 args.length===2 且第二个是单数字才当 guess
+- **测试**：harness 13/14（数组字面量 FE 不支持正常）→ newfuncs 扩展到 174 → 109/109 全绿；4 次 commit 全部 push 到 main
+- **关联文件**：app/js/modules/spreadsheet.js FUNCS L1070-1098（NPV） + PV/FV/PMT L1099-1133 + IRR evalNode 拦截 L1524-1527 + _evalIRR L1540-1585
+- **决策人**：用户「先补剩余分布和财务函数」

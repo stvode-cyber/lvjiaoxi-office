@@ -1067,6 +1067,85 @@
         if (cumulative) return 1 - Math.exp(-lambda * x);
         return lambda * Math.exp(-lambda * x);
       },
+      /** NORM.INV — 正态分布反函数 (Acklam 有理近似)
+       *  NORM.INV(probability, mean, sd)
+       *  NORM.S.INV(p) = NORM.INV(p, 0, 1)
+       */
+      "NORM.INV": (p, mean, sd) => {
+        p = +p; mean = +mean; sd = +sd;
+        if (p <= 0 || p >= 1) return "#NUM!";
+        if (sd <= 0) return "#NUM!";
+        const z = _acklamInvNorm(p);
+        return mean + sd * z;
+      },
+      "NORM.S.INV": (p) => FUNCS["NORM.INV"](p, 0, 1),
+      /** WEIBULL.DIST — 韦伯分布
+       *  WEIBULL.DIST(x, alpha, beta, cumulative)
+       *  PDF: (α/β) (x/β)^(α-1) e^(-(x/β)^α)
+       *  CDF: 1 - e^(-(x/β)^α)
+       */
+      "WEIBULL.DIST": (x, alpha, beta, cumulative) => {
+        x = +x; alpha = +alpha; beta = +beta;
+        if (x < 0 || alpha <= 0 || beta <= 0) return "#NUM!";
+        const xx = x / beta;
+        const powA = Math.pow(xx, alpha);
+        if (cumulative) return 1 - Math.exp(-powA);
+        return (alpha / beta) * Math.pow(xx, alpha - 1) * Math.exp(-powA);
+      },
+      // ============ 财务函数（续） ============
+      /** NPER — 期数
+       *  NPER(rate, pmt, pv, [fv=0], [type=0])
+       *  从 FV = -PV*(1+r)^n - PMT*((1+r)^n-1)/r * adj 解 n
+       *  adj = (type===1 ? (1+r) : 1)
+       */
+      NPER: (rate, pmt, pv, fv, type) => {
+        const r = +rate, p = +pmt, pv0 = +pv;
+        const f = fv != null ? +fv : 0;
+        const t = type != null ? +type : 0;
+        const adj = t === 1 ? (1 + r) : 1;
+        if (r === 0) return -(pv0 + f) / p;
+        // 从 PV = -PMT*adj * (1-(1+r)^-n)/r  + FV*(1+r)^-n 解 n
+        // 令 z = (1+r)^-n：PV = -PMT*adj*(1-z)/r + f*z
+        // PV + PMT*adj/r = z*(f + PMT*adj/r)
+        // z = (PV + PMT*adj/r) / (FV + PMT*adj/r)
+        const num = pv0 + p * adj / r;
+        const den = f + p * adj / r;
+        if (den === 0) return "#DIV/0!";
+        const ratio = num / den;  // ratio = (1+r)^-n
+        if (ratio <= 0) return "#NUM!";
+        return -Math.log(ratio) / Math.log(1 + r);
+      },
+      /** RATE — 利率（牛顿迭代）
+       *  RATE(nper, pmt, pv, [fv=0], [type=0], [guess=0.1])
+       *  用 FV(r) = -PV*(1+r)^n - PMT*((1+r)^n-1)/r*adj - target 做零点
+       */
+      RATE: (nper, pmt, pv, fv, type, guess) => {
+        const n = +nper, p = +pmt, pv0 = +pv;
+        const f = fv != null ? +fv : 0;
+        const t = type != null ? +type : 0;
+        const g = guess != null ? +guess : 0.1;
+        let r = g;
+        for (let iter = 0; iter < 50; iter++) {
+          const adjVal = t === 1 ? (1 + r) : 1;
+          const pow = Math.pow(1 + r, n);
+          // FV 目标值 = f (Excel RATE 让 FV(r) = f)
+          const fvCalc = -pv0 * pow - p * adjVal * (pow - 1) / r;
+          if (r === 0) { /* 0 利率单独处理 */ }
+          // 简单数值微分：dfv/dr ≈ (fv(r+h) - fv(r)) / h
+          const h = 1e-8;
+          const rp = r + h;
+          const adjP = t === 1 ? (1 + rp) : 1;
+          const powP = Math.pow(1 + rp, n);
+          const fvP = -pv0 * powP - p * adjP * (powP - 1) / rp;
+          const dfv = (fvP - fvCalc) / h;
+          if (Math.abs(dfv) < 1e-15) return "#NUM!";
+          const dr = (fvCalc - f) / dfv;
+          r -= dr;
+          if (Math.abs(dr) < 1e-10) return r;
+          if (r <= -1) return "#NUM!";
+        }
+        return "#NUM!";
+      },
       // ============ 财务函数 ============
       /** NPV — 净现值
        *  NPV(rate, value1, [value2], ...)
@@ -1156,6 +1235,36 @@
       if (sd <= 0) return "#NUM!";
       const z = (x - mu) / sd;
       return 0.5 * (1 + _erf(z / Math.SQRT2));
+    }
+    /** Acklam 正态分布反 CDF (精度 ~1e-9) */
+    function _acklamInvNorm(p) {
+      // Coefficients for rational approximation
+      const a = [-3.969683028665376e+01,  2.209460984245205e+02,
+                 -2.759285104469687e+02,  1.383577518672690e+02,
+                 -3.066479806614716e+01,  2.506628277459239e+00];
+      const b = [-5.447609879822406e+01,  1.615858368580409e+02,
+                 -1.556989798598866e+02,  6.680131188771972e+01,
+                 -1.328068155288572e+01];
+      const c = [-7.784894002430293e-03, -3.223964580411365e-01,
+                 -2.400758277161838e+00, -2.549732539343734e+00,
+                  4.374664141464968e+00,  2.938163982698783e+00];
+      const d = [ 7.784695709041462e-03,  3.224671290700398e-01,
+                  2.445134137141996e+00,  3.754408661907416e+00];
+      const plow = 0.02425, phigh = 1 - plow;
+      let q, r;
+      if (p < plow) {
+        q = Math.sqrt(-2 * Math.log(p));
+        return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) /
+               ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
+      } else if (p <= phigh) {
+        q = p - 0.5; r = q * q;
+        return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q /
+               (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+      } else {
+        q = Math.sqrt(-2 * Math.log(1 - p));
+        return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) /
+                ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
+      }
     }
     /** 伽马函数 log — Lanczos 近似 (n≥0) */
     function _lgamma(x) {

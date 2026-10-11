@@ -407,6 +407,35 @@ function cells(map) { return (ref) => (ref in map ? map[ref] : ""); }
   eq("PMT(0,4,-48000)=12000", r7("=PMT(0,4,-48000)"), 12000);
 }
 
+/* =========================== 2025-10 最后一批：NORM.INV / WEIBULL / NPER / RATE =========================== */
+{
+  console.log("--- NORM.INV / NORM.S.INV / WEIBULL.DIST / NPER / RATE ---");
+
+  const r8 = f => FE.run(f, () => 0, "A1");
+
+  // NORM.INV (Acklam 反 CDF)
+  close("NORM.INV(0.5,0,1)=0", r8("=NORM.INV(0.5,0,1)"), 0, 1e-6);
+  close("NORM.INV(0.975,0,1)≈1.96", r8("=NORM.INV(0.975,0,1)"), 1.96, 1e-4);
+  close("NORM.INV(0.025,0,1)≈-1.96", r8("=NORM.INV(0.025,0,1)"), -1.96, 1e-4);
+  close("NORM.S.INV(0.5)=0", r8("=NORM.S.INV(0.5)"), 0, 1e-6);
+  close("NORM.INV(0.5,10,2)=10", r8("=NORM.INV(0.5,10,2)"), 10, 1e-6);
+  eq("NORM.INV(1,0,1)=#NUM!", r8("=NORM.INV(1,0,1)"), "#NUM!");
+  eq("NORM.INV(0,0,1)=#NUM!", r8("=NORM.INV(0,0,1)"), "#NUM!");
+
+  // WEIBULL.DIST
+  close("WEIBULL(1,1,1,FALSE)=e^-1", r8("=WEIBULL.DIST(1,1,1,FALSE)"), 0.3678794, 1e-6);
+  close("WEIBULL(1,1,1,TRUE)=1-e^-1", r8("=WEIBULL.DIST(1,1,1,TRUE)"), 0.6321206, 1e-6);
+  eq("WEIBULL(0,1,1,TRUE)=0", r8("=WEIBULL.DIST(0,1,1,TRUE)"), 0);
+
+  // NPER (正确 ratio = (1+r)^-n = num/den)
+  close("NPER(0.1,-1627.45,10000)=10", r8("=NPER(0.1,-1627.4539488251153,10000)"), 10, 1e-6);
+  eq("NPER(0,-1000,10000)=10", r8("=NPER(0,-1000,10000)"), 10);
+  eq("NPER(0.1,-1000,10000)=#NUM!", r8("=NPER(0.1,-1000,10000)"), "#NUM!"); // PMT=利息无穷期
+
+  // RATE 反向验证
+  close("RATE(10,-1627.45,10000)=0.1", r8("=RATE(10,-1627.4539488251153,10000)"), 0.1, 1e-4);
+}
+
 /* =========================== 汇总 =========================== */
 console.log(`\n${pass} passed, ${fail} failed, ${pass + fail} total`);
 if (fail) { console.log("FAIL:\n  " + fails.join("\n  ")); process.exit(1); }
