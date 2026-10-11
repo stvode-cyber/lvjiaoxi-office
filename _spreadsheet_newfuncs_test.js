@@ -436,6 +436,49 @@ function cells(map) { return (ref) => (ref in map ? map[ref] : ""); }
   close("RATE(10,-1627.45,10000)=0.1", r8("=RATE(10,-1627.4539488251153,10000)"), 0.1, 1e-4);
 }
 
+/* =========================== 2025-10 跨 sheet INDIRECT =========================== */
+{
+  console.log("--- 跨 sheet INDIRECT ---");
+
+  // 两个 sheet 的数据，getCell 要支持 "SheetName!A1"
+  const sheets = {
+    Sheet1: { A1: 10, B1: 20, A2: 30, B2: 40 },
+    Sheet2: { A1: 100, B1: 200, A2: 300, B2: 400 },
+    "My Sheet": { A1: "hello", B1: "world" } // 带空格的 sheet 名
+  };
+  const gcXS = ref => {
+    // 支持 "SheetName!A1"（case-insensitive sheet 名，匹配 FE 内部 _findSheet 行为）
+    const idx = ref.lastIndexOf("!");
+    if (idx >= 0) {
+      let sn = ref.substring(0, idx);
+      const cr = ref.substring(idx + 1);
+      if (sn.startsWith("'") && sn.endsWith("'")) sn = sn.substring(1, sn.length - 1);
+      const sh = Object.keys(sheets).find(k => k.toLowerCase() === sn.toLowerCase());
+      if (!sh) return "#REF!";
+      return sheets[sh][cr] != null ? sheets[sh][cr] : "";
+    }
+    // 默认 Sheet1
+    return sheets.Sheet1[ref] != null ? sheets.Sheet1[ref] : "";
+  };
+  const rXS = f => FE.run(f, gcXS, "A1");
+
+  // 基础：单格跨表
+  eq("INDIRECT Sheet2!A1=100", rXS('=INDIRECT("Sheet2!A1")'), [[100]]);
+  eq("INDIRECT Sheet2!B2=400", rXS('=INDIRECT("Sheet2!B2")'), [[400]]);
+  // 范围跨表
+  eq("INDIRECT Sheet2!A1:B2", rXS('=INDIRECT("Sheet2!A1:B2")'), [[100,200],[300,400]]);
+  eq("INDIRECT Sheet1!A1:B2 (显式)", rXS('=INDIRECT("Sheet1!A1:B2")'), [[10,20],[30,40]]);
+  // 带空格的 sheet 名用单引号
+  eq("INDIRECT 'My Sheet'!A1", rXS("=INDIRECT(\"'My Sheet'!A1\")"), [["hello"]]);
+  // 不存在的 sheet → #REF!
+  eq("INDIRECT NoSuchSheet!A1=#REF!", rXS('=INDIRECT("NoSuchSheet!A1")'), "#REF!");
+  // INDIRECT 字符串拼接 sheet 名
+  eq("INDIRECT 拼接 sheet + ref",
+    rXS('=INDIRECT("Sheet"&2&"!A1")'), [[100]]);
+  // OFFSET 带 Sheet! 前缀（_astNodeToCoords 也处理了）
+  eq("OFFSET Sheet2!A1,1,1=B2=400", rXS('=OFFSET(Sheet2!A1,1,1)'), [[400]]);
+}
+
 /* =========================== 汇总 =========================== */
 console.log(`\n${pass} passed, ${fail} failed, ${pass + fail} total`);
 if (fail) { console.log("FAIL:\n  " + fails.join("\n  ")); process.exit(1); }

@@ -1368,6 +1368,36 @@
       while (i < s.length) {
         const c = s[i];
         if (c === " " || c === "\t") { i++; continue; }
+        if (c === "'") {
+          // 带单引号的 sheet 名: 'My Sheet'!A1 或 'My Sheet'!A1:B2
+          let j = i + 1; let sn = "";
+          while (j < s.length && s[j] !== "'") { sn += s[j]; j++; }
+          if (j < s.length && s[j] === "'" && s[j + 1] === "!") {
+            // 'Sheet'! 后面必须跟 ref 或 range
+            let k = j + 2;
+            while (k < s.length && (s[k] === " " || s[k] === "\t")) k++;
+            const refRe = /^[A-Za-z]+[0-9]+$/;
+            let p = k; while (p < s.length && /[A-Za-z0-9_.]/.test(s[p])) p++;
+            const w = s.slice(k, p);
+            if (refRe.test(w)) {
+              // 检查 range
+              let q = p; while (q < s.length && (s[q] === " " || s[q] === "\t")) q++;
+              if (s[q] === ":") {
+                let r = q + 1; while (r < s.length && (s[r] === " " || s[r] === "\t")) r++;
+                let t = r; while (t < s.length && /[A-Za-z0-9_.]/.test(s[t])) t++;
+                const w2 = s.slice(r, t);
+                if (refRe.test(w2)) {
+                  toks.push({ t: "range", v: "'" + sn + "'!" + w.toUpperCase() + ":" + w2.toUpperCase() });
+                  i = t; continue;
+                }
+              }
+              toks.push({ t: "ref", v: "'" + sn + "'!" + w.toUpperCase() });
+              i = p; continue;
+            }
+          }
+          // 不是 sheet 引用，就当普通字符串单引号（理论上 Excel 里只用于 sheet 名，暂不处理）
+          toks.push({ t: "str", v: sn }); i = j + 1; continue;
+        }
         if (/[0-9]/.test(c) || (c === "." && /[0-9]/.test(s[i + 1] || ""))) {
           let j = i + 1; while (j < s.length && /[0-9.]/.test(s[j])) j++;
           toks.push({ t: "num", v: parseFloat(s.slice(i, j)) }); i = j; continue;
@@ -1378,6 +1408,27 @@
           const up = w.toUpperCase();
           if (s[j] === "(") { toks.push({ t: "func", v: up }); i = j; continue; }
           const refRe = /^[A-Za-z]+[0-9]+$/;
+          // 先看是不是 SheetName!ref 形式（Sheet2!A1）
+          if (s[j] === "!") {
+            let k = j + 1; while (k < s.length && (s[k] === " " || s[k] === "\t")) k++;
+            let p = k; while (p < s.length && /[A-Za-z0-9_.]/.test(s[p])) p++;
+            const w2 = s.slice(k, p);
+            if (refRe.test(w2)) {
+              // Sheet2!A1 或 Sheet2!A1:B2
+              let q = p; while (q < s.length && (s[q] === " " || s[q] === "\t")) q++;
+              if (s[q] === ":") {
+                let r = q + 1; while (r < s.length && (s[r] === " " || s[r] === "\t")) r++;
+                let t = r; while (t < s.length && /[A-Za-z0-9_.]/.test(s[t])) t++;
+                const w3 = s.slice(r, t);
+                if (refRe.test(w3)) {
+                  toks.push({ t: "range", v: up + "!" + w2.toUpperCase() + ":" + w3.toUpperCase() });
+                  i = t; continue;
+                }
+              }
+              toks.push({ t: "ref", v: up + "!" + w2.toUpperCase() });
+              i = p; continue;
+            }
+          }
           if (refRe.test(w)) {
             let k = j; while (k < s.length && (s[k] === " " || s[k] === "\t")) k++;
             if (s[k] === ":") {
@@ -1733,58 +1784,86 @@
     }
 
     // ============ OFFSET / INDIRECT — 动态范围 ============
-    /** 把 AST 节点解析成坐标范围 { r1, c1, r2, c2 } 或 null
+    /** 从 "Sheet2!A1" 或 "'My Sheet'!A1:B2" 里分离 sheet 名和 cell 部分
+     *  返回 { sheet: "Sheet2", cellText: "A1:B2" } 或 { sheet: null, cellText }
+     */
+    function _splitSheetName(text) {
+      if (!text) return { sheet: null, cellText: text };
+      const s = text.trim();
+      // 找最后一个 !（Excel 不允许 sheet 名含 !，简单可靠）
+      const idx = s.lastIndexOf("!");
+      if (idx < 0) return { sheet: null, cellText: s };
+      let sheetName = s.substring(0, idx);
+      const cellText = s.substring(idx + 1);
+      // 去掉单引号
+      if (sheetName.length >= 2 && sheetName.startsWith("'") && sheetName.endsWith("'"))
+        sheetName = sheetName.substring(1, sheetName.length - 1);
+      return { sheet: sheetName, cellText };
+    }
+    /** 把 AST 节点解析成坐标范围 { r1, c1, r2, c2, sheet? } 或 null
      *  - ref/range 字面量节点 → 直接取坐标
-     *  - 其他 → evalNode 得字符串再 parseRange
+     *  - 其他 → evalNode 得字符串再 parseRange（支持 SheetName! 前缀）
      */
     function _astNodeToCoords(astNode, getCell, scope) {
       if (!astNode) return null;
-      // 字面量 ref/range — 直接拿 AST 里的坐标
+      // 字面量 ref/range — 可能带 Sheet! 前缀
       if (astNode.ref) {
-        const p = parseRef(astNode.ref);
+        const { sheet, cellText } = _splitSheetName(astNode.ref);
+        const p = parseRef(cellText);
         if (!p) return null;
-        return { r1: p.row, c1: p.col, r2: p.row, c2: p.col };
+        const r = { r1: p.row, c1: p.col, r2: p.row, c2: p.col };
+        if (sheet) r.sheet = sheet;
+        return r;
       }
       if (astNode.range) {
-        const m = parseRange(astNode.range);
+        const { sheet, cellText } = _splitSheetName(astNode.range);
+        const m = parseRange(cellText);
         if (!m) return null;
         const a = m[1] ? { col: colToIdx(m[1]), row: +m[2] } : null;
         const b = m[3] ? { col: colToIdx(m[3]), row: +m[4] } : null;
         if (!a) return null;
-        if (!b) return { r1: a.row, c1: a.col, r2: a.row, c2: a.col };
-        return {
+        const r = !b ? { r1: a.row, c1: a.col, r2: a.row, c2: a.col } : {
           r1: Math.min(a.row, b.row), c1: Math.min(a.col, b.col),
           r2: Math.max(a.row, b.row), c2: Math.max(a.col, b.col)
         };
+        if (sheet) r.sheet = sheet;
+        return r;
       }
-      // 其他（INDIRECT 结果 / 表达式）→ eval 得字符串 → 再 parse
+      // 其他（INDIRECT 结果 / 表达式）→ eval 得字符串 → 再 parse（带 sheet 支持）
       let val;
       try { val = evalNode(astNode, getCell, scope); } catch { return null; }
       if (typeof val !== "string") return null;
-      const text = val.trim().toUpperCase();
+      const { sheet, cellText } = _splitSheetName(val.trim());
+      const text = cellText.toUpperCase();
       // 先尝试范围 A1:B2
       const m = parseRange(text);
       if (m) {
         const a = m[1] ? { col: colToIdx(m[1]), row: +m[2] } : null;
         const b = m[3] ? { col: colToIdx(m[3]), row: +m[4] } : null;
         if (!a) return null;
-        if (!b) return { r1: a.row, c1: a.col, r2: a.row, c2: a.col };
-        return {
+        const r = !b ? { r1: a.row, c1: a.col, r2: a.row, c2: a.col } : {
           r1: Math.min(a.row, b.row), c1: Math.min(a.col, b.col),
           r2: Math.max(a.row, b.row), c2: Math.max(a.col, b.col)
         };
+        if (sheet) r.sheet = sheet;
+        return r;
       }
       // 再尝试单格 A1
       const p = parseRef(text);
-      if (p) return { r1: p.row, c1: p.col, r2: p.row, c2: p.col };
+      if (p) {
+        const r = { r1: p.row, c1: p.col, r2: p.row, c2: p.col };
+        if (sheet) r.sheet = sheet;
+        return r;
+      }
       return null;
     }
-    /** 用 getCell 把坐标范围读成二维数组 */
+    /** 用 getCell 把坐标范围读成二维数组（跨表时自动带 Sheet! 前缀） */
     function _coordsToArray(coords, getCell) {
       const out = [];
+      const prefix = coords.sheet ? coords.sheet + "!" : "";
       for (let r = coords.r1; r <= coords.r2; r++) {
         const row = [];
-        for (let c = coords.c1; c <= coords.c2; c++) row.push(getCell(idxToCol(c) + r));
+        for (let c = coords.c1; c <= coords.c2; c++) row.push(getCell(prefix + idxToCol(c) + r));
         out.push(row);
       }
       return out;
@@ -1796,7 +1875,11 @@
         const refTextNode = args[0];
         const coords = _astNodeToCoords(refTextNode, getCell, scope);
         if (!coords) return "#REF!";
-        return _coordsToArray(coords, getCell);
+        const arr = _coordsToArray(coords, getCell);
+        // 如果全是 #REF!（跨表找不到 sheet 时），返回标量错误
+        let allErr = true;
+        for (const row of arr) for (const v of row) { if (v !== "#REF!") { allErr = false; break; } }
+        return allErr ? "#REF!" : arr;
       }
       // OFFSET(baseRef, rowOff, colOff, [height], [width])
       if (args.length < 3) return "#CALC!";
@@ -1816,6 +1899,7 @@
         r2: baseCoords.r1 + rowOff + height - 1,
         c2: baseCoords.c1 + colOff + width - 1
       };
+      if (baseCoords.sheet) newCoords.sheet = baseCoords.sheet;
       if (newCoords.r1 < 1 || newCoords.c1 < 1) return "#REF!";
       return _coordsToArray(newCoords, getCell);
     }
@@ -2137,9 +2221,37 @@
     // 求值缓存
     const cache = {};
     const spillMap = {}; // ref → { rows, cols }，记录动态数组源
+    /** 跨表查找：ref 可能是 "Sheet2!A1" 或 "'My Sheet'!B2"
+     *  - 不在 getCell 里报错（INDIRECT 需要区分 #REF! 和正常空值），
+     *    返回 _crossSheetNotFound 标记让调用方决定
+     */
+    function _splitSheetRef(ref) {
+      if (!ref || ref.indexOf("!") < 0) return { sheet: null, cellRef: ref };
+      const idx = ref.lastIndexOf("!");
+      let sheetName = ref.substring(0, idx);
+      const cellRef = ref.substring(idx + 1);
+      // 去掉单引号（Excel 给含空格/特殊字符的 sheet 名加的）
+      if (sheetName.length >= 2 && sheetName.startsWith("'") && sheetName.endsWith("'"))
+        sheetName = sheetName.substring(1, sheetName.length - 1);
+      return { sheet: sheetName, cellRef };
+    }
+    function _findSheet(name) {
+      if (!name || !data.sheets) return null;
+      const n = name.trim().toLowerCase();
+      return data.sheets.find(s => (s.name || "").toLowerCase() === n) || null;
+    }
     function getCell(ref) {
       if (ref in cache) return cache[ref];
-      const raw = (data.cells[ref]) || {};
+      // 跨表：带 "Sheet!A1" 前缀
+      const split = _splitSheetRef(ref);
+      let raw;
+      if (split.sheet) {
+        const sh = _findSheet(split.sheet);
+        if (!sh) { cache[ref] = "#REF!"; return "#REF!"; }
+        raw = (sh.cells && sh.cells[split.cellRef]) || {};
+      } else {
+        raw = (data.cells[ref]) || {};
+      }
       let val;
       if (raw.f && raw.f.startsWith("=")) {
         try { val = FE.run(raw.f, getCell, ref); } catch { val = "#ERROR!"; }
