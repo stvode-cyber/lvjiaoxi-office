@@ -22,6 +22,19 @@
     }
     const REF_RE = /^\$?([A-Z]+)\$?(\d+)$/;
 
+    // ============ TVM 时间价值核心公式 ============
+    /** FV 核心（FV / RATE 迭代共用）
+     *  fv = -pv*(1+r)^n - pmt*((1+r)^n-1)/r * (type===1 ? 1+r : 1)
+     */
+    function _tvmFVcore(r, n, pmt, pv0, t) {
+      const adj = t === 1 ? (1 + r) : 1;
+      if (r === 0) return -pmt * n - pv0;
+      const pow = Math.pow(1 + r, n);
+      return -pv0 * pow - pmt * adj * (pow - 1) / r;
+    }
+    /** type 调整因子 — type=0(期末)=1, type=1(期初)=1+r */
+    function _tvmAdj(t, r) { return t === 1 ? (1 + r) : 1; }
+
     const FUNCS = {
       SUM: (...a) => sum(numList(a)),
       AVERAGE: (...a) => { const l = numList(a); return l.length ? sum(l) / l.length : 0; },
@@ -1093,11 +1106,7 @@
         return (alpha / beta) * Math.pow(xx, alpha - 1) * Math.exp(-powA);
       },
       // ============ 财务函数（续） ============
-      /** NPER — 期数
-       *  NPER(rate, pmt, pv, [fv=0], [type=0])
-       *  从 FV = -PV*(1+r)^n - PMT*((1+r)^n-1)/r * adj 解 n
-       *  adj = (type===1 ? (1+r) : 1)
-       */
+      /** NPER — 期数 */
       NPER: (rate, pmt, pv, fv, type) => {
         const r = +rate, p = +pmt, pv0 = +pv;
         const f = fv != null ? +fv : 0;
@@ -1105,9 +1114,6 @@
         const adj = t === 1 ? (1 + r) : 1;
         if (r === 0) return -(pv0 + f) / p;
         // 从 PV = -PMT*adj * (1-(1+r)^-n)/r  + FV*(1+r)^-n 解 n
-        // 令 z = (1+r)^-n：PV = -PMT*adj*(1-z)/r + f*z
-        // PV + PMT*adj/r = z*(f + PMT*adj/r)
-        // z = (PV + PMT*adj/r) / (FV + PMT*adj/r)
         const num = pv0 + p * adj / r;
         const den = f + p * adj / r;
         if (den === 0) return "#DIV/0!";
@@ -1123,26 +1129,16 @@
         const n = +nper, p = +pmt, pv0 = +pv;
         const f = fv != null ? +fv : 0;
         const t = type != null ? +type : 0;
-        const g = guess != null ? +guess : 0.1;
-        let r = g;
+        let r = guess != null ? +guess : 0.1;
         for (let iter = 0; iter < 50; iter++) {
-          const adjVal = t === 1 ? (1 + r) : 1;
-          const pow = Math.pow(1 + r, n);
-          // FV 目标值 = f (Excel RATE 让 FV(r) = f)
-          const fvCalc = -pv0 * pow - p * adjVal * (pow - 1) / r;
-          if (r === 0) { /* 0 利率单独处理 */ }
-          // 简单数值微分：dfv/dr ≈ (fv(r+h) - fv(r)) / h
+          const fvCalc = _tvmFVcore(r, n, p, pv0, t);
           const h = 1e-8;
-          const rp = r + h;
-          const adjP = t === 1 ? (1 + rp) : 1;
-          const powP = Math.pow(1 + rp, n);
-          const fvP = -pv0 * powP - p * adjP * (powP - 1) / rp;
+          const fvP = _tvmFVcore(r + h, n, p, pv0, t);
           const dfv = (fvP - fvCalc) / h;
           if (Math.abs(dfv) < 1e-15) return "#NUM!";
-          const dr = (fvCalc - f) / dfv;
-          r -= dr;
-          if (Math.abs(dr) < 1e-10) return r;
+          r -= (fvCalc - f) / dfv;
           if (r <= -1) return "#NUM!";
+          if (Math.abs((fvCalc - f)) < 1e-10) return r;
         }
         return "#NUM!";
       },
@@ -1182,34 +1178,24 @@
       PV: (rate, nper, pmt, fv, type) => {
         const r = +rate, n = +nper, p = +pmt;
         const f = fv != null ? +fv : 0;
-        const t = type != null ? +type : 0;
-        if (r === 0) return -p * n - f;
+        const adj = _tvmAdj(type != null ? +type : 0, r);
+        if (r === 0) return (-p * n - f) * adj;
         const pow = Math.pow(1 + r, n);
-        let pv = -p * (1 - 1 / pow) / r - f / pow;
-        if (t === 1) pv *= (1 + r);
-        return pv;
+        return (-p * (1 - 1 / pow) / r - f / pow) * adj;
       },
       /** FV — 终值 */
       FV: (rate, nper, pmt, pv, type) => {
-        const r = +rate, n = +nper, p = +pmt;
         const pv0 = pv != null ? +pv : 0;
-        const t = type != null ? +type : 0;
-        if (r === 0) return -p * n - pv0;
-        const pow = Math.pow(1 + r, n);
-        let fv = -pv0 * pow - p * (pow - 1) / r;
-        if (t === 1) fv *= (1 + r);
-        return fv;
+        return _tvmFVcore(+rate, +nper, +pmt, pv0, type != null ? +type : 0);
       },
       /** PMT — 年金（等额还款） */
       PMT: (rate, nper, pv, fv, type) => {
         const r = +rate, n = +nper, p = +pv;
         const f = fv != null ? +fv : 0;
-        const t = type != null ? +type : 0;
+        const adj = _tvmAdj(type != null ? +type : 0, r);
         if (r === 0) return -(p + f) / n;
         const pow = Math.pow(1 + r, n);
-        let pmt = -(p * pow + f) * r / (pow - 1);
-        if (t === 1) pmt /= (1 + r);
-        return pmt;
+        return -(p * pow + f) * r / ((pow - 1) * adj);
       },
       // OFFSET / INDIRECT — 需要 getCell 动态范围解析，evalNode 特殊路径拦截
       OFFSET: () => "#CALC!",
