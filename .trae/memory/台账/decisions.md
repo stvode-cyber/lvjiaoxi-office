@@ -1,5 +1,16 @@
 ---
 
+## [2026-10-12] Excel 数据验证 P2 交互：list 弹原生下拉 + inputMessage 提示条 + errorAlert 内联
+
+- **选了啥**：selectCell() 查 rangeRect 覆盖 → 延迟 120ms 弹 list 类型原生 `<select>` 下拉（td 右侧 fixed 定位）→ 选中即写入 + 校验 + 移到下一行；inputMessage 渲染成 td 顶部提示条（4s 自动消失）；errorAlert 用 OS.toast(style:"warn") 替代（stop/warning/information 三档未来可转成模态）
+- **踩的坑**：TDZ — `let _dvSelect/null` 在 selectCell("A1") 调用之后才声明（L2409 vs L2407），mount 里 selectCell("A1") 触发 _hideDVWidgets() 访问 TDZ → 8 个测试挂。修：整个 P2 helper 块（_dvSelect 声明 + 所有 _dv* 函数）移到 selectCell 本体之前
+- **为啥**：用户说"执行吧" — P0+P1 完了，继续 P2
+- **测试**：109/109 绿（_cdp_test.js 是 Electron 实机依赖跳过）
+- **关联文件**：spreadsheet.js（selectCell 改 + 新增 ~100 行 P2 helper）
+- **决策人**：用户"执行吧"
+
+---
+
 ## [2026-10-12] Excel 数据验证全面补齐：7 种类型 + 8 种操作符 + OOXML 往返 + errorAlert/inputMessage
 
 - **选了啥**：① 数据验证扩展为完整 Excel 标准：7 种 type（list/whole/decimal/date/time/textLength/custom）+ 8 种 operator（between/notBetween/equal/notEqual/greaterThan/lessThan/greaterThanOrEqual/lessThanOrEqual）；② 模态框 UI 三 Tab（设置 / 输入信息 / 出错警告）；③ OOXML 导入 `<dataValidation>` 解析（含 errorAlert/inputMessage 子元素），导出 `<dataValidations>` 生成；④ 老 API `type:"number", min/max` 向后兼容（setValidation 内部自动转 decimal + between）
