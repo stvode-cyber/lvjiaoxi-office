@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-12] OOXML 工作表级属性往返：冻结窗格/tabColor/行高
+
+- **选了啥**：① import-ooxml 解析 sheetViews/pane → freeze{row,col}；② sheetPr/tabColor → data.tabColor；③ sheetFormatPr/defaultRowHeight；④ sheetData/row customHeight → data.customRowHeights；⑤ export-ooxml 生成 sheetPr/tabColor + sheetViews/pane + sheetFormatPr defaultRowHeight
+- **踩的坑**：export-ooxml.js 里没有 FE.idxToCol — 但本身已有 colName(n) 函数，直接用 colName(fr.col+1) 替代
+- **测试**：109/109 绿
+- **关联文件**：import-ooxml.js（parseXlsx 加 4 个工作表属性字段解析 + 返回值扩展）、export-ooxml.js（sheetXml 生成链加 sheetPrXml + sheetViewsXml + sheetFormatPrXml）
+- **决策人**：用户"先补 Excel 其他缺口"
+
+---
+
 ## [2026-10-12] 条件格式增强：matchCell 全覆盖 + OOXML 导入导出
 
 - **选了啥**：① matchCell 补 3 个缺失 op（ge/le/ne）→ 8 种全（gt/lt/eq/ge/le/ne/between/contains）；② import-ooxml 解析 `<conditionalFormatting>` → data.condFormats（cellIs/colorScale/dataBar/iconSet/expression/top10）；③ export-ooxml 生成 `<conditionalFormatting>` 完整往返（dxf/colorScale 三色阶/dataBar 正负条/iconSet 3TrafficLights1）
