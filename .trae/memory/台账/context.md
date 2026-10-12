@@ -7,18 +7,17 @@
 
 ## 🎯 交付快照（新 AI 读这里就够了）
 
-**当前阶段**：v1.1.6 XLSX 格式修复收尾 — 合并单元格 + 公式缓存值 + mount 初始化顺序 + 选中高亮
+**当前阶段**：v1.1.8 发版后 — Excel 全模块闭环 + Writer 审计补 P0/P1 + 快捷键体系清理
 
 | 项 | 值 |
 |---|---|
-| 测试基线 | **108/108 代码级全绿**（`node scripts/run-tests.js`；_cdp_test.js 需 Electron 实例连 9222，AI 代理回归 5 个环境依赖） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.6.exe` — **2026-10-12**（merge+formula 双修复 + mount init order） |
-| 发布状态 | ❌ GitHub push + VPS 上传待执行（所有 commit 本地已堆到 main） |
-| 版本号 | 1.1.6（源码/pubspec/dist 三处一致，铁律不能漂） |
-| 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456**（server/data/*.json，scrypt 哈希） |
-| 台账状态 | decisions.md 最新 #47（XLSX 格式完整导入导出），issues.md 最新 L1\|xlsx-import 升级到 4 条子坑 |
-| 代码待 push | **16 个 commit 本地已提交**（9c638db → 1e69148） |
-| Git 脏文件 | `.trae/memory/台账/issues.md`（已改未 commit，下面会记） |
+| 测试基线 | **109/110 代码级全绿**（唯一失败 `_cdp_test.js` 需 Electron 9222，环境依赖） |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.8.exe` = 165.5 MB |
+| 发布状态 | ✅ **v1.1.7 + v1.1.8 已发 GitHub Release**（`lvjiaoxi_office_setup_1.1.8.exe` 附件已上传） |
+| 版本号 | 1.1.8（6 落点全对齐：package.json/index.html/sw.js/version.json/iOS/HarmonyOS） |
+| 台账状态 | decisions.md 最新 #65（Writer 段落设置精确缩进），issues.md L1\|xlsx-import 已升级 |
+| Git 远端 | ✅ main 全量已推，HEAD @ `79739e3`（Writer 段落设置） |
+| 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456** |
 
 ---
 

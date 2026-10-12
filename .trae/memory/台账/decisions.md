@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-12] 快捷键体系清理 — shell 全局唯一路由 + writer 模块专用 5 键
+
+- **选了啥**：① 删掉 writer.js 局部重复拦截 Ctrl+S/F/P（shell.js 全局 L212-256 已统一覆盖，writer 暴露的 openFindPanel/exportAs 函数已正确路由）；② 新增 Writer 模块专用 5 快捷键：Ctrl+Shift+> 增大字号 / Ctrl+Shift+< 减小字号 / Ctrl+Shift+L 项目符号 / Ctrl+Shift+J 两端对齐 / Ctrl+Shift+N 编号
+- **为啥**：writer 局部 Ctrl+S/F/P 和 shell 全局 **双重拦截**导致两个函数都执行；shell 全局已是唯一快捷键路由层（覆盖 20+ 组合键），模块层只应处理 shell 不覆盖的模块专用键
+- **备选方案**：保留 writer 局部拦截 → 否决，双重执行风险高；重构 shell 成 OS.hotkey.register() API → 否决，过度工程，现有 shell 全局拦截 + 模块局部补充 够用
+- **关联文件**：app/js/modules/writer.js（删掉 L1067-1071 重复拦截 + 新增 5 模块专用快捷键）、.trae/memory/台账/context.md（更新到 v1.1.8）
+- **决策人**：AI
+
+---
+
 ## [2026-10-12] Writer 段落设置精确缩进 — 复用 .pg-modal 样式体系
 
 - **选了啥**：① 新增 `openParagraphFormat()` 模态框——精确设置左缩进/右缩进/首行缩进/段前间距/段后间距（px 值）；② ribbon 段落组的缩进按钮改成 split menu（主按钮弹段落设置，下拉保留增缩缩进 + 段落设置…）；③ 完全复用 writer 页面设置已有的 `.pg-overlay/.pg-modal/.pg-row/.pg-field/.pg-actions` CSS 类，零新增样式

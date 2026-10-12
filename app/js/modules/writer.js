@@ -1064,10 +1064,20 @@
     });
 
     wrap.querySelector("#cmt-toggle").addEventListener("click", togglePanel);
+    // 模块专用快捷键（shell.js 全局已覆盖 Ctrl+S/F/P/Z/Y/K/E/N/O/W/Q/R/Tab/F1/F5）
     page.addEventListener("keydown", e => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); ctx.saveNow && ctx.saveNow(); }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") { e.preventDefault(); openFindReplace(); }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") { e.preventDefault(); doPrintPaginated(); }
+      const k = e.key.toLowerCase();
+      const ctrl = e.ctrlKey || e.metaKey;
+      // Ctrl+Shift+> 增大字号
+      if (ctrl && e.shiftKey && k === ">") { e.preventDefault(); bumpFontSize(1); }
+      // Ctrl+Shift+< 减小字号
+      else if (ctrl && e.shiftKey && k === "<") { e.preventDefault(); bumpFontSize(-1); }
+      // Ctrl+Shift+L 项目符号
+      else if (ctrl && e.shiftKey && k === "l") { e.preventDefault(); exec("insertUnorderedList"); }
+      // Ctrl+Shift+J 两端对齐
+      else if (ctrl && e.shiftKey && k === "j") { e.preventDefault(); exec("justifyFull"); }
+      // Ctrl+Shift+N 编号
+      else if (ctrl && e.shiftKey && k === "n") { e.preventDefault(); exec("insertOrderedList"); }
     });
 
     /* ---------- 查找 / 替换 + 字数统计 ---------- */
