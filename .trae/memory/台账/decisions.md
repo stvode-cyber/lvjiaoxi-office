@@ -1,5 +1,16 @@
 ---
 
+## [2026-10-12] 自定义列宽 OOXML 往返 + buildGrid 渲染
+
+- **选了啥**：① import-ooxml 解析 `<cols><col min/max width/customWidth>` → data.colWidths 数组（1-based 索引，未设置的 = 默认 64）；② export-ooxml 生成 `<cols><col>`，相同宽度连续列合并成 min-max range；③ buildGrid 给每个 th.colhead 加 style="width:Xpx;min-width:Xpx"，从 data.colWidths[c] 取
+- **为啥**：Excel 打开的文件列宽丢 — 用户高频痛点。OOXML `<cols>` 标准结构已有，只差 import + export + 渲染
+- **踩的坑**：GitHub push 持续断网（443 不通），本地 commit 57590b0 OK
+- **测试**：109/109 绿
+- **关联文件**：spreadsheet.js（buildGrid 改 th style width）、import-ooxml.js（parseXlsx 加 cols 解析 + colWidths 进返回值）、export-ooxml.js（sheetXml 加 colsXml 生成）
+- **决策人**：用户"好的，执行吧"
+
+---
+
 ## [2026-10-12] 工作表工作组修复：switchSheet 缺保存/恢复是唯一根因
 
 - **选了啥**：补 switchSheet 里 data.group / freeze / tabColor 的保存（到旧 sheet）+ 恢复（从新 sheet）；补 removeSheet 里删 sheet 时从所有成员 group 里剔除 idx；CSS 加 .in-group 蓝色高亮 + 👥
