@@ -1,5 +1,16 @@
 ---
 
+## [2026-10-12] customRowHeights export — 一行补完，GitHub 终于通了
+
+- **选了啥**：export-ooxml.js `<row r="r">` → 检查 sh.customRowHeights[r] → 加 ht= customHeight="1"
+- **为啥**：import 已解析 customHeight=1 h=24，export 缺这一环就往返丢
+- **踩的坑**：前 3 次 push GitHub 443 不通，这次突然通了（423d679..a8cccef）
+- **测试**：109/109 绿
+- **关联文件**：export-ooxml.js（L752-756 改 row 生成）
+- **决策人**：用户"先补自定义行高 export"
+
+---
+
 ## [2026-10-12] 自定义列宽 OOXML 往返 + buildGrid 渲染
 
 - **选了啥**：① import-ooxml 解析 `<cols><col min/max width/customWidth>` → data.colWidths 数组（1-based 索引，未设置的 = 默认 64）；② export-ooxml 生成 `<cols><col>`，相同宽度连续列合并成 min-max range；③ buildGrid 给每个 th.colhead 加 style="width:Xpx;min-width:Xpx"，从 data.colWidths[c] 取
