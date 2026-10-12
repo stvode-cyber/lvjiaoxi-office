@@ -1,5 +1,18 @@
 ---
 
+## [2026-10-12] definedNames export — workbook.xml 命名区域往返闭环
+
+- **选了啥**：export-ooxml.js 里 workbook.xml 加 `<definedNames>` 块
+  - 优先读 `data.names`（spreadsheet.js FE.setNameResolver 用这个字段），其次读 `data.definedNames`（import 返回的）— 兼容两种字段名
+  - 生成 `<definedName name="..." localSheetId="0">Sheet1!$A$1:$C$10</definedName>`
+- **为啥**：import 已从 workbook.xml 解析 definedNames，export 只差这一环就往返闭环
+- **测试**：109/109 绿
+- **GitHub push**：commit 0b12daf 本地 OK，GitHub 443 断网待重发
+- **关联文件**：export-ooxml.js（workbookXml 生成前加 dnXml）
+- **决策人**：用户"先补 definedNames export"
+
+---
+
 ## [2026-10-12] XLSX 超链接 hyperlink 完整 OOXML 往返
 
 - **选了啥**：超链接两种 OOXML 写法 + rels 映射全覆盖
