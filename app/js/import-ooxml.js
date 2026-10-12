@@ -410,18 +410,66 @@
     console.time("[XLSX] 1. I/O 预读");
     let shared = [];
     const sf = zip.file("xl/sharedStrings.xml");
-    const sheetFile = zip.file("xl/worksheets/sheet1.xml") || firstZip(zip, "xl/worksheets/sheet");
+    const wbFile = zip.file("xl/workbook.xml");
     const stylesFile = zip.file("xl/styles.xml");
-    if (!sheetFile) throw new Error("未找到工作表");
-    const [sharedXml, sheetXml, stylesXml] = await Promise.all([
+    const relsFile = zip.file("xl/_rels/workbook.xml.rels");
+    // 预读所有 sheet*.xml
+    const sheetFiles = {};
+    for (const name of Object.keys(zip.files)) {
+      const m = name.match(/^xl\/worksheets\/sheet(\d+)\.xml$/);
+      if (m) sheetFiles[+m[1]] = zip.file(name);
+    }
+    if (!Object.keys(sheetFiles).length) {
+      // 兜底：只有一个 sheet 的情况
+      const sf2 = zip.file("xl/worksheets/sheet1.xml") || firstZip(zip, "xl/worksheets/sheet");
+      if (sf2) sheetFiles[1] = sf2;
+    }
+    if (!Object.keys(sheetFiles).length) throw new Error("未找到工作表");
+
+    const [sharedXml, wbXml, stylesXml, relsXml] = await Promise.all([
       sf ? sf.async("string") : Promise.resolve(null),
-      sheetFile.async("string"),
-      stylesFile ? stylesFile.async("string") : Promise.resolve(null)
+      wbFile ? wbFile.async("string") : Promise.resolve(null),
+      stylesFile ? stylesFile.async("string") : Promise.resolve(null),
+      relsFile ? relsFile.async("string") : Promise.resolve(null)
     ]);
-    console.timeEnd("[XLSX] 1. I/O 预读");
     if (sharedXml) {
       const d = parseXML(sharedXml);
       shared = all(d.documentElement, "si").map(si => all(si, "t").map(t => t.textContent).join(""));
+    }
+    console.timeEnd("[XLSX] 1. I/O 预读");
+
+    // ====== 解析 workbook.xml — sheet name 列表 + definedNames ======
+    let sheetDefs = []; // [{name:"Sheet1", sheetId:1, rId:"rId1"}]
+    let definedNames = []; // [{name:"myRange", formula:"Sheet1!$A$1:$C$10", localSheetId:null}]
+    if (wbXml) {
+      const wbD = parseXML(wbXml);
+      const sheetsEl = first(wbD.documentElement, "sheets");
+      if (sheetsEl) {
+        const nsMap = { r: "http://schemas.openxmlformats.org/officeDocument/2006/relationships" };
+        all(sheetsEl, "sheet").forEach(s => {
+          sheetDefs.push({
+            name: attr(s, "name") || ("Sheet" + sheetDefs.length),
+            sheetId: +(attr(s, "sheetId") || (sheetDefs.length + 1)),
+            rId: attr(s, "id") || ("rId" + (sheetDefs.length + 1))
+          });
+        });
+      }
+      const dnEl = first(wbD.documentElement, "definedNames");
+      if (dnEl) {
+        all(dnEl, "definedName").forEach(dn => {
+          definedNames.push({
+            name: attr(dn, "name") || "",
+            formula: (dn.textContent || "").trim(),
+            localSheetId: attr(dn, "localSheetId") ? +attr(dn, "localSheetId") : null
+          });
+        });
+      }
+    }
+    // 兜底：没有 workbook.xml 或 sheet 列表
+    if (!sheetDefs.length) {
+      Object.keys(sheetFiles).sort((a, b) => +a - +b).forEach(n => {
+        sheetDefs.push({ name: "Sheet" + n, sheetId: +n, rId: "rId" + n });
+      });
     }
 
     // ====== 解析 styles.xml ======
@@ -479,7 +527,8 @@
       });
     }
 
-    // ====== 解析 sheet1.xml ======
+    // ====== 单 sheet 解析函数（内部 async，共享外层 styles/fonts/...）======
+    async function _parseOneSheet(sheetXml, sheetIdx) {
     const d = parseXML(sheetXml);
     const cells = {};
     const styles = {};
@@ -726,11 +775,29 @@
         condFormats.push(rule);
       });
     }
-    const hasFmt = Object.keys(styles).length > 0;
-    const hasMerge = merges.length > 0;
-    const noteExtra = [hasFmt ? "格式已保留" : null, hasMerge ? `合并 ${merges.length} 处` : null].filter(Boolean).join("；");
-    const note = Object.keys(cells).length
-      ? `XLSX 已导入（基本兼容：值与公式保留${noteExtra ? "；" + noteExtra : ""}；仅导入首个工作表）`
+      // 函数返回单 sheet 对象
+      return { name: "Sheet" + (sheetIdx + 1), rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, charts: [], validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights, colWidths, protection, filters };
+    } // _parseOneSheet 结束
+
+    // ====== 循环解析所有 sheet（Promise.all 预读 + 逐 sheet 调 _parseOneSheet）======
+    const sheetNumbers = Object.keys(sheetFiles).sort((a,b)=>+a-+b).map(n=>+n);
+    const allSheetXmls = await Promise.all(sheetNumbers.map(n => sheetFiles[n].async("string")));
+    const sheets = [];
+    for (let i = 0; i < sheetDefs.length && i < allSheetXmls.length; i++) {
+      const sheet = await _parseOneSheet(allSheetXmls[i], i);
+      sheet.name = sheetDefs[i].name;
+      sheets.push(sheet);
+    }
+    for (let i = sheetDefs.length; i < allSheetXmls.length; i++) {
+      const sheet = await _parseOneSheet(allSheetXmls[i], i);
+      sheet.name = "Sheet" + (sheetNumbers[i] || i + 1);
+      sheets.push(sheet);
+    }
+    const hasFmt = sheets.some(s => Object.keys(s.styles).length);
+    const hasMerge = sheets.some(s => s.merge && s.merge.length);
+    const noteExtra = [hasFmt ? "格式已保留" : null, hasMerge ? "合并单元格已保留" : null].filter(Boolean).join("；");
+    const note = sheets.length
+      ? `XLSX 已导入（多表：${sheets.length} 个工作表${noteExtra ? "；" + noteExtra : ""}）`
       : "XLSX 已导入（空表）";
 
     // ---------- 批注导入（xl/comments/commentN.xml，逐 sheet）----------
@@ -773,7 +840,26 @@
 
     console.timeEnd("[XLSX] 2. 单元格遍历");
     console.timeEnd("[XLSX] parseXlsx 总耗时");
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights, colWidths, protection, filters }, compat: hasFmt ? "A" : "B", note };
+    // 向后兼容：单表时同时暴露老单表结构（data.cells/styles/merge 等）
+    const compatFlat = sheets.length === 1 ? {
+      rows: sheets[0].rows, cols: sheets[0].cols,
+      cells: sheets[0].cells, styles: sheets[0].styles, merge: sheets[0].merge,
+      charts: sheets[0].charts, condFormats: sheets[0].condFormats,
+      validations: sheets[0].validations, filters: sheets[0].filters,
+      freeze: sheets[0].freeze, tabColor: sheets[0].tabColor,
+      defaultRowHeight: sheets[0].defaultRowHeight,
+      customRowHeights: sheets[0].customRowHeights,
+      colWidths: sheets[0].colWidths, protection: sheets[0].protection
+    } : {};
+    return {
+      type: "spreadsheet",
+      data: Object.assign({}, {
+        sheets, definedNames, comments,
+        compat: hasFmt ? "A" : "B", note
+      }, compatFlat),
+      compat: hasFmt ? "A" : "B",
+      note
+    };
   }
 
   /* ============================================================
