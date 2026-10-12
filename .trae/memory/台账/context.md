@@ -16,8 +16,39 @@
 | 发布状态 | ✅ **v1.1.7 + v1.1.8 已发 GitHub Release**（`lvjiaoxi_office_setup_1.1.8.exe` 附件已上传） |
 | 版本号 | 1.1.8（6 落点全对齐：package.json/index.html/sw.js/version.json/iOS/HarmonyOS） |
 | 台账状态 | decisions.md 最新 #65（Writer 段落设置精确缩进），issues.md L1\|xlsx-import 已升级 |
-| Git 远端 | ✅ main 全量已推，HEAD @ `79739e3`（Writer 段落设置） |
+| Git 远端 | ⚠️ **main 已推到 `79739e3`，4 个 commit 本地积压待 push** |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456** |
+
+---
+
+## ⚠️ GitHub 断网 — 待 push 清单（2026-10-12 22:00）
+
+```powershell
+# GitHub 443 连续断 6+ 次，3 次 retry 全挂，先做后推
+# 下次会话第一件事：push 这 4 个 commit + tag v1.1.9
+git push origin main          # 推 e25fb2f / 92ffa2f / 850fe37
+git push origin v1.1.9        # 推 tag
+# Setup.exe 已构建：dist\绿角犀 Office Setup 1.1.9.exe = 165.5 MB
+# SHA256: fdf6af35bc312a921b0014d5e5e6c8943f6dd0c41d368730ad4dceb15d7e56f2（和 v1.1.8 同 hash）
+```
+
+| 本地待 push commit | 说明 |
+|---|---|
+| `e25fb2f` | fix(writer): remove dup Ctrl+SFP + 5 module hotkeys (ledger#66) |
+| `92ffa2f` | feat(writer): dual CJK/Latin font families via fallback chain (ledger#67) |
+| `850fe37` | chore: bump v1.1.8 → v1.1.9 (6 file sync) |
+| tag `v1.1.9` | 指向 HEAD（850fe37） |
+
+---
+
+## 🚨 Writer 最终交付（2026-10-12）— P0/P1 全清
+
+| 功能 | 状态 | 说明 |
+|---|---|---|
+| 表格网格拖选 10×8 | ✅ commit `d71ac06` | insertTableGrid() 悬停预览 |
+| 段落设置精确缩进 | ✅ commit `79739e3` | openParagraphFormat() 复用 .pg-modal |
+| 快捷键体系清理 | ✅ commit `e25fb2f` | shell 全局唯一路由 + 模块 5 专用键 |
+| 中西文字体分别设置 | ✅ commit `92ffa2f` | fallback 链 `"Arial", "微软雅黑"` |
 
 ---
 
