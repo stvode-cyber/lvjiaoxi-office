@@ -1,5 +1,23 @@
 ---
 
+## [2026-10-12] XLSX 超链接 hyperlink 完整 OOXML 往返
+
+- **选了啥**：超链接两种 OOXML 写法 + rels 映射全覆盖
+  - import: 预读所有 sheetN.xml.rels → relsMaps[idx] = { rId1: target }
+    - cells 遍历时检测内联 `<hyperlink r:id>` 子元素 → `_hyperlinks.push({ref, target})`
+    - mergeCells 之前解析 `<hyperlinks><hyperlink ref rId/></hyperlinks>` 区域 → 同收集
+  - export: sheet.xml 生成 `<hyperlinks><hyperlink ref rIdH/></hyperlinks>`（区域式）
+    - 收集 sheetHyperlinkRels[idx] → 3 处全覆盖写入 worksheet rels：drawing entries + comment entries + hyperlink-only sheets
+    - 外部链接自动 TargetMode="External"
+    - 辅助 hlRelXml(idx) 统一生成 Relationship XML
+- **测试**：e2e_roundtrip ✅ passed；全量 109/109 绿
+- **GitHub push**：✅ cfcb87a
+- **踩的坑**：PowerShell 把含中文/emoji 的 commit message 拆成 git pathspec — 用 `& git.exe commit -m "..."` 纯英文 message 避免
+- **关联文件**：import-ooxml.js（`_parseOneSheet` 加 relsMap 参数 + rels 预读 + hyperlinkChild 检测 + hyperlinks 区域解析）、export-ooxml.js（sheet.xml 加 `<hyperlinks>` + rels 生成 3 处补 + hlRelXml 辅助）
+- **决策人**：用户"先补超链接 hyperlink"
+
+---
+
 ## [2026-10-12] XLSX 多表 import 重构 — workbook.xml + 循环 sheetN.xml + definedNames
 
 - **选了啥**：parseXlsx 从单表重构为多表循环
