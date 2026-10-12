@@ -587,6 +587,40 @@
     }
     // ---------- 条件格式导入 <conditionalFormatting> ----------
     const condFormats = [];
+
+    // ---------- 冻结窗格 + 工作表级属性 ----------
+    let freeze = { row: 0, col: 0 };
+    let tabColor = "";
+    let defaultRowHeight = 18;
+    let customRowHeights = {}; // rowIdx → height
+    const svListEl = first(d.documentElement, "sheetViews");
+    if (svListEl) {
+      const sv = first(svListEl, "sheetView");
+      if (sv) {
+        const pane = first(sv, "pane");
+        if (pane) {
+          freeze.col = +(attr(pane, "xSplit") || "0");
+          freeze.row = +(attr(pane, "ySplit") || "0");
+        }
+      }
+    }
+    const tabColorEl = first(d.documentElement, "sheetPr");
+    if (tabColorEl) {
+      const tc = first(tabColorEl, "tabColor");
+      if (tc) tabColor = attr(tc, "rgb") || attr(tc, "theme") || "";
+    }
+    const sdpEl = first(d.documentElement, "sheetFormatPr");
+    if (sdpEl) defaultRowHeight = +(attr(sdpEl, "defaultRowHeight") || "18");
+    // 自定义行高（<row customHeight="1" h="24"/>）
+    const rowsEl = first(d.documentElement, "sheetData");
+    if (rowsEl) {
+      all(rowsEl, "row").forEach(r => {
+        const customH = attr(r, "customHeight");
+        const h = attr(r, "ht");
+        if (customH === "1" && h) customRowHeights[+(attr(r, "r") || "0")] = +h;
+      });
+    }
+
     const cfListEl = first(d.documentElement, "conditionalFormatting");
     if (cfListEl) {
       // OOXML 标准 op → 内部 op
@@ -687,7 +721,7 @@
 
     console.timeEnd("[XLSX] 2. 单元格遍历");
     console.timeEnd("[XLSX] parseXlsx 总耗时");
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations, condFormats }, compat: hasFmt ? "A" : "B", note };
+    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights }, compat: hasFmt ? "A" : "B", note };
   }
 
   /* ============================================================

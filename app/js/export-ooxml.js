@@ -790,9 +790,28 @@
       const cfs = sh.condFormats || [];
       const cfXml = cfs.length ? _cfXml(cfs) : "";
 
+      // 工作表级属性：sheetViews (冻结窗格) + sheetPr (tabColor) + sheetFormatPr (行高)
+      let sheetViewsXml = "";
+      const fr = sh.freeze || { row: 0, col: 0 };
+      if (fr.row > 0 || fr.col > 0) {
+        sheetViewsXml = '<sheetViews><sheetView workbookViewId="0">' +
+          '<pane xSplit="' + fr.col + '" ySplit="' + fr.row + '" topLeftCell="' + esc(colName(fr.col + 1)) + (fr.row + 1) + '" activePane="bottomRight" state="frozen"/>' +
+          '<selection pane="bottomRight" activeCell="A1" sqref="A1"/>' +
+          '</sheetView></sheetViews>';
+      }
+      let sheetPrXml = "";
+      if (sh.tabColor) {
+        sheetPrXml = '<sheetPr><tabColor rgb="' + esc(sh.tabColor) + '"/></sheetPr>';
+      }
+      let sheetFormatPrXml = "";
+      const defRH = sh.defaultRowHeight || 18;
+      sheetFormatPrXml = '<sheetFormatPr defaultRowHeight="' + defRH + '"/>';
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-        '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheetData>' + rowsXml + "</sheetData>" +
+        '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '">' +
+        sheetPrXml + sheetViewsXml + sheetFormatPrXml +
+        "<sheetData>" + rowsXml + "</sheetData>" +
         mergeXml + dvXml + cfXml +
         (chartParts ? '<drawing r:id="rIdD"/>' : "") +
         (hasCmt ? '<legacyDrawing r:id="rIdC"/>' : "") + "</worksheet>";
