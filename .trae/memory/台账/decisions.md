@@ -1,5 +1,25 @@
 ---
 
+## [2026-10-12] XLSX 多表 import 重构 — workbook.xml + 循环 sheetN.xml + definedNames
+
+- **选了啥**：parseXlsx 从单表重构为多表循环
+  - I/O: 预读 workbook.xml + 所有 sheetN.xml（原来只读 sheet1.xml）
+  - workbook.xml: 解析 `<sheets><sheet name/sheetId/rId>` → sheetDefs[] + `<definedNames>` → definedNames[]
+  - 原 sheet1.xml 解析抽成 `async function _parseOneSheet(sheetXml, sheetIdx)` — styles.xml 跨 sheet 共享（fonts/fills/borders/cellXfs/xfAlignments 只 parse 一次）
+  - 循环 Promise.all 调 _parseOneSheet → data.sheets[] 数组
+  - 向后兼容：单表时用 compatFlat 同时暴露 data.cells/styles/merge 等老单表字段
+- **为啥**：用户提 Excel 功能差很多 — 根因之一是 import 只读 sheet1.xml，多表 Excel 打开直接丢数据！export 本来就是多表，import/export 严重不对称
+- **踩的坑**：
+  ① `attrNS` 未定义 — 原来 import-ooxml 只有 `attr(el, name)`，但它已自带 localName fallback，直接 `attr(s, "id")` 就能匹配 `r:id`
+  ② e2e_roundtrip 测试 L170 写死 `result.data.cells` — 加 compatFlat 别名
+  ③ console.time("2. 单元格遍历") 每次 sheet 循环重名 → 控制台 warning（非阻断）
+- **测试**：109/109 绿
+- **GitHub push**：✅ b9591e5..68db8cc
+- **关联文件**：import-ooxml.js（大改 parseXlsx 内部结构）
+- **决策人**：用户"好的，执行吧"
+
+---
+
 ## [2026-10-12] 保护工作表/筛选器/对齐样式 OOXML 往返 + TDZ 坑
 
 - **选了啥**：三个 Excel 高频缺口一把梭
