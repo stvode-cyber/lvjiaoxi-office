@@ -8,6 +8,21 @@
 
 ---
 
+## [P1] [git-proxy] Git/Curl libcurl 不走 IE 代理 — push 永远断网
+
+- **现象**：`git push origin main` 报 `Failed to connect to github.com:443` 连续 N 次，但 PowerShell `Invoke-WebRequest https://github.com` 立刻返回 HTTP 200
+- **根因**：这台机器 IE 代理开启（`ProxyEnable=1, ProxyServer=127.0.0.1:7890`，Clash/V2Ray 本地端口）。.NET HttpWebRequest（PowerShell Invoke-WebRequest）**自动读 IE 代理**走代理通 github；git.exe（自带 libcurl）+ curl.exe **不走 IE 代理**，直连 20.205.243.166:443 被防火墙阻断（TCP 层 Trying → Timed out）
+- **修复**：必须给 git 手动配代理
+  ```powershell
+  git config --global http.proxy http://127.0.0.1:7890
+  git config --global https.proxy http://127.0.0.1:7890
+  ```
+- **预防规则**：任何网络断网诊断，先查 `Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" | Select ProxyEnable,ProxyServer`，如果 ProxyEnable=1 就必须给 libcurl 系工具（git/curl/wget）手动配同端口代理
+- **关联命令**：`nslookup github.com`（20.205.243.166）、`netsh winhttp show proxy`（WinHTTP 可能没开但 IE 开了）
+- **决策人**：实测排查（grep libcurl verbose log 看到 `Trying 20.205.243.166:443... Timed out`）
+
+---
+
 ## [P0] [L1|xlsx-import] XLSX 导入反复丢失格式/数据（4 条子坑）✅
 
 - **子坑数**：4 条
