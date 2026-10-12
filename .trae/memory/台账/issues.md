@@ -8,6 +8,24 @@
 
 ---
 
+## [P0] [L1|xlsx-import] XLSX 导入反复丢失格式/数据（4 条子坑）✅
+
+- **子坑数**：4 条
+- **核心根因**：OOXML 解析层（import-ooxml.js）输出结构与 FE 引擎（spreadsheet.js）期望不一致 + mount 初始化顺序错误导致数据还没提升就被消费
+- **总预防规则**：
+  1. parseXlsx 输出结构必须与 spreadsheet.js normalizeDoc 期望**严格对齐**（merge 要对象数组不要字符串）
+  2. 公式单元格必须同时保存 `<f>` 和 `<v>`（Excel 缓存值），FE.run 失败回退 v 值
+  3. normalizeDoc 加格式兜底（normMerge），防御新旧版本导入路径差异
+  4. **mount 初始化顺序**：bindAliases（数据提升）必须在 buildGrid → applyMerges（数据消费）之前
+- **关联文件**：app/js/import-ooxml.js, app/js/modules/spreadsheet.js
+- **子坑列表**（时间倒序）：
+  - [2026-10-12] [mount-init-order] bindAliases 在 buildGrid 之后 → applyMerges 读到空 data.merge → 合并单元格全丢 → 修：swap 两行顺序
+  - [2026-10-02] [xlsx-formula-v-discard] parseXlsx 有 `<f>` 时丢掉 `<v>` 缓存值 → FE.run 失败（不支持的函数）显示空白 → 修：同时保存 f 和 v，getCell catch 里回退 raw.v
+  - [2026-10-02] [xlsx-merge-string-format] parseXlsx mergeCells push 纯字符串 `"A1:B2"`，applyMerges 期望 `{ range: "A1:B2" }` → m.range undefined 全跳过 → 修：源头改 push 对象 + normalizeDoc normMerge 兜底
+  - [2026-09-30] [electron-contextIsolation-window] Electron contextIsolation 下 window.OS 不暴露 → OOXML 导入静默失败（详见 L1|electron 子坑）
+
+---
+
 ## [P1] [L1|fe-case] FE evalNode 大小写敏感统一问题（3 条子坑）
 
 - **子坑数**：3 条
