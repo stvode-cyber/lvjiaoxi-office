@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-12] 条件格式增强：matchCell 全覆盖 + OOXML 导入导出
+
+- **选了啥**：① matchCell 补 3 个缺失 op（ge/le/ne）→ 8 种全（gt/lt/eq/ge/le/ne/between/contains）；② import-ooxml 解析 `<conditionalFormatting>` → data.condFormats（cellIs/colorScale/dataBar/iconSet/expression/top10）；③ export-ooxml 生成 `<conditionalFormatting>` 完整往返（dxf/colorScale 三色阶/dataBar 正负条/iconSet 3TrafficLights1）
+- **为啥**：用户"先做条件格式增强" — 现有 computeCF 引擎已支持 scale/bar/icon/cell/formula/dupes/unique/top 8 种类型，但缺 3 op 和 OOXML 导入导出
+- **测试**：109/109 绿，_cond_test 39/39 绿
+- **关联文件**：spreadsheet.js（matchCell/opLabel 扩展）、import-ooxml.js（parseXlsx 加 conditionalFormatting 解析 → condFormats 返回）、export-ooxml.js（加 _cfXml helper + sheetXml 拼接）
+- **决策人**：用户"先做条件格式增强"
+
+---
+
 ## [2026-10-12] Excel 数据验证 P2 交互：list 弹原生下拉 + inputMessage 提示条 + errorAlert 内联
 
 - **选了啥**：selectCell() 查 rangeRect 覆盖 → 延迟 120ms 弹 list 类型原生 `<select>` 下拉（td 右侧 fixed 定位）→ 选中即写入 + 校验 + 移到下一行；inputMessage 渲染成 td 顶部提示条（4s 自动消失）；errorAlert 用 OS.toast(style:"warn") 替代（stop/warning/information 三档未来可转成模态）
