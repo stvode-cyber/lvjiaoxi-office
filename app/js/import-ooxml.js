@@ -620,6 +620,19 @@
         if (customH === "1" && h) customRowHeights[+(attr(r, "r") || "0")] = +h;
       });
     }
+    // 自定义列宽 <cols><col min= max= width= customWidth=/>
+    const colsEl = first(d.documentElement, "cols");
+    const colWidths = [];
+    if (colsEl) {
+      all(colsEl, "col").forEach(c => {
+        const minC = +(attr(c, "min") || "0");
+        const maxC = +(attr(c, "max") || "0");
+        const w = +(attr(c, "width") || "0");
+        if (minC > 0 && maxC >= minC && w > 0) {
+          for (let ci = minC; ci <= maxC; ci++) colWidths[ci] = w;
+        }
+      });
+    }
 
     const cfListEl = first(d.documentElement, "conditionalFormatting");
     if (cfListEl) {
@@ -721,7 +734,7 @@
 
     console.timeEnd("[XLSX] 2. 单元格遍历");
     console.timeEnd("[XLSX] parseXlsx 总耗时");
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights }, compat: hasFmt ? "A" : "B", note };
+    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights, colWidths }, compat: hasFmt ? "A" : "B", note };
   }
 
   /* ============================================================

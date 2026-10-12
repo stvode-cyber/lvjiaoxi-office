@@ -807,10 +807,34 @@
       const defRH = sh.defaultRowHeight || 18;
       sheetFormatPrXml = '<sheetFormatPr defaultRowHeight="' + defRH + '"/>';
 
+      // 自定义列宽 <cols><col>
+      let colsXml = "";
+      const cw = sh.colWidths || [];
+      const hasCustomCols = cw.some(w => w && w > 0 && Math.abs(w - 64) > 0.1); // 有非默认列宽
+      if (hasCustomCols) {
+        let cXml = '<cols>';
+        let inGroup = false, groupMin = -1, groupMax = -1, groupWidth = 0;
+        const flushGroup = () => {
+          if (inGroup) {
+            cXml += '<col min="' + groupMin + '" max="' + groupMax + '" width="' + groupWidth.toFixed(1) + '" customWidth="1"/>';
+            inGroup = false; groupMin = -1; groupMax = -1; groupWidth = 0;
+          }
+        };
+        for (let c = 1; c < cw.length; c++) {
+          const w = cw[c];
+          if (!w || w === 64) { flushGroup(); continue; }
+          if (inGroup && Math.abs(groupWidth - w) < 0.01) { groupMax = c; }
+          else { flushGroup(); inGroup = true; groupMin = c; groupMax = c; groupWidth = w; }
+        }
+        flushGroup();
+        cXml += "</cols>";
+        colsXml = cXml;
+      }
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '">' +
-        sheetPrXml + sheetViewsXml + sheetFormatPrXml +
+        sheetPrXml + sheetViewsXml + sheetFormatPrXml + colsXml +
         "<sheetData>" + rowsXml + "</sheetData>" +
         mergeXml + dvXml + cfXml +
         (chartParts ? '<drawing r:id="rIdD"/>' : "") +

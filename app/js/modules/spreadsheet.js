@@ -2190,9 +2190,14 @@
     var cfAppliedRefs = [];
 
     // 构建表头与单元格
+    const DEFAULT_COL_WIDTH = 64;
     function buildGrid() {
+      const cw = data.colWidths || [];
       let html = "<tr><th class='corner'></th>";
-      for (let c = 1; c <= COLS; c++) html += `<th class="colhead" data-col="${c}">${FE.idxToCol(c)}</th>`;
+      for (let c = 1; c <= COLS; c++) {
+        const w = cw[c] || DEFAULT_COL_WIDTH;
+        html += `<th class="colhead" data-col="${c}" style="width:${w}px;min-width:${w}px">${FE.idxToCol(c)}</th>`;
+      }
       html += "</tr>";
       for (let r = 1; r <= ROWS; r++) {
         html += `<tr><th class="rowhead" data-row="${r}">${r}</th>`;
