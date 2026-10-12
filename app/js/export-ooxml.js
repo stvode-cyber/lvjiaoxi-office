@@ -567,7 +567,12 @@
         if (exist >= 0) borderId = exist; else { borderId = borderDefs.length; borderDefs.push(border); }
       }
       const idx = xfs.length;
-      xfs.push({ fontId, fillId, borderId, applyFont: fontId > 0, applyFill: fillId > 0, applyBorder: borderId > 0 });
+      xfs.push({
+        fontId, fillId, borderId,
+        applyFont: fontId > 0, applyFill: fillId > 0, applyBorder: borderId > 0,
+        applyAlignment: !!(st.alignment && Object.keys(st.alignment).length),
+        alignment: st.alignment || null
+      });
       xfMap[key] = idx;
       return idx;
     }
@@ -836,12 +841,36 @@
         colsXml = cXml;
       }
 
+      // sheetProtection 保护工作表
+      let spXml = "";
+      if (sh.protection && sh.protection.enabled) {
+        const p = sh.protection;
+        spXml = '<sheetProtection' +
+          ' sheet="' + (p.sheet !== false ? "1" : "0") + '"' +
+          ' objects="' + (p.objects !== false ? "1" : "0") + '"' +
+          ' scenarios="' + (p.scenarios !== false ? "1" : "0") + '"' +
+          ' formatCells="' + (p.formatCells !== false ? "1" : "0") + '"' +
+          ' formatColumns="' + (p.formatColumns !== false ? "1" : "0") + '"' +
+          ' formatRows="' + (p.formatRows !== false ? "1" : "0") + '"' +
+          ' insertColumns="' + (p.insertColumns !== false ? "1" : "0") + '"' +
+          ' insertRows="' + (p.insertRows !== false ? "1" : "0") + '"' +
+          ' deleteColumns="' + (p.deleteColumns !== false ? "1" : "0") + '"' +
+          ' deleteRows="' + (p.deleteRows !== false ? "1" : "0") + '"' +
+          (p.password ? ' password="' + p.password + '"' : "") + '/>';
+      }
+
+      // autoFilter 筛选器
+      let afXml = "";
+      const f = (sh.filters && sh.filters[0]) || null;
+      if (f && f.range) afXml = '<autoFilter ref="' + f.range + '"/>';
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '">' +
         sheetPrXml + sheetViewsXml + sheetFormatPrXml + colsXml +
         "<sheetData>" + rowsXml + "</sheetData>" +
-        mergeXml + dvXml + cfXml +
+        afXml + mergeXml + dvXml + cfXml +
+        spXml +
         (chartParts ? '<drawing r:id="rIdD"/>' : "") +
         (hasCmt ? '<legacyDrawing r:id="rIdC"/>' : "") + "</worksheet>";
 
@@ -887,10 +916,24 @@
       };
       return "<border>" + side("left") + side("right") + side("top") + side("bottom") + "<diagonal/></border>";
     }).join("") + "</borders>";
-    const cellXfsXml = '<cellXfs count="' + xfs.length + '">' + xfs.map(x =>
-      '<xf numFmtId="0" fontId="' + x.fontId + '" fillId="' + x.fillId + '" borderId="' + x.borderId + '" xfId="0"' +
-      (x.applyFont ? ' applyFont="1"' : "") + (x.applyFill ? ' applyFill="1"' : "") + (x.applyBorder ? ' applyBorder="1"' : "") + "/>"
-    ).join("") + "</cellXfs>";
+    const cellXfsXml = '<cellXfs count="' + xfs.length + '">' + xfs.map(x => {
+      let attrs = '<xf numFmtId="0" fontId="' + x.fontId + '" fillId="' + x.fillId + '" borderId="' + x.borderId + '" xfId="0"' +
+        (x.applyFont ? ' applyFont="1"' : "") +
+        (x.applyFill ? ' applyFill="1"' : "") +
+        (x.applyBorder ? ' applyBorder="1"' : "") +
+        (x.applyAlignment ? ' applyAlignment="1"' : "");
+      let alignXml = "";
+      if (x.alignment) {
+        const a = x.alignment;
+        let aAttrs = "";
+        if (a.horizontal) aAttrs += ' horizontal="' + a.horizontal + '"';
+        if (a.vertical) aAttrs += ' vertical="' + a.vertical + '"';
+        if (a.wrapText) aAttrs += ' wrapText="1"';
+        if (a.indent) aAttrs += ' indent="' + a.indent + '"';
+        if (aAttrs) alignXml = "<alignment" + aAttrs + "/>";
+      }
+      return attrs + (alignXml ? ">" + alignXml + "</xf>" : "/>");
+    }).join("") + "</cellXfs>";
 
     const stylesXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +

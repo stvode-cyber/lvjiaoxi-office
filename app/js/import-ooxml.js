@@ -425,7 +425,7 @@
     }
 
     // ====== 解析 styles.xml ======
-    const fonts = [], fills = [], borders = [], cellXfs = [];
+    const fonts = [], fills = [], borders = [], cellXfs = [], xfAlignments = [];
     const sideColor = el => { if (!el) return null; const c = first(el, "color"); const rgb = c ? attr(c, "rgb") : null; return rgb && rgb.length >= 8 ? "#" + rgb.substring(2).toLowerCase() : null; };
     if (stylesXml) {
       const sd = parseXML(stylesXml);
@@ -461,8 +461,21 @@
           borderId: +(attr(xf, "borderId") || 0),
           applyFont: attr(xf, "applyFont") === "1",
           applyFill: attr(xf, "applyFill") === "1",
-          applyBorder: attr(xf, "applyBorder") === "1"
+          applyBorder: attr(xf, "applyBorder") === "1",
+          applyAlignment: attr(xf, "applyAlignment") === "1"
         });
+        // 解析 applyAlignment 内联 <alignment> 子元素 — 存局部数组，后面赋 styles._alignments
+        const alignEl = first(xf, "alignment");
+        if (alignEl) {
+          xfAlignments.push({
+            horizontal: attr(alignEl, "horizontal") || "",
+            vertical: attr(alignEl, "vertical") || "",
+            wrapText: attr(alignEl, "wrapText") === "1",
+            indent: +(attr(alignEl, "indent") || "0")
+          });
+        } else {
+          xfAlignments.push(null);
+        }
       });
     }
 
@@ -470,6 +483,7 @@
     const d = parseXML(sheetXml);
     const cells = {};
     const styles = {};
+    styles._alignments = xfAlignments; // styles.xml 里每个 xf 的 <alignment> 子元素
     const merges = [];
     console.time("[XLSX] 2. 单元格遍历");
     let maxC = 1, maxR = 1;
@@ -609,6 +623,31 @@
       const tc = first(tabColorEl, "tabColor");
       if (tc) tabColor = attr(tc, "rgb") || attr(tc, "theme") || "";
     }
+    // sheetProtection 保护工作表
+    let protection = null;
+    const spEl = first(d.documentElement, "sheetProtection");
+    if (spEl) {
+      protection = {
+        enabled: attr(spEl, "sheet") !== "0",
+        password: attr(spEl, "password") || "",
+        sheet: attr(spEl, "sheet") !== "0",
+        objects: attr(spEl, "objects") !== "0",
+        scenarios: attr(spEl, "scenarios") !== "0",
+        formatCells: attr(spEl, "formatCells") !== "0",
+        formatColumns: attr(spEl, "formatColumns") !== "0",
+        formatRows: attr(spEl, "formatRows") !== "0",
+        insertColumns: attr(spEl, "insertColumns") !== "0",
+        insertRows: attr(spEl, "insertRows") !== "0",
+        deleteColumns: attr(spEl, "deleteColumns") !== "0",
+        deleteRows: attr(spEl, "deleteRows") !== "0"
+      };
+    }
+    // autoFilter 筛选器
+    let filters = [];
+    const afEl = first(d.documentElement, "autoFilter");
+    if (afEl) {
+      filters.push({ range: (attr(afEl, "ref") || "").trim().toUpperCase() });
+    }
     const sdpEl = first(d.documentElement, "sheetFormatPr");
     if (sdpEl) defaultRowHeight = +(attr(sdpEl, "defaultRowHeight") || "18");
     // 自定义行高（<row customHeight="1" h="24"/>）
@@ -734,7 +773,7 @@
 
     console.timeEnd("[XLSX] 2. 单元格遍历");
     console.timeEnd("[XLSX] parseXlsx 总耗时");
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights, colWidths }, compat: hasFmt ? "A" : "B", note };
+    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights, colWidths, protection, filters }, compat: hasFmt ? "A" : "B", note };
   }
 
   /* ============================================================
