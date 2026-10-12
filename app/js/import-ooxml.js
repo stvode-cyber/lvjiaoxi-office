@@ -528,12 +528,27 @@
     }
 
     // ====== 单 sheet 解析函数（内部 async，共享外层 styles/fonts/...）======
-    async function _parseOneSheet(sheetXml, sheetIdx) {
+    async function _parseOneSheet(sheetXml, sheetIdx, relsMap) {
+    relsMap = relsMap || {};
     const d = parseXML(sheetXml);
     const cells = {};
     const styles = {};
     styles._alignments = xfAlignments; // styles.xml 里每个 xf 的 <alignment> 子元素
     const merges = [];
+    const _hyperlinks = []; // 超链接临时收集（内联 + hyperlinks 区域）
+    // cells 遍历时检测 <hyperlink r:id="rId1"/> 子元素
+    const hyperlinkChild = (cEl) => {
+      for (const child of (cEl.children || [])) {
+        if (child.localName === "hyperlink") {
+          const rid = attr(child, "id");
+          const loc = attr(child, "location") || attr(child, "ref");
+          if (rid && relsMap[rid]) _hyperlinks.push({ ref, target: relsMap[rid], display: "" });
+          else if (loc) _hyperlinks.push({ ref, target: loc, display: "" });
+          return true;
+        }
+      }
+      return false;
+    };
     console.time("[XLSX] 2. 单元格遍历");
     let maxC = 1, maxR = 1;
     all(d.documentElement, "c").forEach(c => {
@@ -590,7 +605,23 @@
           if (Object.keys(st).length) styles[ref] = st;
         }
       }
+      // 内联 hyperlink 子元素
+      hyperlinkChild(c);
     });
+
+    // hyperlinks 区域（独立 <hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks>）
+    const hlsEl = first(d.documentElement, "hyperlinks");
+    if (hlsEl) {
+      all(hlsEl, "hyperlink").forEach(hl => {
+        const hlRef = (attr(hl, "ref") || "").trim().toUpperCase();
+        const rid = attr(hl, "id");
+        const loc = attr(hl, "location");
+        let target = "";
+        if (rid && relsMap[rid]) target = relsMap[rid];
+        else if (loc) target = loc;
+        if (hlRef && target) _hyperlinks.push({ ref: hlRef, target, display: "" });
+      });
+    }
 
     // mergeCells: <mergeCell ref="A1:B2"/>
     const mergeCellsEl = first(d.documentElement, "mergeCells");
@@ -776,20 +807,36 @@
       });
     }
       // 函数返回单 sheet 对象
-      return { name: "Sheet" + (sheetIdx + 1), rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, charts: [], validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights, colWidths, protection, filters };
+      return { name: "Sheet" + (sheetIdx + 1), rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, charts: [], validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights, colWidths, protection, filters, hyperlinks: _hyperlinks };
     } // _parseOneSheet 结束
 
-    // ====== 循环解析所有 sheet（Promise.all 预读 + 逐 sheet 调 _parseOneSheet）======
+    // ====== 循环解析所有 sheet（Promise.all 预读 xml + rels + 逐 sheet 调 _parseOneSheet）======
     const sheetNumbers = Object.keys(sheetFiles).sort((a,b)=>+a-+b).map(n=>+n);
     const allSheetXmls = await Promise.all(sheetNumbers.map(n => sheetFiles[n].async("string")));
+    // 预读每个 sheet 的 rels 文件 → relsMaps[idx] = { rId1: "https://...", rId2: "Sheet2!A1", ... }
+    const relsMaps = [];
+    for (const n of sheetNumbers) {
+      const relsFile = zip.file("xl/worksheets/_rels/sheet" + n + ".xml.rels");
+      if (relsFile) {
+        try {
+          const relsD = parseXML(await relsFile.async("string"));
+          const m = {};
+          all(first(relsD.documentElement, "Relationships") || relsD.documentElement, "Relationship").forEach(r => {
+            m[attr(r, "Id")] = attr(r, "Target") || "";
+          });
+          relsMaps.push(m);
+        } catch(e) { relsMaps.push({}); }
+      } else relsMaps.push({});
+    }
     const sheets = [];
+    const safeRels = (idx) => relsMaps[idx] || {};
     for (let i = 0; i < sheetDefs.length && i < allSheetXmls.length; i++) {
-      const sheet = await _parseOneSheet(allSheetXmls[i], i);
+      const sheet = await _parseOneSheet(allSheetXmls[i], i, safeRels(i));
       sheet.name = sheetDefs[i].name;
       sheets.push(sheet);
     }
     for (let i = sheetDefs.length; i < allSheetXmls.length; i++) {
-      const sheet = await _parseOneSheet(allSheetXmls[i], i);
+      const sheet = await _parseOneSheet(allSheetXmls[i], i, safeRels(i));
       sheet.name = "Sheet" + (sheetNumbers[i] || i + 1);
       sheets.push(sheet);
     }

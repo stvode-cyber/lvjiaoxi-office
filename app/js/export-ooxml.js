@@ -597,6 +597,7 @@
     const sheetEntries = [];      // { file, xml }
     const drawingEntries = [];    // { sheetIdx, drawingXml, drawingRelsXml, chartFiles }
     const cmtEntries = [];        // { sheetIdx, xml }
+    const sheetHyperlinkRels = {}; // idx → [{rid, target, external}]
     const allAuthors = new Set();
     // 先遍历收集所有批注作者
     (data.comments || []).forEach(c => { if (c.author) allAuthors.add(c.author); });
@@ -864,17 +865,32 @@
       const f = (sh.filters && sh.filters[0]) || null;
       if (f && f.range) afXml = '<autoFilter ref="' + f.range + '"/>';
 
+      // hyperlinks 超链接（区域式，ref→rId）
+      let hlXml = "";
+      const hls = (sh.hyperlinks && sh.hyperlinks.length) ? sh.hyperlinks : [];
+      const hlRels = []; // 每个 rId 对应 target
+      if (hls.length) {
+        let items = [];
+        hls.forEach((h, hi) => {
+          const rid = "rIdH" + (hi + 1);
+          items.push('<hyperlink ref="' + (h.ref || "").toUpperCase() + '" r:id="' + rid + '"/>');
+          hlRels.push({ rid, target: h.target || "", external: !!(h.target && /^https?:|^ftps?:|^mailto:|^file:/i.test(h.target)) });
+        });
+        hlXml = '<hyperlinks>' + items.join("") + '</hyperlinks>';
+      }
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '">' +
         sheetPrXml + sheetViewsXml + sheetFormatPrXml + colsXml +
         "<sheetData>" + rowsXml + "</sheetData>" +
-        afXml + mergeXml + dvXml + cfXml +
+        afXml + hlXml + mergeXml + dvXml + cfXml +
         spXml +
         (chartParts ? '<drawing r:id="rIdD"/>' : "") +
         (hasCmt ? '<legacyDrawing r:id="rIdC"/>' : "") + "</worksheet>";
 
       sheetEntries.push({ file: "xl/worksheets/sheet" + idx + ".xml", xml: sheetXml });
+      if (hlRels.length) sheetHyperlinkRels[idx] = hlRels;
       if (chartParts) {
         drawingEntries.push({ sheetIdx: idx, drawingXml: chartParts.drawingXml, drawingRelsXml: chartParts.drawingRelsXml, chartFiles: chartParts.chartFiles });
         chartCT += '<Override PartName="/xl/drawings/drawing' + idx + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.drawing+xml"/>' +
@@ -983,12 +999,18 @@
     zip.file("xl/workbook.xml", workbookXml);
     zip.file("xl/_rels/workbook.xml.rels", wbRelsXml);
     sheetEntries.forEach(s => zip.file(s.file, s.xml));
+    // 辅助：生成 hyperlink Relationship XML 片段
+    const hlRelXml = (idx) => {
+      const hls = sheetHyperlinkRels[idx]; if (!hls || !hls.length) return "";
+      return hls.map(h => '<Relationship Id="' + h.rid + '" Type="' + X.r + '/hyperlink" Target="' + esc(h.target) + '"' + (h.external ? ' TargetMode="External"' : "") + "/>").join("");
+    };
     drawingEntries.forEach(d => {
       const idx = d.sheetIdx;
       zip.file("xl/drawings/drawing" + idx + ".xml", d.drawingXml);
       zip.file("xl/drawings/_rels/drawing" + idx + ".xml.rels", d.drawingRelsXml);
       zip.file("xl/worksheets/_rels/sheet" + idx + ".xml.rels",
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="' + X.rel + '">' +
+        hlRelXml(idx) +
         '<Relationship Id="rIdD" Type="' + X.r + '/drawing" Target="../drawings/drawing' + idx + '.xml"/></Relationships>');
       Object.keys(d.chartFiles).forEach(name => zip.file(name, d.chartFiles[name]));
     });
@@ -999,15 +1021,27 @@
       const relsPath = "xl/worksheets/_rels/sheet" + idx + ".xml.rels";
       let relsXml = "";
       if (zip.files[relsPath]) {
-        // 已存在（有 chart）— 在末尾加 comment 关系
+        // 已存在（有 chart）— 在末尾加 comment + hyperlink 关系
         const old = zip.files[relsPath].asText();
+        const hlXml = hlRelXml(idx);
         relsXml = old.replace("</Relationships>",
+          hlXml +
           '<Relationship Id="rIdC" Type="' + X.r + '/comments" Target="../comments/comment' + idx + '.xml"/></Relationships>');
       } else {
         relsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="' + X.rel + '">' +
+          hlRelXml(idx) +
           '<Relationship Id="rIdC" Type="' + X.r + '/comments" Target="../comments/comment' + idx + '.xml"/></Relationships>';
       }
       zip.file(relsPath, relsXml);
+    });
+    // 只有 hyperlink 但没 drawing 也没 comment 的 sheet → 也要写 worksheet rels
+    Object.keys(sheetHyperlinkRels).forEach(idx => {
+      const relsPath = "xl/worksheets/_rels/sheet" + idx + ".xml.rels";
+      if (!zip.files[relsPath]) {
+        zip.file(relsPath,
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="' + X.rel + '">' +
+          hlRelXml(+idx) + '</Relationships>');
+      }
     });
     zip.file("xl/styles.xml", stylesXml);
     zip.file("xl/sharedStrings.xml", sstXml);
