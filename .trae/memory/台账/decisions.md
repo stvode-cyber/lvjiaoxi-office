@@ -1,5 +1,20 @@
 ---
 
+## [2026-10-12] 保护工作表/筛选器/对齐样式 OOXML 往返 + TDZ 坑
+
+- **选了啥**：三个 Excel 高频缺口一把梭
+  - sheetProtection: import `<sheetProtection>` → data.protection（sheet/objects/formatCells/insertRows/deleteRows 等 10 个属性）+ export 生成完整标签
+  - autoFilter: import `<autoFilter ref="A1:Z10">` → data.filters[0].range + export 生成
+  - applyAlignment: styles.xml 每个 `<xf>` 的 `<alignment horizontal/vertical/wrapText/indent>` → styles._alignments[] + export 带属性的 <alignment> 子元素
+- **为啥**：audit 盘出来三个缺口都是轻量级（各加 10-20 行），一次改完
+- **踩的坑**：⚠️ TDZ！styles.xml 解析块里引用 `styles._alignments`，但 `const styles = {}` 在后面 sheet1.xml 块里 — 报 "Cannot access 'styles' before initialization"。修：用局部 `xfAlignments = []` 过渡，styles.xml 里写数组，sheet1.xml 里 `styles._alignments = xfAlignments`
+- **GitHub push**：commit c56f3b7 本地 OK，GitHub 443 第二次断网
+- **测试**：109/109 绿
+- **关联文件**：import-ooxml.js（L428 + L457-480 + L612-636 + L762）、export-ooxml.js（L570-575 + L839-870 + L919-936）
+- **决策人**：用户"继续处理 Excel 其他缺口"
+
+---
+
 ## [2026-10-12] customRowHeights export — 一行补完，GitHub 终于通了
 
 - **选了啥**：export-ooxml.js `<row r="r">` → 检查 sh.customRowHeights[r] → 加 ht= customHeight="1"
