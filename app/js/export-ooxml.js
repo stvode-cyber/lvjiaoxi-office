@@ -749,7 +749,12 @@
             else cellsXml += '<c r="' + ref + '"' + sAttr + ' t="s"><v>' + sid(String(v)) + "</v></c>";
           }
         });
-        if (cellsXml) rowsXml += '<row r="' + r + '">' + cellsXml + "</row>";
+        if (cellsXml) {
+          let rowAttrs = 'r="' + r + '"';
+          const rh = (sh.customRowHeights && sh.customRowHeights[r]) || 0;
+          if (rh > 0) rowAttrs += ' ht="' + rh.toFixed(1) + '" customHeight="1"';
+          rowsXml += '<row ' + rowAttrs + '>' + cellsXml + "</row>";
+        }
       }
 
       const charts = sh.charts || [];
