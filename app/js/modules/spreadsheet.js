@@ -2191,8 +2191,10 @@
 
     // 构建表头与单元格
     const DEFAULT_COL_WIDTH = 64;
+    const DEFAULT_ROW_HEIGHT = 18;
     function buildGrid() {
-      const cw = data.colWidths || [];
+      const cw = sh0.colWidths || [];
+      const rh = sh0.customRowHeights || {};
       let html = "<tr><th class='corner'></th>";
       for (let c = 1; c <= COLS; c++) {
         const w = cw[c] || DEFAULT_COL_WIDTH;
@@ -2200,7 +2202,8 @@
       }
       html += "</tr>";
       for (let r = 1; r <= ROWS; r++) {
-        html += `<tr><th class="rowhead" data-row="${r}">${r}</th>`;
+        const rowH = rh[r] || DEFAULT_ROW_HEIGHT;
+        html += `<tr style="height:${rowH}px"><th class="rowhead" data-row="${r}" style="height:${rowH}px">${r}</th>`;
         for (let c = 1; c <= COLS; c++) html += `<td data-ref="${FE.idxToCol(c)}${r}"></td>`;
         html += "</tr>";
       }
@@ -2213,6 +2216,70 @@
     renderSheetTabs();
     const sheetAddBtn = wrap.querySelector(".sheet-add");
     if (sheetAddBtn) sheetAddBtn.addEventListener("click", () => addSheet());
+
+    // ===== 列宽 / 行高 拖拽调整 =====
+    let resizeCleanup = null; // 必须在 IIFE 前声明，否则 TDZ
+    (function initResize() {
+      let dragging = null; // { type: 'col'|'row', idx, startPos, startSize }
+      const MIN_SIZE = 20;
+      const getPageXY = e => {
+        if (e.touches && e.touches.length) return { x: e.touches[0].pageX, y: e.touches[0].pageY };
+        return { x: e.pageX, y: e.pageY };
+      };
+      function onMouseDown(e) {
+        const th = e.target.closest("th");
+        if (!th) return;
+        const colIdx = parseInt(th.dataset.col);
+        const rowIdx = parseInt(th.dataset.row);
+        if (!colIdx && !rowIdx) return;
+        if (colIdx > 0) {
+          const { x } = getPageXY(e);
+          dragging = { type: "col", idx: colIdx, startPos: x, startSize: th.offsetWidth, th };
+        } else if (rowIdx > 0) {
+          const { y } = getPageXY(e);
+          dragging = { type: "row", idx: rowIdx, startPos: y, startSize: th.offsetHeight, th };
+        }
+      }
+      function onMouseMove(e) {
+        if (!dragging) return;
+        const { x, y } = getPageXY(e);
+        if (dragging.type === "col") {
+          const delta = x - dragging.startPos;
+          const newW = Math.max(MIN_SIZE, dragging.startSize + delta);
+          dragging.th.style.width = newW + "px";
+          dragging.th.style.minWidth = newW + "px";
+        } else {
+          const delta = y - dragging.startPos;
+          const newH = Math.max(MIN_SIZE, dragging.startSize + delta);
+          dragging.th.style.height = newH + "px";
+          // 同步整行
+          const row = dragging.th.parentElement;
+          if (row) row.style.height = newH + "px";
+        }
+      }
+      function onMouseUp() {
+        if (!dragging) return;
+        if (dragging.type === "col") {
+          const newW = dragging.th.offsetWidth;
+          if (!sh0.colWidths) sh0.colWidths = [];
+          sh0.colWidths[dragging.idx] = newW;
+        } else {
+          const newH = dragging.th.offsetHeight;
+          if (!sh0.customRowHeights) sh0.customRowHeights = {};
+          sh0.customRowHeights[dragging.idx] = newH;
+        }
+        dragging = null;
+      }
+      table.addEventListener("mousedown", onMouseDown);
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+      // 清理函数（供 destroy 用）
+      resizeCleanup = () => {
+        table.removeEventListener("mousedown", onMouseDown);
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+      };
+    })();
 
     // 求值缓存
     const cache = {};
@@ -6517,6 +6584,7 @@
       canRedo,
       destroy() {
         window.removeEventListener("mouseup", _ssMouseUp);
+        if (resizeCleanup) resizeCleanup();
         if (ssSelbar) ssSelbar.destroy();
         if (ribbon.el) ribbon.el.remove();
         wrap.remove();

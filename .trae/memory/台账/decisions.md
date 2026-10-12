@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-12] 列宽/行高拖拽交互 + buildGrid per-sheet bug 修复
+
+- **选了啥**：① buildGrid 从读 `data.colWidths`（全局）改成读 `sh0.colWidths`（per-sheet），修复多表模式下列宽丢失；② 新增行高 render（`customRowHeights` → tr height）；③ 新增列宽/行高拖拽 UI（colhead/rowhead mousedown→mousemove→mouseup）；④ destroy 里调 `resizeCleanup()` 清理监听器
+- **为啥**：多表结构下 colWidths/customRowHeights 是 per-sheet 的，buildGrid 读全局 data.colWidths 导致 undefined；用户需要运行时调整列宽行高的交互
+- **备选方案**：normalizeDoc 把所有 sheet 的 colWidths 提升到 data 全局 → 否决，破坏 per-sheet 架构
+- **关联文件**：app/js/modules/spreadsheet.js (buildGrid + initResize + destroy)、app/css/style.css (cursor: col-resize/row-resize)
+- **决策人**：AI
+
+---
+
 ## [2026-10-12] definedNames export — workbook.xml 命名区域往返闭环
 
 - **选了啥**：export-ooxml.js 里 workbook.xml 加 `<definedNames>` 块
