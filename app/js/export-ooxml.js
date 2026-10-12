@@ -649,6 +649,57 @@
       return xml;
     }
 
+    // 条件格式 → OOXML <conditionalFormatting>
+    function _cfXml(cfs) {
+      let xml = "";
+      for (const f of cfs) {
+        const sqref = esc(f.range || "");
+        let type = "expression", op = "between";
+        let formula1 = "", formula2 = "";
+        let extra = "";
+        if (f.type === "cell") {
+          type = "cellIs";
+          // 内部 op → OOXML 标准名
+          const OP_MAP = { "between": "between", "eq": "equal", "ne": "notEqual", "gt": "greaterThan", "lt": "lessThan", "ge": "greaterThanOrEqual", "le": "lessThanOrEqual", "contains": "containsText" };
+          op = OP_MAP[f.op] || "between";
+          formula1 = f.v != null ? String(f.v) : "";
+          formula2 = f.v2 != null ? String(f.v2) : "";
+          let fillColor = f.bg || f.color || "#f8696b";
+          extra = '<dxf><fill><patternFill patternType="solid"><fgColor rgb="' + fillColor + '"/></patternFill></fill></dxf>';
+        } else if (f.type === "scale") {
+          type = "colorScale";
+          const csColors = [];
+          csColors.push('<color rgb="' + (f.minColor || "#63be7b") + '"/>');
+          if (f.midColor) csColors.push('<color rgb="' + f.midColor + '"/>');
+          csColors.push('<color rgb="' + (f.maxColor || "#f8696b") + '"/>');
+          const cfvos = [];
+          cfvos.push('<cfvo type="min"/>');
+          if (f.midColor) cfvos.push('<cfvo val="50" type="percentile"/>');
+          cfvos.push('<cfvo type="max"/>');
+          extra = '<colorScale>' + cfvos.join("") + csColors.join("") + '</colorScale>';
+        } else if (f.type === "bar") {
+          type = "dataBar";
+          let barXml = '<dataBar>';
+          barXml += '<cfvo type="min"/><cfvo type="max"/>';
+          barXml += '<color rgb="' + (f.color || "#638ec4") + '"/>';
+          barXml += '</dataBar>';
+          extra = barXml;
+        } else if (f.type === "icon") {
+          type = "iconSet";
+          let icoXml = '<iconSet iconSet="' + (f.iconSet || "3TrafficLights1") + '">';
+          icoXml += '<cfvo type="percent"/><cfvo type="percent" val="67"/><cfvo type="percent" val="33"/>';
+          icoXml += '</iconSet>';
+          extra = icoXml;
+        }
+        xml += '<conditionalFormatting sqref="' + sqref + '"><cfRule type="' + type + '" priority="' + (f.priority || "1") + '" operator="' + op + '">';
+        if (formula1) xml += '<formula1>' + esc(formula1) + '</formula1>';
+        if (formula2) xml += '<formula2>' + esc(formula2) + '</formula2>';
+        xml += extra;
+        xml += '</cfRule></conditionalFormatting>';
+      }
+      return xml;
+    }
+
     sheets.forEach((sh, i) => {
       const idx = i + 1;
       const sheetName = sh.name || ("Sheet" + idx);
@@ -735,10 +786,14 @@
       const dvs = sh.validations || [];
       const dvXml = dvs.length ? _dvXml(dvs) : "";
 
+      // conditionalFormatting
+      const cfs = sh.condFormats || [];
+      const cfXml = cfs.length ? _cfXml(cfs) : "";
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheetData>' + rowsXml + "</sheetData>" +
-        mergeXml + dvXml +
+        mergeXml + dvXml + cfXml +
         (chartParts ? '<drawing r:id="rIdD"/>' : "") +
         (hasCmt ? '<legacyDrawing r:id="rIdC"/>' : "") + "</worksheet>";
 

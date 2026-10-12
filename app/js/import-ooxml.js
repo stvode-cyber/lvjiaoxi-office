@@ -585,6 +585,61 @@
         });
       });
     }
+    // ---------- 条件格式导入 <conditionalFormatting> ----------
+    const condFormats = [];
+    const cfListEl = first(d.documentElement, "conditionalFormatting");
+    if (cfListEl) {
+      // OOXML 标准 op → 内部 op
+      const CF_OP_MAP = { "between": "between", "notBetween": "between", "equal": "eq", "notEqual": "ne", "greaterThan": "gt", "lessThan": "lt", "greaterThanOrEqual": "ge", "lessThanOrEqual": "le", "containsText": "contains" };
+      // OOXML type → 内部 type
+      const CF_TYPE_MAP = { "expression": "cell", "cellIs": "cell", "colorScale": "scale", "dataBar": "bar", "iconSet": "icon", "top10": "top" };
+      // OOXML operator → 内部 op（条件格式专用）
+      all(cfListEl, "cfRule").forEach(cf => {
+        const cfType = attr(cf, "type") || "expression";
+        const priority = +(attr(cf, "priority") || "0");
+        const opRaw = attr(cf, "operator") || "between";
+        const op = CF_OP_MAP[opRaw] || "between";
+        const internalType = CF_TYPE_MAP[cfType] || "cell";
+        let formula1 = "", formula2 = "";
+        const f1El = first(cf, "formula1"); if (f1El) formula1 = (f1El.textContent || "").trim();
+        const f2El = first(cf, "formula2"); if (f2El) formula2 = (f2El.textContent || "").trim();
+        let color1 = "", color2 = "", color3 = "";
+        // dxf 样式 → 取填充色
+        const dxf = first(cf, "dxf");
+        if (dxf) {
+          const fill = first(dxf, "fill");
+          const pattFill = fill ? first(fill, "patternFill") : null;
+          const fgColor = pattFill ? first(pattFill, "fgColor") : null;
+          if (fgColor) color1 = attr(fgColor, "rgb") || attr(fgColor, "theme") || "";
+        }
+        // colorScale 专用
+        const cs = first(cf, "colorScale");
+        if (cs) {
+          const colors = all(cs, "color").map(c => attr(c, "rgb") || attr(c, "theme") || "");
+          const vals = all(cs, "cfvo").map(v => +(attr(v, "val") || "0"));
+          color1 = colors[0] || ""; color2 = colors[1] || ""; color3 = colors[2] || "";
+        }
+        // dataBar 专用
+        const db = first(cf, "dataBar");
+        let barColor = "", negColor = "";
+        if (db) {
+          const colEl = first(db, "color"); if (colEl) barColor = attr(colEl, "rgb") || attr(colEl, "theme") || "";
+          const negBarColorEl = first(db, "negativeFillColor") || first(db, "negativeColor");
+          if (negBarColorEl) negColor = attr(negBarColorEl, "rgb") || attr(negBarColorEl, "theme") || "";
+        }
+        const rule = {
+          id: "cf" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          range: (attr(cfListEl, "sqref") || "").trim().toUpperCase(),
+          type: internalType,
+          priority: priority,
+          op: op, v: formula1, v2: formula2,
+          bg: color1, color: color1,
+          minColor: color1 || "#63be7b", midColor: color2 || "", maxColor: color3 || "#f8696b",
+          color: barColor || "#638ec4", negColor: negColor || "#f8696b"
+        };
+        condFormats.push(rule);
+      });
+    }
     const hasFmt = Object.keys(styles).length > 0;
     const hasMerge = merges.length > 0;
     const noteExtra = [hasFmt ? "格式已保留" : null, hasMerge ? `合并 ${merges.length} 处` : null].filter(Boolean).join("；");
@@ -632,7 +687,7 @@
 
     console.timeEnd("[XLSX] 2. 单元格遍历");
     console.timeEnd("[XLSX] parseXlsx 总耗时");
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations }, compat: hasFmt ? "A" : "B", note };
+    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations, condFormats }, compat: hasFmt ? "A" : "B", note };
   }
 
   /* ============================================================

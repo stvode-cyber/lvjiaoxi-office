@@ -3810,13 +3810,16 @@
     function cfRaw(ref) { const v = getCell(ref); if (v == null || v === "") return null; if (typeof v === "number" || typeof v === "boolean") return v; return String(v); }
     function cfNumFromRaw(raw) { if (raw == null) return null; if (typeof raw === "number") return raw; const n = parseFloat(String(raw).replace(/,/g, "")); return isNaN(n) ? null : n; }
     function cfNum(ref) { return cfNumFromRaw(cfRaw(ref)); }
-    function opLabel(o) { return { gt: "大于", lt: "小于", eq: "等于", between: "介于", contains: "包含文本" }[o] || o; }
+    function opLabel(o) { return { gt: "大于", lt: "小于", eq: "等于", ge: "大于等于", le: "小于等于", ne: "不等于", between: "介于", contains: "包含文本" }[o] || o; }
     function matchCell(rule, raw) {
       const n = cfNumFromRaw(raw);
       switch (rule.op) {
         case "gt": return n != null && n > Number(rule.v);
         case "lt": return n != null && n < Number(rule.v);
         case "eq": return String(raw) === String(rule.v);
+        case "ge": return n != null && n >= Number(rule.v);
+        case "le": return n != null && n <= Number(rule.v);
+        case "ne": return String(raw) !== String(rule.v);
         case "between": return n != null && n >= Number(rule.v) && n <= Number(rule.v2);
         case "contains": return String(raw).indexOf(String(rule.v)) >= 0;
       }
