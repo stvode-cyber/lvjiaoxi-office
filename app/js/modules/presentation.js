@@ -302,11 +302,13 @@
     }
 
     // 监听容器大小变化（主画布适屏）
+    let _prResizeObserver = null;
     if (window.ResizeObserver) {
-      const ro = new ResizeObserver(() => fitScale());
-      ro.observe(canvas.parentElement);
+      _prResizeObserver = new ResizeObserver(() => fitScale());
+      _prResizeObserver.observe(canvas.parentElement);
     }
-    window.addEventListener("resize", fitScale);
+    const _prWinResize = () => fitScale();
+    window.addEventListener("resize", _prWinResize);
 
     function syncPanel() {
       const s = data.slides[cur];
@@ -826,7 +828,14 @@
       redo,
       canUndo,
       canRedo,
-      destroy() { if (presSelbar) presSelbar.destroy(); if (presenterEl) presenterEl.remove(); if (ribbon.el) ribbon.el.remove(); wrap.remove(); }
+      destroy() {
+        window.removeEventListener("resize", _prWinResize);
+        if (_prResizeObserver) _prResizeObserver.disconnect();
+        if (presSelbar) presSelbar.destroy();
+        if (presenterEl) presenterEl.remove();
+        if (ribbon.el) ribbon.el.remove();
+        wrap.remove();
+      }
     };
 
     /* ============================================================

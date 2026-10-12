@@ -98,6 +98,8 @@ let updateDownloadUrl = ""; // github 回退通道下，供安装失败兜底打
   ipcMain.on("shell:open-external", (e, url) => {
     try { if (url && /^https?:\/\//.test(url)) shell.openExternal(url); } catch (_) { console.info("[Main] 操作失败:", e); }
   });
+  ipcMain.handle("app:quit", async () => { try { app.quit(); } catch (e) { console.info("[Main] app:quit:", e.message); } return null; });
+  ipcMain.handle("app:reload", async () => { try { const w = BrowserWindow.getFocusedWindow(); if (w && !w.isDestroyed()) w.webContents.reload(); } catch (e) { console.info("[Main] app:reload:", e.message); } return null; });
 
   // 配置 electron-updater（能力/配置缺失时直接返回，完全不影响现有行为）
   function setupAutoUpdater() {

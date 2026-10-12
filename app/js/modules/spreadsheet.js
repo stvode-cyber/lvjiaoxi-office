@@ -2785,7 +2785,8 @@
       const ref = td.dataset.ref;
       if (ref !== selected) { dragMoved = true; selected = ref; paint(); updateStatus(); }
     });
-    window.addEventListener("mouseup", () => { dragging = false; });
+    const _ssMouseUp = () => { dragging = false; };
+    window.addEventListener("mouseup", _ssMouseUp);
     table.addEventListener("click", e => {
       const td = e.target.closest("td[data-ref]");
       if (!td || td.getAttribute("contenteditable") === "true") return;
@@ -6176,7 +6177,12 @@
       redo,
       canUndo,
       canRedo,
-      destroy() { if (ssSelbar) ssSelbar.destroy(); if (ribbon.el) ribbon.el.remove(); wrap.remove(); }
+      destroy() {
+        window.removeEventListener("mouseup", _ssMouseUp);
+        if (ssSelbar) ssSelbar.destroy();
+        if (ribbon.el) ribbon.el.remove();
+        wrap.remove();
+      }
     };
   }
 
