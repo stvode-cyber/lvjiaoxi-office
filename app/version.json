@@ -1,9 +1,4 @@
-﻿{
-  "version": "1.1.7",
-  "publishedAt": "2026-10-08",
-  "notes": [
-    "PDF OCR 扫描件识别（tesseract.js 7.0.0 + eng+chi_sim）",
-    "侧边栏 OCR 按钮 + LazyLib 懒加载",
-    "零原生依赖（纯 JS + WASM）"
-  ]
+{
+  "version": "1.1.8",
+  "publishedAt": "2026-10-12"
 }
