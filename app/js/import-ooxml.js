@@ -532,6 +532,59 @@
     // mergeCells: <mergeCell ref="A1:B2"/>
     const mergeCellsEl = first(d.documentElement, "mergeCells");
     if (mergeCellsEl) all(mergeCellsEl, "mergeCell").forEach(m => { const ref = attr(m, "ref"); if (ref && ref.includes(":")) merges.push({ range: ref, type: "merge" }); });
+
+    // ---------- 数据验证导入 <dataValidation> ----------
+    const DV_TYPE_MAP = { whole: "whole", integer: "whole", decimal: "decimal", list: "list", date: "date", time: "time", textLength: "textLength", custom: "custom", formula: "custom" };
+    const DV_OP_MAP = { between: "between", notBetween: "notBetween", equal: "equal", notEqual: "notEqual", greaterThan: "greaterThan", lessThan: "lessThan", greaterThanOrEqual: "greaterThanOrEqual", lessThanOrEqual: "lessThanOrEqual" };
+    const validations = [];
+    const dvListEl = first(d.documentElement, "dataValidations");
+    if (dvListEl) {
+      all(dvListEl, "dataValidation").forEach(dv => {
+        const typeRaw = attr(dv, "type") || "list";
+        const opRaw = attr(dv, "operator") || "between";
+        const dvType = DV_TYPE_MAP[typeRaw] || "list";
+        const op = DV_OP_MAP[opRaw] || "between";
+        const sqref = (attr(dv, "sqref") || attr(dv, "ref") || "").trim().toUpperCase();
+        if (!sqref) return;
+        const allowBlank = attr(dv, "allowBlank") !== "0";
+        const showDropDown = attr(dv, "showDropDown") !== "0";
+        const form1 = first(dv, "formula1");
+        const form2 = first(dv, "formula2");
+        let formula1 = form1 ? (form1.textContent || "").trim() : null;
+        let formula2 = form2 ? (form2.textContent || "").trim() : null;
+        let listItems = null;
+        if (dvType === "list") {
+          let raw = formula1 || "";
+          if (raw.startsWith('"') && raw.endsWith('"')) raw = raw.slice(1, -1);
+          listItems = raw.split(",").map(s => s.trim()).filter(Boolean);
+          if (!listItems.length) listItems = null;
+        } else if (formula1 === "") formula1 = null;
+        if (formula2 === "") formula2 = null;
+        let errorAlert = { show: false, style: "stop", title: "", message: "" };
+        let inputMessage = { show: false, title: "", message: "" };
+        all(dv, "errorAlert").forEach(ea => {
+          errorAlert = {
+            show: attr(ea, "show") !== "0",
+            style: attr(ea, "errorStyle") || "stop",
+            title: attr(ea, "title") || "",
+            message: attr(ea, "errorMessage") || ""
+          };
+        });
+        all(dv, "inputMessage").forEach(im => {
+          inputMessage = {
+            show: attr(im, "show") !== "0",
+            title: attr(im, "title") || "",
+            message: attr(im, "prompt") || ""
+          };
+        });
+        validations.push({
+          range: sqref, type: dvType, operator: op,
+          formula1: formula1, formula2: formula2, list: listItems,
+          allowBlank: allowBlank, showDropDown: showDropDown,
+          errorAlert: errorAlert, inputMessage: inputMessage
+        });
+      });
+    }
     const hasFmt = Object.keys(styles).length > 0;
     const hasMerge = merges.length > 0;
     const noteExtra = [hasFmt ? "格式已保留" : null, hasMerge ? `合并 ${merges.length} 处` : null].filter(Boolean).join("；");
@@ -579,7 +632,7 @@
 
     console.timeEnd("[XLSX] 2. 单元格遍历");
     console.timeEnd("[XLSX] parseXlsx 总耗时");
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments }, compat: hasFmt ? "A" : "B", note };
+    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, comments, validations }, compat: hasFmt ? "A" : "B", note };
   }
 
   /* ============================================================

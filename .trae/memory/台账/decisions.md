@@ -1,5 +1,16 @@
 ---
 
+## [2026-10-12] Excel 数据验证全面补齐：7 种类型 + 8 种操作符 + OOXML 往返 + errorAlert/inputMessage
+
+- **选了啥**：① 数据验证扩展为完整 Excel 标准：7 种 type（list/whole/decimal/date/time/textLength/custom）+ 8 种 operator（between/notBetween/equal/notEqual/greaterThan/lessThan/greaterThanOrEqual/lessThanOrEqual）；② 模态框 UI 三 Tab（设置 / 输入信息 / 出错警告）；③ OOXML 导入 `<dataValidation>` 解析（含 errorAlert/inputMessage 子元素），导出 `<dataValidations>` 生成；④ 老 API `type:"number", min/max` 向后兼容（setValidation 内部自动转 decimal + between）
+- **为啥**：用户说"表格功能对应市面的不差了很多，像下拉的几种状态都没有"，联网确认 Excel Data Validation 有 7 种标准类型
+- **踩的坑**：① 测试用老 API `type:"number", min:1, max:10` → 新体系是 decimal+formula1/formula2 → `_sheettools_test.js` 从 31 变 33 但 2 条挂 → 修：setValidation 里加向后兼容转换块；② import-ooxml.js 里 DV_TYPE_MAP 先引用后声明（顺序反了）→ 修：移到解析循环前
+- **测试**：109/109 绿（sheettools 33/33 全绿，向后兼容生效）
+- **关联文件**：spreadsheet.js（validateCell/_dvCheck/openValidationModal/setValidation 全部重写）、import-ooxml.js（parseXlsx 加 dataValidation 解析）、export-ooxml.js（加 _dvXml 生成函数）、style.css（加 dv-tabs CSS）
+- **决策人**：用户"先做 P0 和 P1，P2 后续再优化"拍板
+
+---
+
 ## [2026-10-12] escapeHtml 统一 + .then().catch 裸链修复
 
 - **选了啥**：① 11 个 PDF 工具模块的 `escapeHtml()` 重复定义全部统一成一行转发：`(global.OS && OS.util && OS.util.escapeHtml) ? OS.util.escapeHtml(s) : fallback`，fallback 保留真正的 HTML 转义逻辑（`String(s).replace(/[&<>"']/g, ...)`）；② mindmap.js 的 4 处裸 `.then()` 链（importMarkdown/importOpml/importJson/file.text() + export Docx generateAsync）补 `.catch(err => OS.toast(...))`

@@ -597,6 +597,58 @@
     (data.comments || []).forEach(c => { if (c.author) allAuthors.add(c.author); });
     const authorList = Array.from(allAuthors);
 
+    // 数据验证 → OOXML <dataValidations>
+    function _dvXml(dvs) {
+      // 内部 type/op → OOXML 标准名（已经对齐，直接用）
+      let xml = '<dataValidations count="' + dvs.length + '">';
+      for (const v of dvs) {
+        const attrs = [];
+        attrs.push('type="' + (v.type || "list") + '"');
+        if (v.type && v.type !== "list" && v.type !== "custom") {
+          attrs.push('operator="' + (v.operator || "between") + '"');
+        }
+        attrs.push('allowBlank="' + (v.allowBlank === false ? "0" : "1") + '"');
+        if (v.type === "list") attrs.push('showDropDown="' + (v.showDropDown === false ? "0" : "1") + '"');
+        attrs.push('sqref="' + esc(v.range || "") + '"');
+
+        let form1 = "";
+        let form2 = "";
+        if (v.type === "list") {
+          // list 类型：确保 formula1 是 "item1,item2" 格式
+          const items = v.list || [];
+          if (items.length) form1 = '"' + items.join(",") + '"';
+          else if (v.formula1) form1 = String(v.formula1);
+        } else if (v.type === "custom") {
+          form1 = v.formula1 ? String(v.formula1) : "";
+        } else {
+          form1 = v.formula1 != null ? String(v.formula1) : "";
+          form2 = v.formula2 != null ? String(v.formula2) : "";
+        }
+
+        let children = "";
+        if (form1) children += "<formula1>" + esc(form1) + "</formula1>";
+        if (form2) children += "<formula2>" + esc(form2) + "</formula2>";
+
+        // errorAlert 子元素
+        const ea = v.errorAlert || {};
+        if (ea.show !== false) {
+          children += '<errorAlert show="1" errorStyle="' + (ea.style || "stop") + '"' +
+            (ea.title ? ' title="' + esc(ea.title) + '"' : '') +
+            (ea.message ? ' errorMessage="' + esc(ea.message) + '"' : '') + "/>";
+        }
+        // inputMessage 子元素
+        const im = v.inputMessage || {};
+        if (im.show) {
+          children += '<inputMessage show="1"' +
+            (im.title ? ' title="' + esc(im.title) + '"' : '') +
+            (im.message ? ' prompt="' + esc(im.message) + '"' : '') + "/>";
+        }
+        xml += '<dataValidation ' + attrs.join(" ") + ">" + children + "</dataValidation>";
+      }
+      xml += "</dataValidations>";
+      return xml;
+    }
+
     sheets.forEach((sh, i) => {
       const idx = i + 1;
       const sheetName = sh.name || ("Sheet" + idx);
@@ -679,10 +731,14 @@
         ? '<mergeCells count="' + merges.length + '">' + merges.map(m => '<mergeCell ref="' + esc(m) + '"/>').join("") + "</mergeCells>"
         : "";
 
+      // dataValidations
+      const dvs = sh.validations || [];
+      const dvXml = dvs.length ? _dvXml(dvs) : "";
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheetData>' + rowsXml + "</sheetData>" +
-        mergeXml +
+        mergeXml + dvXml +
         (chartParts ? '<drawing r:id="rIdD"/>' : "") +
         (hasCmt ? '<legacyDrawing r:id="rIdC"/>' : "") + "</worksheet>";
 

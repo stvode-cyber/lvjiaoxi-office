@@ -1287,3 +1287,11 @@ html[data-pdf-dark="on"] .pdf-view .pdf-highlight{filter:invert(1) hue-rotate(18
 /* 批注面板在 pdf-side 里，不在 .pdf-view filter 范围内 → 正常显示 */
 /* 搜索高亮在 filter 内 → 反回来 */
 html[data-pdf-dark="on"] .pdf-view ::selection{background:#3b82f6;color:#fff}
+
+/* ===== 数据验证模态框 Tabs ===== */
+.dv-tabs{display:flex;border-bottom:1px solid var(--border,#e5e7eb);margin-bottom:12px;gap:2px}
+.dv-tab{padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted,#6b7280);border-bottom:2px solid transparent;transition:all .15s}
+.dv-tab:hover{color:var(--text,#111827)}
+.dv-tab.active{color:var(--accent,#2563eb);border-bottom-color:var(--accent,#2563eb);font-weight:600}
+.dv-tab-panel{display:flex;flex-direction:column;gap:10px}
+.dv-tab-panel textarea{width:100%;padding:6px 10px;border:1px solid var(--border,#d1d5db);border-radius:6px;font-size:13px;resize:vertical;box-sizing:border-box;font-family:inherit}

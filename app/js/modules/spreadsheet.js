@@ -6041,7 +6041,20 @@
       snapshot();
       data.validations = data.validations || [];
       const i = data.validations.findIndex(v => v.range.toUpperCase() === rangeStr.toUpperCase());
-      const rule = Object.assign({ range: rangeStr.toUpperCase() }, cfg);
+      // 向后兼容：老 API type:"number" + min/max → 自动转成 decimal + between
+      let rule = Object.assign({
+        range: rangeStr.toUpperCase(), type: "list", allowBlank: true,
+        operator: "between", formula1: null, formula2: null, showDropDown: true,
+        errorAlert: { show: true, style: "stop", title: "", message: "" },
+        inputMessage: { show: true, title: "", message: "" }
+      }, cfg);
+      if (rule.type === "number" && (rule.min != null || rule.max != null)) {
+        rule.type = "decimal";
+        rule.operator = "between";
+        rule.formula1 = rule.min != null ? Number(rule.min) : null;
+        rule.formula2 = rule.max != null ? Number(rule.max) : null;
+        delete rule.min; delete rule.max;
+      }
       if (i >= 0) data.validations[i] = rule; else data.validations.push(rule);
       ctx.markDirty();
       return true;
@@ -6055,56 +6068,250 @@
       if (changed) ctx.markDirty();
       return changed;
     }
+
+    // OOXML type → 内部 type 映射
+    const DV_TYPE_MAP = { whole: "whole", integer: "whole", decimal: "decimal", list: "list", date: "date", time: "time", textLength: "textLength", custom: "custom", formula: "custom" };
+    const DV_OP_MAP = { between: "between", notBetween: "notBetween", equal: "equal", notEqual: "notEqual", greaterThan: "greaterThan", lessThan: "lessThan", greaterThanOrEqual: "greaterThanOrEqual", lessThanOrEqual: "lessThanOrEqual" };
+
+    function _dvCheck(rule, rawVal) {
+      const str = String(rawVal == null ? "" : rawVal);
+      if (str === "") { if (rule.allowBlank === false) return { ok: false, msg: "不允许空白" }; return { ok: true }; }
+      const t = rule.type;
+      const op = rule.operator || "between";
+      const f1 = rule.formula1;
+      const f2 = rule.formula2;
+
+      const fail = (msg) => ({ ok: false, msg: msg });
+      const ok = () => ({ ok: true });
+
+      if (t === "list") {
+        const list = (rule.list || []).map(String);
+        return list.indexOf(str) === -1 ? fail("必须是：" + list.join(" / ")) : ok();
+      }
+
+      if (t === "whole" || t === "decimal") {
+        const num = Number(str);
+        if (isNaN(num)) return fail(t === "whole" ? "必须是整数" : "必须是数字");
+        if (t === "whole" && !Number.isInteger(num)) return fail("必须是整数");
+        const a = Number(f1), b = Number(f2);
+        switch (op) {
+          case "between":     return num >= a && num <= b ? ok() : fail("必须在 " + a + " 到 " + b + " 之间");
+          case "notBetween":  return num < a || num > b ? ok() : fail("不能在 " + a + " 到 " + b + " 之间");
+          case "equal":       return num === a ? ok() : fail("必须等于 " + a);
+          case "notEqual":    return num !== a ? ok() : fail("不能等于 " + a);
+          case "greaterThan": return num > a ? ok() : fail("必须大于 " + a);
+          case "lessThan":    return num < a ? ok() : fail("必须小于 " + a);
+          case "greaterThanOrEqual": return num >= a ? ok() : fail("必须大于等于 " + a);
+          case "lessThanOrEqual":    return num <= a ? ok() : fail("必须小于等于 " + a);
+        }
+      }
+
+      if (t === "date" || t === "time") {
+        const d = new Date(str); if (isNaN(d.getTime())) return fail(t === "date" ? "不是有效日期" : "不是有效时间");
+        const a = new Date(f1), b = new Date(f2);
+        const num = d.getTime(); const na = a.getTime(), nb = b.getTime();
+        switch (op) {
+          case "between":     return num >= na && num <= nb ? ok() : fail("必须在指定区间内");
+          case "notBetween":  return num < na || num > nb ? ok() : fail("不能在指定区间内");
+          case "equal":       return num === na ? ok() : fail("必须等于指定值");
+          case "notEqual":    return num !== na ? ok() : fail("不能等于指定值");
+          case "greaterThan": return num > na ? ok() : fail("必须晚于指定值");
+          case "lessThan":    return num < na ? ok() : fail("必须早于指定值");
+          case "greaterThanOrEqual": return num >= na ? ok() : fail("必须晚于或等于指定值");
+          case "lessThanOrEqual":    return num <= na ? ok() : fail("必须早于或等于指定值");
+        }
+      }
+
+      if (t === "textLength") {
+        const len = str.length;
+        const a = Number(f1), b = Number(f2);
+        switch (op) {
+          case "between":     return len >= a && len <= b ? ok() : fail("长度必须在 " + a + " 到 " + b + " 之间");
+          case "notBetween":  return len < a || len > b ? ok() : fail("长度不能在 " + a + " 到 " + b + " 之间");
+          case "equal":       return len === a ? ok() : fail("长度必须等于 " + a);
+          case "notEqual":    return len !== a ? ok() : fail("长度不能等于 " + a);
+          case "greaterThan": return len > a ? ok() : fail("长度必须大于 " + a);
+          case "lessThan":    return len < a ? ok() : fail("长度必须小于 " + a);
+          case "greaterThanOrEqual": return len >= a ? ok() : fail("长度必须大于等于 " + a);
+          case "lessThanOrEqual":    return len <= a ? ok() : fail("长度必须小于等于 " + a);
+        }
+      }
+
+      if (t === "custom") {
+        try {
+          const expr = String(f1 || "").trim();
+          if (!expr) return ok();
+          const result = FE.run("=" + expr, {});
+          const pass = result !== false && result !== 0 && String(result).toLowerCase() !== "false";
+          return pass ? ok() : fail("自定义公式未通过");
+        } catch (e) { return ok(); }
+      }
+
+      return ok();
+    }
+
     function validateCell(ref, value) {
       const v = data.validations || [];
       const rg = FE.parseRef(ref); if (!rg) return { ok: true };
       for (let i = 0; i < v.length; i++) {
-        const rule = v[i]; const rr = rangeRectFromStr(rule.range); if (!rr) continue;
+        const rule = v[i];
+        const rr = rangeRectFromStr(rule.range); if (!rr) continue;
         if (rg.row < rr.r1 || rg.row > rr.r2 || rg.col < rr.c1 || rg.col > rr.c2) continue;
-        const str = String(value == null ? "" : value);
-        if (str === "") { if (rule.allowBlank === false) return { ok: false, msg: "不允许空白" }; return { ok: true }; }
-        if (rule.type === "list") {
-          const list = (rule.list || []).map(String);
-          if (list.indexOf(str) === -1) return { ok: false, msg: "必须是：" + list.join(" / ") };
-        } else if (rule.type === "number") {
-          const num = Number(str);
-          if (isNaN(num)) return { ok: false, msg: "必须是数字" };
-          if (rule.min != null && num < Number(rule.min)) return { ok: false, msg: "不能小于 " + rule.min };
-          if (rule.max != null && num > Number(rule.max)) return { ok: false, msg: "不能大于 " + rule.max };
-        }
-        return { ok: true };
+        return _dvCheck(rule, value);
       }
       return { ok: true };
     }
+
     function openValidationModal() {
       const rg = rangeRect(); if (!rg) { OS.toast("请先选中要验证的区域", "warn"); return; }
       const m = openModal("数据验证");
-      const typeSel = h(`<label class="cf-row"><span>允许</span><select class="dv-type"><option value="list">序列（下拉列表）</option><option value="number">整数 / 数值区间</option></select></label>`);
-      const listRow = h(`<label class="cf-row dv-list"><span>列表项</span><input class="dv-list-v" placeholder="用逗号分隔，如 优,良,中"></label>`);
-      const minRow = h(`<label class="cf-row dv-min" hidden><span>最小值</span><input class="dv-min-v" type="number"></label>`);
-      const maxRow = h(`<label class="cf-row dv-max" hidden><span>最大值</span><input class="dv-max-v" type="number"></label>`);
-      const blankRow = h(`<label class="cf-row"><span>允许空白</span><input type="checkbox" class="dv-blank" checked></label>`);
-      typeSel.querySelector(".dv-type").addEventListener("change", e => {
-        const isList = e.target.value === "list";
-        listRow.hidden = !isList; minRow.hidden = isList; maxRow.hidden = isList;
+      m.el.style.width = "520px";
+
+      const h = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; };
+
+      // Tab 切换
+      const tabBar = h(`<div class="dv-tabs"><button class="dv-tab active">设置</button><button class="dv-tab">输入信息</button><button class="dv-tab">出错警告</button></div>`);
+      const tabContainers = {};
+
+      // ============ Tab 1: 设置 ============
+      const setTab = h(`
+        <div class="dv-tab-panel">
+          <label class="cf-row"><span>允许</span>
+            <select class="dv-type">
+              <option value="list">序列（下拉列表）</option>
+              <option value="whole">整数</option>
+              <option value="decimal">小数</option>
+              <option value="date">日期</option>
+              <option value="time">时间</option>
+              <option value="textLength">文本长度</option>
+              <option value="custom">自定义（公式）</option>
+            </select>
+          </label>
+          <label class="cf-row dv-op" hidden><span>数据</span>
+            <select class="dv-operator">
+              <option value="between">介于</option>
+              <option value="notBetween">未介于</option>
+              <option value="equal">等于</option>
+              <option value="notEqual">不等于</option>
+              <option value="greaterThan">大于</option>
+              <option value="lessThan">小于</option>
+              <option value="greaterThanOrEqual">大于等于</option>
+              <option value="lessThanOrEqual">小于等于</option>
+            </select>
+          </label>
+          <label class="cf-row dv-list"><span>列表项</span><input class="dv-list-v" placeholder="用英文逗号分隔，如 优,良,中"></label>
+          <label class="cf-row dv-f1" hidden><span>最小值 / 公式</span><input class="dv-f1-v" placeholder="between 填最小值，greaterThan 填阈值，custom 填公式如 A1>0"></label>
+          <label class="cf-row dv-f2" hidden><span>最大值</span><input class="dv-f2-v" placeholder="仅 between / notBetween 需要" hidden></label>
+          <label class="cf-row"><span>忽略空值</span><input type="checkbox" class="dv-blank" checked></label>
+          <label class="cf-row dv-dd" hidden><span>提供下拉箭头</span><input type="checkbox" class="dv-dropdown" checked></label>
+        </div>`);
+
+      const typeSel = setTab.querySelector(".dv-type");
+      const opRow = setTab.querySelector(".dv-op");
+      const opSel = setTab.querySelector(".dv-operator");
+      const listRow = setTab.querySelector(".dv-list");
+      const f1Row = setTab.querySelector(".dv-f1");
+      const f1Inp = setTab.querySelector(".dv-f1-v");
+      const f2Row = setTab.querySelector(".dv-f2");
+      const f2Inp = setTab.querySelector(".dv-f2-v");
+      const blankCk = setTab.querySelector(".dv-blank");
+      const ddCk = setTab.querySelector(".dv-dropdown");
+
+      function refreshFields() {
+        const t = typeSel.value;
+        const needsOp = ["whole","decimal","date","time","textLength"].includes(t);
+        const isList = t === "list";
+        const isCustom = t === "custom";
+        opRow.hidden = !needsOp;
+        listRow.hidden = !isList;
+        ddCk.closest(".cf-row").hidden = !isList;
+        f1Row.hidden = isList;
+        f2Row.hidden = isList || isCustom;
+        f1Inp.placeholder = isCustom ? "输入公式，如 A1>100" : (t === "textLength" ? "最小长度" : "最小值");
+        const op = opSel.value;
+        const needsF2 = needsOp && (op === "between" || op === "notBetween");
+        f2Row.hidden = !needsF2;
+      }
+      typeSel.addEventListener("change", refreshFields);
+      opSel.addEventListener("change", refreshFields);
+
+      // ============ Tab 2: 输入信息 ============
+      const inputTab = h(`
+        <div class="dv-tab-panel" hidden>
+          <label class="cf-row"><span>选中单元格时显示提示</span><input type="checkbox" class="dv-input-show"></label>
+          <label class="cf-row"><span>标题</span><input class="dv-input-title" maxlength="32"></label>
+          <label class="cf-row"><span>提示信息</span><textarea class="dv-input-msg" rows="4" maxlength="255"></textarea></label>
+        </div>`);
+      const inputShow = inputTab.querySelector(".dv-input-show");
+      const inputTitle = inputTab.querySelector(".dv-input-title");
+      const inputMsg = inputTab.querySelector(".dv-input-msg");
+
+      // ============ Tab 3: 出错警告 ============
+      const errTab = h(`
+        <div class="dv-tab-panel" hidden>
+          <label class="cf-row"><span>输入无效数据时显示警告</span><input type="checkbox" class="dv-err-show" checked></label>
+          <label class="cf-row"><span>样式</span>
+            <select class="dv-err-style">
+              <option value="stop">停止（禁止输入）</option>
+              <option value="warning">警告</option>
+              <option value="information">提示</option>
+            </select>
+          </label>
+          <label class="cf-row"><span>标题</span><input class="dv-err-title" maxlength="32"></label>
+          <label class="cf-row"><span>错误信息</span><textarea class="dv-err-msg" rows="4" maxlength="255"></textarea></label>
+        </div>`);
+      const errShow = errTab.querySelector(".dv-err-show");
+      const errStyle = errTab.querySelector(".dv-err-style");
+      const errTitle = errTab.querySelector(".dv-err-title");
+      const errMsg = errTab.querySelector(".dv-err-msg");
+
+      // Tab 切换逻辑
+      const panels = [setTab, inputTab, errTab];
+      tabBar.querySelectorAll(".dv-tab").forEach((btn, i) => {
+        btn.addEventListener("click", () => {
+          tabBar.querySelectorAll(".dv-tab").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          panels.forEach((p, j) => p.hidden = j !== i);
+        });
       });
-      m.body.appendChild(typeSel); m.body.appendChild(listRow); m.body.appendChild(minRow); m.body.appendChild(maxRow); m.body.appendChild(blankRow);
+
+      m.body.appendChild(tabBar);
+      m.body.appendChild(setTab);
+      m.body.appendChild(inputTab);
+      m.body.appendChild(errTab);
+
       m.ok.addEventListener("click", () => {
-        const type = typeSel.querySelector(".dv-type").value;
-        const range = mergeRangeStr();
-        if (type === "list") {
-          const list = listRow.querySelector(".dv-list-v").value.split(",").map(s => s.trim()).filter(Boolean);
-          setValidation(range, { type: "list", list: list, allowBlank: blankRow.querySelector(".dv-blank").checked });
+        const t = typeSel.value;
+        const rule = { type: t, allowBlank: blankCk.checked, showDropDown: ddCk.checked };
+        if (t === "list") {
+          const items = listRow.querySelector(".dv-list-v").value.split(",").map(s => s.trim()).filter(Boolean);
+          if (!items.length) { OS.toast("请填写列表项", "warn"); return; }
+          rule.list = items;
+          rule.formula1 = '"' + items.join(",") + '"'; // OOXML list 用逗号包裹双引号
+        } else if (t === "custom") {
+          rule.formula1 = f1Inp.value.trim();
         } else {
-          setValidation(range, {
-            type: "number",
-            min: minRow.querySelector(".dv-min-v").value === "" ? null : Number(minRow.querySelector(".dv-min-v").value),
-            max: maxRow.querySelector(".dv-max-v").value === "" ? null : Number(maxRow.querySelector(".dv-max-v").value),
-            allowBlank: blankRow.querySelector(".dv-blank").checked
-          });
+          rule.operator = opSel.value;
+          rule.formula1 = f1Inp.value === "" ? null : (t === "whole" || t === "decimal" ? Number(f1Inp.value) : f1Inp.value);
+          if (!f2Row.hidden && f2Inp.value !== "") {
+            rule.formula2 = (t === "whole" || t === "decimal") ? Number(f2Inp.value) : f2Inp.value;
+          }
         }
+        rule.errorAlert = {
+          show: errShow.checked,
+          style: errStyle.value,
+          title: errTitle.value.trim(),
+          message: errMsg.value.trim()
+        };
+        rule.inputMessage = {
+          show: inputShow.checked,
+          title: inputTitle.value.trim(),
+          message: inputMsg.value.trim()
+        };
+        setValidation(mergeRangeStr(), rule);
         OS.toast("已设置数据验证", "ok"); m.close();
       });
+      refreshFields();
     }
 
     return {
