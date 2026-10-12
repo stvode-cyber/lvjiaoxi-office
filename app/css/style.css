@@ -1295,3 +1295,7 @@ html[data-pdf-dark="on"] .pdf-view ::selection{background:#3b82f6;color:#fff}
 .dv-tab.active{color:var(--accent,#2563eb);border-bottom-color:var(--accent,#2563eb);font-weight:600}
 .dv-tab-panel{display:flex;flex-direction:column;gap:10px}
 .dv-tab-panel textarea{width:100%;padding:6px 10px;border:1px solid var(--border,#d1d5db);border-radius:6px;font-size:13px;resize:vertical;box-sizing:border-box;font-family:inherit}
+
+/* 工作组高亮 — 被 Ctrl+点击 加入工作组的 sheet tab */
+.sheet-tab.in-group{background:#dbeafe;border-color:#2563eb;color:#1d4ed8;font-weight:600;outline:2px solid #2563eb;outline-offset:-2px}
+.sheet-tab.in-group::after{content:" 👥";font-size:10px;opacity:.8}

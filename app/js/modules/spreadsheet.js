@@ -5991,7 +5991,16 @@
       old.cells = data.cells; old.styles = data.styles; old.charts = data.charts;
       old.condFormats = data.condFormats; old.filters = data.filters;
       old.merge = data.merge; old.validations = data.validations;
+      // 工作组 / 标签颜色 / 冻结窗格 — 持久化到 sheet 自身
+      old.group = data.group ? [...data.group] : null;
+      old.freeze = data.freeze || null;
+      old.tabColor = data.tabColor || null;
       data.activeSheet = idx;
+      // 从新 sheet 恢复这些全局属性
+      if (data.sheets[idx].group) { data.group = new Set(data.sheets[idx].group); }
+      else data.group = null;
+      data.freeze = data.sheets[idx].freeze || null;
+      data.tabColor = data.sheets[idx].tabColor || null;
       bindAliases();
       buildGrid(); recompute(); renderCharts(); applyFreeze(); renderSheetTabs(); updateStatus();
       highlightBadges();
@@ -6004,9 +6013,19 @@
       old.cells = data.cells; old.styles = data.styles; old.charts = data.charts;
       old.condFormats = data.condFormats; old.filters = data.filters;
       old.merge = data.merge; old.validations = data.validations;
+      old.group = data.group ? [...data.group] : null;
+      old.freeze = data.freeze || null;
+      old.tabColor = data.tabColor || null;
       snapshot();
       data.sheets.splice(idx, 1);
+      // 工作组里如果有被删的 sheet，从所有成员的 group 里剔除
+      data.sheets.forEach(sh => {
+        if (sh.group) { sh.group = sh.group.filter(gi => gi !== idx); if (sh.group.length <= 1) sh.group = null; }
+      });
+      if (data.group) { data.group.delete(idx); if (data.group.size <= 1) data.group = null; }
       if (data.activeSheet >= data.sheets.length) data.activeSheet = data.sheets.length - 1;
+      if (data.sheets[data.activeSheet].group) data.group = new Set(data.sheets[data.activeSheet].group);
+      else data.group = null;
       bindAliases();
       buildGrid(); recompute(); renderCharts(); applyFreeze(); renderSheetTabs(); updateStatus();
       highlightBadges();
