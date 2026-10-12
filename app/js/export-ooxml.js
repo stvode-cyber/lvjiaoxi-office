@@ -957,9 +957,20 @@
       '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
       cellXfsXml + "</styleSheet>";
 
+    // definedNames 命名区域（workbook.xml 级）
+    let dnXml = "";
+    const dns = (data.names && data.names.length) ? data.names : (data.definedNames || []);
+    if (dns.length) {
+      dnXml = '<definedNames>' + dns.map(d => {
+        let attr = 'name="' + esc(d.name || "") + '"';
+        if (d.localSheetId != null) attr += ' localSheetId="' + d.localSheetId + '"';
+        return '<definedName ' + attr + '>' + esc(d.formula || "") + "</definedName>";
+      }).join("") + "</definedNames>";
+    }
+
     const workbookXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-      '<workbook xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheets>' + wbSheets + "</sheets></workbook>";
+      '<workbook xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheets>' + wbSheets + "</sheets>" + dnXml + "</workbook>";
 
     const wbRelsXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
