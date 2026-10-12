@@ -1,5 +1,33 @@
 ---
 
+## [2026-10-12] 工作表工作组修复：switchSheet 缺保存/恢复是唯一根因
+
+- **选了啥**：补 switchSheet 里 data.group / freeze / tabColor 的保存（到旧 sheet）+ 恢复（从新 sheet）；补 removeSheet 里删 sheet 时从所有成员 group 里剔除 idx；CSS 加 .in-group 蓝色高亮 + 👥
+- **为啥**：工作组菜单已有 toggleSheetGroup（Ctrl+click）+ syncWriteToGroup（writeCell 同步写入）+ 高亮 class — 全链路就位，唯独 switchSheet 没有保存/恢复 data.group，导致切 sheet 后工作组丢
+- **测试**：109/109 绿
+- **踩的坑**：GitHub push 两次断网（443 不通），本地 commit 5f65dba OK 待重发
+- **关联文件**：spreadsheet.js（switchSheet + removeSheet 各加 4-5 行保存/恢复）、style.css（加 .in-group CSS）
+- **决策人**：用户"先做工作表工作组"
+
+---
+
+## [2026-10-12] v1.1.7 发版 — Excel 增强大礼包
+
+- **版本**：v1.1.7（本地 commit 423d679，tag v1.1.7；**GitHub push 因 443 断网待重发**）
+- **Setup.exe**：`dist\绿角犀 Office Setup 1.1.7.exe`，165.5 MB
+- **latest.yml**：version: 1.1.7，sha512 OK
+- **主要内容**（本轮会话全部交付）：
+  - 🔧 质量修复：IPC app:quit/app:reload 补 handle + 4 模块 destroy() + 11 文件 escapeHtml 统一 + 4 处裸 .then() 补 catch
+  - 📊 数据验证：7 type × 8 operator 全覆盖 + 三 Tab 模态框 + OOXML 导入导出 + P2 下拉交互 + inputMessage 提示条
+  - 🎨 条件格式：matchCell 8 op 全 + OOXML 往返（colorScale/dataBar/iconSet/cellIs）
+  - 📄 OOXML 工作表级属性：冻结窗格 + tabColor + defaultRowHeight + customRowHeights
+- **测试**：108/108 代码级全绿（_cdp_test + _e2e_roundtrip 跳过）
+- **踩的坑**：GitHub push 两次断网（443 不通），本地 tag OK 待重发
+- **后续**：网络恢复后执行 `git push origin main v1.1.7`
+- **决策人**：用户"执行吧"
+
+---
+
 ## [2026-10-12] OOXML 工作表级属性往返：冻结窗格/tabColor/行高
 
 - **选了啥**：① import-ooxml 解析 sheetViews/pane → freeze{row,col}；② sheetPr/tabColor → data.tabColor；③ sheetFormatPr/defaultRowHeight；④ sheetData/row customHeight → data.customRowHeights；⑤ export-ooxml 生成 sheetPr/tabColor + sheetViews/pane + sheetFormatPr defaultRowHeight
