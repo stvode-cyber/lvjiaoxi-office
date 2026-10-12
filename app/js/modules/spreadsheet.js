@@ -2390,6 +2390,105 @@
       stSel.textContent = `计数=${n}　选定=${rangeRef}`;
       stInfo.textContent = `共 ${Object.keys(data.cells).length} 个带值单元格`;
     }
+    /* ============================================================
+     * 数据验证 P2 交互：selectCell → list 弹下拉 / inputMessage 提示条
+     * ============================================================ */
+    let _dvSelect = null;     // 原生 select 下拉
+    let _dvInputBar = null;   // inputMessage 提示条
+    function _hideDVWidgets() {
+      if (_dvSelect) { _dvSelect.remove(); _dvSelect = null; }
+      if (_dvInputBar) { _dvInputBar.remove(); _dvInputBar = null; }
+    }
+    function _findDVForRef(ref) {
+      const v = data.validations || [];
+      const rg = FE.parseRef(ref); if (!rg) return null;
+      for (const rule of v) {
+        const rr = rangeRectFromStr(rule.range); if (!rr) continue;
+        if (rg.row >= rr.r1 && rg.row <= rr.r2 && rg.col >= rr.c1 && rg.col <= rr.c2) return rule;
+      }
+      return null;
+    }
+    function _showDVDropdown(ref) {
+      _hideDVWidgets();
+      const rule = _findDVForRef(ref);
+      if (!rule || rule.type !== "list" || rule.showDropDown === false) return;
+      const items = rule.list || [];
+      if (!items.length) return;
+      const td = table.querySelector('td[data-ref="' + ref + '"]'); if (!td) return;
+      const rect = td.getBoundingClientRect();
+      const sel = document.createElement("select");
+      sel.className = "dv-native-select";
+      sel.setAttribute("size", Math.min(items.length, 8));
+      sel.style.position = "fixed";
+      sel.style.left = (rect.right - 4) + "px";
+      sel.style.top = rect.top + "px";
+      sel.style.minWidth = Math.max(rect.width, 80) + "px";
+      sel.style.zIndex = 10000;
+      sel.style.fontSize = "13px";
+      sel.style.border = "1px solid var(--accent,#2563eb)";
+      sel.style.borderRadius = "4px";
+      sel.style.boxShadow = "0 4px 16px rgba(0,0,0,0.15)";
+      const curVal = (data.cells[ref] && data.cells[ref].v != null) ? String(data.cells[ref].v) : "";
+      for (const it of items) {
+        const opt = document.createElement("option");
+        opt.value = it; opt.textContent = it;
+        if (it === curVal) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      _dvSelect = sel;
+      document.body.appendChild(sel);
+      sel.focus();
+      const commit = () => {
+        if (!sel.isConnected) return;
+        const val = sel.value;
+        _hideDVWidgets();
+        snapshot(); writeCell(ref, val); recompute(); paint(); ctx.markDirty();
+        const res = validateCell(ref, val);
+        if (!res.ok) { const td2 = table.querySelector('td[data-ref="' + ref + '"]'); if (td2) { td2.classList.add("invalid-cell"); _showDVError(res.msg); } }
+        const pr = FE.parseRef(ref); if (pr) { const nextRef = FE.idxToCol(pr.col) + (pr.row + 1); selectCell(nextRef); }
+      };
+      sel.addEventListener("change", commit);
+      sel.addEventListener("blur", commit);
+      sel.addEventListener("keydown", e => {
+        if (e.key === "Escape") { _hideDVWidgets(); e.stopPropagation(); }
+        else if (e.key === "Enter") { e.preventDefault(); commit(); }
+      });
+    }
+    function _showDVInputMessage(ref) {
+      _hideDVWidgets();
+      const rule = _findDVForRef(ref);
+      if (!rule) return;
+      const im = rule.inputMessage;
+      if (!im || !im.show || !im.message) return;
+      const td = table.querySelector('td[data-ref="' + ref + '"]'); if (!td) return;
+      const rect = td.getBoundingClientRect();
+      const bar = document.createElement("div");
+      bar.className = "dv-input-bar";
+      bar.style.position = "fixed";
+      bar.style.left = rect.left + "px";
+      bar.style.top = (rect.top - 4) + "px";
+      bar.style.transform = "translateY(-100%)";
+      bar.style.background = "#fff7ed";
+      bar.style.border = "1px solid #f59e0b";
+      bar.style.borderRadius = "6px";
+      bar.style.padding = "6px 12px";
+      bar.style.fontSize = "12px";
+      bar.style.color = "#92400e";
+      bar.style.boxShadow = "0 2px 8px rgba(0,0,0,0.1)";
+      bar.style.zIndex = 9999;
+      bar.style.maxWidth = "320px";
+      bar.style.whiteSpace = "normal";
+      bar.style.pointerEvents = "none";
+      const title = im.title ? '<b style="margin-right:6px">' + im.title + ':</b>' : '';
+      bar.innerHTML = title + im.message;
+      _dvInputBar = bar;
+      document.body.appendChild(bar);
+      setTimeout(() => { if (_dvInputBar === bar) { bar.style.opacity = "0"; bar.style.transition = "opacity .3s"; setTimeout(() => bar.remove(), 300); _dvInputBar = null; } }, 4000);
+    }
+    function _showDVError(msg) {
+      OS.toast(msg, "warn");
+    }
+
     function selectCell(ref) {
       anchor = ref; selected = ref;
       paint();
@@ -2397,6 +2496,11 @@
       const raw = data.cells[ref];
       fx.value = raw ? (raw.f || raw.v) : "";
       updateStatus();
+      // P2 数据验证交互：隐藏旧弹层，显示新的 dropdown / inputMessage
+      _hideDVWidgets();
+      _showDVInputMessage(ref);
+      // list 类型：延迟 120ms（等 paint + 滚动完成）弹下拉
+      setTimeout(() => _showDVDropdown(ref), 120);
     }
     function select(ref) { selectCell(ref); }
     selectCell("A1");
