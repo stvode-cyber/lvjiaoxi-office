@@ -351,11 +351,7 @@
     };
   }
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[c]));
-  }
+  function escapeHtml(s) { return (global.OS && OS.util && OS.util.escapeHtml) ? OS.util.escapeHtml(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   function fmtBox(p) {
     if (p.mediaBox == null) return "未知尺寸";

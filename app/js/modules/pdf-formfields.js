@@ -360,12 +360,7 @@
     };
   }
 
-  function escapeHtml(s) {
-    // 转发统一实现 — OS.util.escapeHtml（OS.util 未就绪时走内置 fallback）
-    const u = (global.OS && OS.util);
-    if (u && u.escapeHtml) return u.escapeHtml(s);
-    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  }
+  function escapeHtml(s) { return (global.OS && OS.util && OS.util.escapeHtml) ? OS.util.escapeHtml(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   function fmtVal(v) {
     if (v == null) return "—";
