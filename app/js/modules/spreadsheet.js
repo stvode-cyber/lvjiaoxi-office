@@ -2202,8 +2202,8 @@
       table.innerHTML = html;
       applyMerges();
     }
-    buildGrid();
     bindAliases();
+    buildGrid();
     applyFreeze();
     renderSheetTabs();
     const sheetAddBtn = wrap.querySelector(".sheet-add");
