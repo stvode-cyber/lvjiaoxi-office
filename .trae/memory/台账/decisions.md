@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-12] Writer 中西文字体分别设置 — CSS fallback 链一行搞定
+
+- **选了啥**：① 原来单字体下拉（8 种中+西混选）拆成两个独立下拉——中文字体 6 种 + 西文字体 6 种；② 新增 `_applyDualFont()` 函数，拼接 fallback 链 `"西文字体", "中文字体"` 传给 execCommand("fontName")，浏览器自动为每个字形选第一个能渲染的字体；③ 加 `styleWithCSS` 包装确保生成 CSS font-family 而非老 `<font>` 标签
+- **为啥**：execCommand("fontName") 底层就是 set CSS fontFamily，所以支持多字体 fallback 链——这是最简实现，比自己包 span（复杂且破坏 undo 栈）好得多；Word/WPS/ONLYOFFICE 都有中西文字体分别设置，是高频需求
+- **备选方案**：自己遍历选区字符级包 span → 否决，复杂、破坏 undo、性能差；CSS `unicode-range` 分 span → 否决，改动量过大
+- **关联文件**：app/js/modules/writer.js（新增 _fontZh/_fontEn/_applyDualFont + ribbon 字体组改两个 select）
+- **决策人**：AI
+
+---
+
 ## [2026-10-12] 快捷键体系清理 — shell 全局唯一路由 + writer 模块专用 5 键
 
 - **选了啥**：① 删掉 writer.js 局部重复拦截 Ctrl+S/F/P（shell.js 全局 L212-256 已统一覆盖，writer 暴露的 openFindPanel/exportAs 函数已正确路由）；② 新增 Writer 模块专用 5 快捷键：Ctrl+Shift+> 增大字号 / Ctrl+Shift+< 减小字号 / Ctrl+Shift+L 项目符号 / Ctrl+Shift+J 两端对齐 / Ctrl+Shift+N 编号

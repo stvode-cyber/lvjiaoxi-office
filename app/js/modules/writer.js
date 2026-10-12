@@ -94,6 +94,18 @@
       ctx.markDirty();
     }
 
+    /* ---------- 中西文字体分别设置（fallback 链：西文先、中文兜底） ---------- */
+    let _fontZh = "Microsoft YaHei";
+    let _fontEn = "Arial";
+    function _applyDualFont() {
+      page.focus();
+      const chain = `"${_fontEn}", "${_fontZh}"`;
+      try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
+      try { document.execCommand("fontName", false, chain); } catch (e) {}
+      try { document.execCommand("styleWithCSS", false, false); } catch (e) {}
+      ctx.markDirty();
+    }
+
     /* ---------- P0 增强：字体 / 段落 / 剪贴板 辅助 ---------- */
     function setFontSize(px) {
       page.focus();
@@ -870,18 +882,26 @@
             },
             {
               label: "字体", items: [
-                { kind: "select", title: "字体", width: 120, value: "",
+                { kind: "select", title: "中文字体", width: 100, value: "Microsoft YaHei",
                   options: [
-                    { value: "", label: "默认字体" },
                     { value: "Microsoft YaHei", label: "微软雅黑" },
                     { value: "SimSun", label: "宋体" },
                     { value: "SimHei", label: "黑体" },
                     { value: "KaiTi", label: "楷体" },
                     { value: "NSimSun", label: "新宋体" },
-                    { value: "Arial", label: "Arial" },
-                    { value: "Times New Roman", label: "Times New Roman" }
+                    { value: "FangSong", label: "仿宋" }
                   ],
-                  onChange: v => { if (v) exec("fontName", v); } },
+                  onChange: v => { _fontZh = v; _applyDualFont(); } },
+                { kind: "select", title: "西文字体", width: 100, value: "Arial",
+                  options: [
+                    { value: "Arial", label: "Arial" },
+                    { value: "Times New Roman", label: "Times New Roman" },
+                    { value: "Calibri", label: "Calibri" },
+                    { value: "Georgia", label: "Georgia" },
+                    { value: "Courier New", label: "Courier New" },
+                    { value: "Verdana", label: "Verdana" }
+                  ],
+                  onChange: v => { _fontEn = v; _applyDualFont(); } },
                 { kind: "select", title: "字号", width: 60, value: "",
                   options: [
                     { value: "", label: "默认" },
