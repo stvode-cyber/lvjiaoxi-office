@@ -4925,6 +4925,7 @@
             },
             {
               label: "编辑", items: [
+                { kind: "btn", glyph: "⌫", title: "清除选区格式", onClick: clearFormat },
                 { kind: "btn", icon: "undo", title: "撤销 (Ctrl+Z)", onClick: undo },
                 { kind: "btn", icon: "redo", title: "重做 (Ctrl+Y)", onClick: redo },
                 { kind: "btn", icon: "search", title: "查找 (Ctrl+F)", onClick: () => openFindPanel("find") },
@@ -5128,8 +5129,26 @@
     });
 
     function setStyle(patch) {
+      snapshot();
       data.styles[selected] = Object.assign(data.styles[selected] || {}, patch);
       applyFmt(); applyCondFormat(); ctx.markDirty();
+    }
+    function clearFormat() {
+      const rg = rangeRect();
+      if (!rg) return;
+      snapshot();
+      let count = 0;
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          if (data.styles[ref]) { delete data.styles[ref]; count++; }
+          const td = table.querySelector(`td[data-ref="${ref}"]`);
+          if (td) td.removeAttribute("style");
+        }
+      }
+      applyCondFormat(); ctx.markDirty();
+      if (count > 0) OS.toast("已清除 " + count + " 个单元格的格式");
+      else OS.toast("选区没有可清除的格式", "info");
     }
     function applyFmt() {
       const bCss = st => ({ hair: "1px solid", thin: "1px solid", medium: "2px solid", thick: "3px solid", dashed: "1px dashed", mediumDashed: "2px dashed", dotted: "1px dotted", double: "3px double", dashDot: "1px dashed", mediumDashDot: "2px dashed", dashDotDot: "1px dashed", slantDashDot: "1px dashed" }[st] || "1px solid");

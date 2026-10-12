@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-12] 清除格式 clearFormat — ribbon 按钮 + 选区批量 + undo 可撤销
+
+- **选了啥**：① 新增 `clearFormat()` 函数：遍历 rangeRect 选区内所有 ref → delete data.styles[ref] + td.removeAttribute('style') → applyCondFormat → markDirty；② 在 ribbon "开始" tab → "编辑"组最前面加 `⌫ 清除格式` 按钮；③ **setStyle 也加了 snapshot()**（原来没加，样式修改无法撤销）
+- **为啥**：代码里有样式存储但没有"清除格式"菜单入口；选区内批量删除而不只是清单个；td 残留 inline CSS 必须手动 removeAttribute，因为 applyFmt 只会应用已有样式
+- **备选方案**：只在条件格式菜单加"清除条件格式" → 否决，用户期望的是清除所有格式（粗体/颜色/填充/对齐）
+- **关联文件**：app/js/modules/spreadsheet.js (clearFormat + setStyle snapshot + ribbon 编辑组)
+- **决策人**：AI
+
+---
+
 ## [2026-10-12] 列宽/行高拖拽交互 + buildGrid per-sheet bug 修复
 
 - **选了啥**：① buildGrid 从读 `data.colWidths`（全局）改成读 `sh0.colWidths`（per-sheet），修复多表模式下列宽丢失；② 新增行高 render（`customRowHeights` → tr height）；③ 新增列宽/行高拖拽 UI（colhead/rowhead mousedown→mousemove→mouseup）；④ destroy 里调 `resizeCleanup()` 清理监听器
