@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-12] Writer 系统性审计 + 表格网格拖选（竞品式 10×8）
+
+- **选了啥**：① Writer 完整功能审计，识别 P0/P1/P2 三级缺口；② 表格按钮从硬编码 `3×3` 改成 **grid 10×8 悬停预览面板**（`insertTableGrid()`）；③ ribbon 表格按钮改成 split menu（下拉还有快速 3×3/5×5/表头）
+- **为啥**：硬编码 3×3 是高频体验短板；竞品 Word/WPS/ONLYOFFICE 都是网格拖选；Writer 整体功能已较全（5 tab + 批注 + 页眉页脚 + DOCX 导出），系统性审计避免凭直觉挑功能
+- **备选方案**：保留硬编码 + prompt 输入行列数 → 否决，交互体验差；先做修订模式 Track Changes → 否决，改动量过大（大）
+- **关联文件**：app/js/modules/writer.js（insertTableGrid + ribbon 插入 tab）、app/css/style.css（.tbl-grid-panel 样式）
+- **决策人**：AI
+
+---
+
 ## [2026-10-12] 清除格式 clearFormat — ribbon 按钮 + 选区批量 + undo 可撤销
 
 - **选了啥**：① 新增 `clearFormat()` 函数：遍历 rangeRect 选区内所有 ref → delete data.styles[ref] + td.removeAttribute('style') → applyCondFormat → markDirty；② 在 ribbon "开始" tab → "编辑"组最前面加 `⌫ 清除格式` 按钮；③ **setStyle 也加了 snapshot()**（原来没加，样式修改无法撤销）

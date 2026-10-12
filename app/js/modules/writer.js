@@ -739,6 +739,70 @@
       _on(ov, "click", e => { if (e.target === ov) ov.remove(); });
     }
 
+    /* ---------- 表格网格拖选插入（竞品式：悬停预览行列数） ---------- */
+    function insertTableGrid() {
+      // 关掉已有的
+      const existing = wrap.querySelector(".tbl-grid-panel");
+      if (existing) { existing.remove(); return; }
+
+      const panel = document.createElement("div");
+      panel.className = "tbl-grid-panel";
+      panel.innerHTML = `
+        <div class="tbl-grid-hint"><span class="tbl-grid-dim">0 × 0</span> 表格</div>
+        <div class="tbl-grid-box"></div>
+        <div class="tbl-grid-footer">插入表格…</div>
+      `;
+      wrap.appendChild(panel);
+
+      const box = panel.querySelector(".tbl-grid-box");
+      const hint = panel.querySelector(".tbl-grid-dim");
+      const GRID_COLS = 10, GRID_ROWS = 8;
+      let highlight = { r: 0, c: 0 };
+
+      // 生成网格单元格
+      for (let r = 1; r <= GRID_ROWS; r++) {
+        for (let c = 1; c <= GRID_COLS; c++) {
+          const cell = document.createElement("div");
+          cell.className = "tbl-grid-cell";
+          cell.dataset.r = r; cell.dataset.c = c;
+          box.appendChild(cell);
+        }
+      }
+
+      function refreshHighlight() {
+        box.querySelectorAll(".tbl-grid-cell").forEach(el => {
+          const r = +el.dataset.r, c = +el.dataset.c;
+          el.classList.toggle("on", r <= highlight.r && c <= highlight.c);
+        });
+      }
+
+      box.addEventListener("mouseover", e => {
+        const cell = e.target.closest(".tbl-grid-cell");
+        if (!cell) return;
+        highlight = { r: +cell.dataset.r, c: +cell.dataset.c };
+        hint.textContent = highlight.c + " × " + highlight.r;
+        refreshHighlight();
+      });
+
+      box.addEventListener("click", e => {
+        const cell = e.target.closest(".tbl-grid-cell");
+        if (!cell) return;
+        const rows = +cell.dataset.r, cols = +cell.dataset.c;
+        const html = '<table><tbody>' + Array.from({ length: rows }).map(() =>
+          '<tr>' + Array.from({ length: cols }).map(() => '<td>　</td>').join("") + '</tr>'
+        ).join("") + '</tbody></table><p><br></p>';
+        exec("insertHTML", html);
+        panel.remove();
+      });
+
+      // 点外部关掉
+      setTimeout(() => {
+        document.addEventListener("click", closePanel, { once: true });
+        document.addEventListener("scroll", closePanel, true);
+      }, 0);
+      function closePanel() { panel.remove(); document.removeEventListener("scroll", closePanel, true); }
+    }
+
     /* ---------- 功能区（标签页） ---------- */
     const ribbon = OS.Ribbon.create({
       file: { onOpen: ctx.openBackstage },
@@ -843,9 +907,17 @@
           id: "insert", label: "插入", groups: [
             {
               label: "表格", items: [
-                { kind: "btn", icon: "table", title: "插入 3×3 表格", onClick: () => exec("insertHTML",
-                  '<table><tbody>' + Array.from({ length: 3 }).map(() =>
-                    '<tr>' + Array.from({ length: 3 }).map(() => '<td>　</td>').join("") + '</tr>').join("") + '</tbody></table><p><br></p>') }
+                {
+                  kind: "split", icon: "table", label: "表格", title: "插入表格（网格选择行列数）",
+                  onClick: insertTableGrid,
+                  menu: [
+                    { label: "插入表格…", onClick: insertTableGrid },
+                    { divider: true },
+                    { label: "快速 3×3", onClick: () => exec("insertHTML", '<table><tbody>' + Array.from({length:3}).map(()=>'<tr>'+Array.from({length:3}).map(()=>'<td>　</td>').join("")+'</tr>').join("")+'</tbody></table><p><br></p>') },
+                    { label: "快速 5×5", onClick: () => exec("insertHTML", '<table><tbody>' + Array.from({length:5}).map(()=>'<tr>'+Array.from({length:5}).map(()=>'<td>　</td>').join("")+'</tr>').join("")+'</tbody></table><p><br></p>') },
+                    { label: "插入 1 行 2 列表头", onClick: () => exec("insertHTML", '<table><tbody><tr><th>列 1</th><th>列 2</th></tr></tbody></table><p><br></p>') }
+                  ]
+                }
               ]
             },
             {

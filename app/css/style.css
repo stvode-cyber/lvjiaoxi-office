@@ -504,6 +504,18 @@ a{color:var(--accent)}
 .writer-page ul,.writer-page ol{padding-left:24px;margin:8px 0}
 .writer-page li{margin:2px 0}
 
+/* 表格网格拖选面板 */
+.tbl-grid-panel{position:fixed;z-index:100;background:var(--bg2);border:1px solid var(--rule);
+  border-radius:10px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);
+  user-select:none;font-size:12px;min-width:200px}
+.tbl-grid-hint{text-align:center;color:var(--muted);margin-bottom:8px}
+.tbl-grid-dim{font-weight:700;color:var(--accent);font-size:13px}
+.tbl-grid-box{display:grid;grid-template-columns:repeat(10,18px);gap:1px;
+  background:var(--rule);border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.tbl-grid-cell{width:18px;height:18px;background:var(--bg2);cursor:pointer;transition:.08s}
+.tbl-grid-cell.on{background:var(--accent)}
+.tbl-grid-footer{text-align:center;color:var(--muted);margin-top:8px;font-size:11px}
+
 /* 选区浮层 + AI 一键操作 */
 .sel-toolbar{position:absolute;z-index:60;display:flex;gap:2px;padding:4px;
   background:var(--bg2);border:1px solid var(--rule);border-radius:10px;
