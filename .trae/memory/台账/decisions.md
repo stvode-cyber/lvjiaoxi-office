@@ -1,4 +1,25 @@
+---
 
+## [2026-10-12] escapeHtml 统一 + .then().catch 裸链修复
+
+- **选了啥**：① 11 个 PDF 工具模块的 `escapeHtml()` 重复定义全部统一成一行转发：`(global.OS && OS.util && OS.util.escapeHtml) ? OS.util.escapeHtml(s) : fallback`，fallback 保留真正的 HTML 转义逻辑（`String(s).replace(/[&<>"']/g, ...)`）；② mindmap.js 的 4 处裸 `.then()` 链（importMarkdown/importOpml/importJson/file.text() + export Docx generateAsync）补 `.catch(err => OS.toast(...))`
+- **踩的坑**：第一次改 escapeHtml 时 fallback 误写成 `String(s)` pass-through，测试沙盒里 OS.util 未就绪时不做转义 → `_pdf_anno_timeline_test.js` 挂（"HTML 转义 < 为 &lt;"）。根因：测试环境 OS 未初始化，走 fallback 路径。修：fallback 保留真正的 escape 逻辑
+- **为啥**：代码审查 checklist 扫出 17 处 `.then()` 无 catch 和 13 处 escapeHtml 重复定义；精确筛完发现只有 mindmap 的 4 处是真裸链（其余 13 处是 `.then(v, e)` 双参数或后续链已有 catch）
+- **测试**：109/109 绿（改 escapeHtml 中间态有 1 个挂，修 fallback 后全回绿）
+- **关联文件**：mindmap.js、pdf-actions.js、pdf-fonts.js、pdf-pageinfo.js、pdf-links.js、pdf-anno-timeline.js、pdf-docinfo.js、pdf-encrypt.js、pdf-formfields.js、pdf-history.js、pdf-preflight.js、pdf-signature.js（sheet-export.js 的 escapeHtml 是 opts 参数，不动）
+- **决策人**：用户「继续批量清理」拍板
+
+---
+
+## [2026-10-12] 代码审查修复：IPC 差集补全 + 全局事件监听泄漏封堵
+
+- **选了啥**：① main.js 加 `ipcMain.handle("app:quit")` → app.quit()、`ipcMain.handle("app:reload")` → BrowserWindow.reload()，补齐 renderer 调但 main 漏注册的 2 个通道；② markdown.js destroy() 从空壳补全：removeEventListener 两个 document 全局监听(mousemove/mouseup) + 删除注入的 style 元素 + wrap.remove()；③ presentation.js destroy() 加 window.resize removeEventListener + ResizeObserver.disconnect()；④ spreadsheet.js window.mouseup handler 从匿名函数改为命名变量 _ssMouseUp，destroy() 加 removeEventListener
+- **为啥**：代码审查 checklist 扫出 2 个 🔴 阻断级问题——IPC 差集导致 Ctrl+Q/F5 在 Electron 里静默失效；window/document 全局 addEventListener 无 removeEventListener 导致 SPA 切 tab 后内存泄漏（wrap.remove() 只能清 DOM 树内监听，全局监听不受影响）
+- **IPC 差集根因**：shell.js L244/L248 通过 electronAPI.invoke() 调 app:quit / app:reload，但 main.js 只注册了 updater:*/app:renderer-ready/app:pending-files/shell:open-external，这两个是 shell 层自己加的快捷键处理，忘了在 main 配 handler
+- **全局监听泄漏范围**：markdown(document.mousemove+mouseup) / presentation(window.resize) / spreadsheet(window.mouseup) 共 4 处；writer 模块已有 _Listeners+_offAll 机制覆盖，mindmap/pdf-app 无新增全局监听
+- **测试**：109/109 绿（_cdp_test.js 需 Electron 实机连 9222，属环境依赖不参与回归）
+- **关联文件**：electron/main.js、app/js/modules/markdown.js、app/js/modules/presentation.js、app/js/modules/spreadsheet.js
+- **决策人**：用户「执行代码审查修复」拍板
 
 ---
 
