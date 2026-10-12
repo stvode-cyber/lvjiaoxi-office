@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-12] Writer 段落设置精确缩进 — 复用 .pg-modal 样式体系
+
+- **选了啥**：① 新增 `openParagraphFormat()` 模态框——精确设置左缩进/右缩进/首行缩进/段前间距/段后间距（px 值）；② ribbon 段落组的缩进按钮改成 split menu（主按钮弹段落设置，下拉保留增缩缩进 + 段落设置…）；③ 完全复用 writer 页面设置已有的 `.pg-overlay/.pg-modal/.pg-row/.pg-field/.pg-actions` CSS 类，零新增样式
+- **为啥**：现有 `exec("indent")` 是模糊增减，无精确 px 值控制；竞品 Word/WPS 段落设置对话框是高频需求；复用已有 pg- 样式体系避免 CSS 膨胀
+- **备选方案**：自己写全新 CSS 类 → 否决，违反"复用优先"原则；只加 prompt 输入 → 否决，交互不友好
+- **关联文件**：app/js/modules/writer.js（openParagraphFormat + ribbon 段落组）
+- **决策人**：AI
+
+---
+
 ## [2026-10-12] Writer 系统性审计 + 表格网格拖选（竞品式 10×8）
 
 - **选了啥**：① Writer 完整功能审计，识别 P0/P1/P2 三级缺口；② 表格按钮从硬编码 `3×3` 改成 **grid 10×8 悬停预览面板**（`insertTableGrid()`）；③ ribbon 表格按钮改成 split menu（下拉还有快速 3×3/5×5/表头）

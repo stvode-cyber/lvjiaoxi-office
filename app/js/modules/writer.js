@@ -191,6 +191,57 @@
       ctx.markDirty();
     }
 
+    /* ---------- 段落设置：精确缩进/间距/首行 ---------- */
+    function openParagraphFormat() {
+      const blk = currentBlock();
+      const get = prop => parseFloat((blk && blk.style[prop]) || 0) || 0;
+      const cur = {
+        left: get("paddingLeft"),
+        right: get("paddingRight"),
+        firstLine: get("textIndent"),
+        spaceBefore: get("marginTop"),
+        spaceAfter: get("marginBottom")
+      };
+      const ov = document.createElement("div");
+      ov.className = "pg-overlay";
+      ov.innerHTML = `
+        <div class="pg-modal">
+          <div class="pg-title">段落设置</div>
+          <div class="pg-row">
+            <label class="pg-field"><span>左缩进 (px)</span><input type="number" id="pgl" value="${cur.left}" min="0" max="200" step="1"></label>
+            <label class="pg-field"><span>右缩进 (px)</span><input type="number" id="pgr" value="${cur.right}" min="0" max="200" step="1"></label>
+          </div>
+          <div class="pg-row">
+            <label class="pg-field"><span>首行缩进 (px)</span><input type="number" id="pgfl" value="${cur.firstLine}" min="0" max="200" step="1"></label>
+          </div>
+          <div class="pg-row">
+            <label class="pg-field"><span>段前间距 (px)</span><input type="number" id="pgsb" value="${cur.spaceBefore}" min="0" max="100" step="1"></label>
+            <label class="pg-field"><span>段后间距 (px)</span><input type="number" id="pgsa" value="${cur.spaceAfter}" min="0" max="100" step="1"></label>
+          </div>
+          <div class="pg-actions">
+            <button class="pg-cancel">取消</button>
+            <button class="pg-ok primary">确定</button>
+          </div>
+        </div>`;
+      wrap.appendChild(ov);
+      const close = () => ov.remove();
+      ov.querySelector(".pg-cancel").onclick = close;
+      ov.querySelector(".pg-ok").onclick = () => {
+        page.focus();
+        const blk2 = currentBlock();
+        if (blk2) {
+          blk2.style.paddingLeft   = (ov.querySelector("#pgl").value || 0) + "px";
+          blk2.style.paddingRight  = (ov.querySelector("#pgr").value || 0) + "px";
+          blk2.style.textIndent    = (ov.querySelector("#pgfl").value || 0) + "px";
+          blk2.style.marginTop     = (ov.querySelector("#pgsb").value || 0) + "px";
+          blk2.style.marginBottom  = (ov.querySelector("#pgsa").value || 0) + "px";
+          ctx.markDirty();
+        }
+        close();
+      };
+      ov.addEventListener("click", e => { if (e.target === ov) close(); });
+    }
+
     function wrapCharBorder() {
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { OS.toast("请先选中文字", "warn"); return; }
@@ -878,8 +929,16 @@
                 { kind: "btn", icon: "list-bullet", title: "项目符号", onClick: () => exec("insertUnorderedList") },
                 { kind: "btn", icon: "list-number", title: "编号", onClick: () => exec("insertOrderedList") },
                 { kind: "btn", icon: "list-number", title: "多级列表", onClick: multiLevelList },
-                { kind: "btn", icon: "indent", title: "增加缩进", onClick: () => exec("indent") },
-                { kind: "btn", icon: "outdent", title: "减少缩进", onClick: () => exec("outdent") },
+                {
+                  kind: "split", icon: "indent", title: "段落设置（精确缩进/间距/首行）", label: "缩进",
+                  onClick: openParagraphFormat,
+                  menu: [
+                    { label: "增加缩进", onClick: () => exec("indent") },
+                    { label: "减少缩进", onClick: () => exec("outdent") },
+                    { divider: true },
+                    { label: "段落设置…", onClick: openParagraphFormat }
+                  ]
+                },
                 { kind: "select", title: "行距", width: 64, value: "1.5",
                   options: [
                     { value: "1", label: "1.0" }, { value: "1.15", label: "1.15" },
