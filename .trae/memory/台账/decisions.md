@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-13] Writer 表格网格拖选无反应 — position:fixed 缺 top/left 定位
+
+- **根因**：insertTableGrid() 创建的面板 `.tbl-grid-panel` 只有 `position:fixed`（CSS L508）**没有 top/left 坐标**，元素停在 CSS 静态流位置（wrap flex column 末尾 = 页面底部视口外），所以用户点了按钮面板确实创建了（DOM 里 count=1）但看不见
+- **修复**：函数签名加 `e` 参数，创建 panel 后用 `e.currentTarget.getBoundingClientRect()` 计算按钮位置 → `panel.style.top = r.bottom + 4 + "px"; panel.style.left = r.left + "px";`
+- **踩坑**：Browser_use 调试时 JS `.click()` 能创建面板但截图看不到，advisor 精准点破"没 top/left"。静态分析阶段没注意到 CSS 缺定位属性
+- **关联文件**：app/js/modules/writer.js L806-826（insertTableGrid 函数头 + 新增 8 行定位代码）
+- **决策人**：advisor + AI
+
+---
+
 ## [2026-10-12] Writer 中西文字体分别设置 — CSS fallback 链一行搞定
 
 - **选了啥**：① 原来单字体下拉（8 种中+西混选）拆成两个独立下拉——中文字体 6 种 + 西文字体 6 种；② 新增 `_applyDualFont()` 函数，拼接 fallback 链 `"西文字体", "中文字体"` 传给 execCommand("fontName")，浏览器自动为每个字形选第一个能渲染的字体；③ 加 `styleWithCSS` 包装确保生成 CSS font-family 而非老 `<font>` 标签
