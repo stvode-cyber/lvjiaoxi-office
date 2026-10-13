@@ -267,9 +267,39 @@
         box.className = "pres-thumb" + (i === cur ? " active" : "");
         box.style.width = (W * sc) + "px";
         box.style.height = (H * sc) + "px";
+        box.draggable = true;
+        box.dataset.idx = i;
         box.appendChild(renderSlide(s, sc));
         const num = document.createElement("span"); num.className = "tnum"; num.textContent = i + 1; box.appendChild(num);
         box.addEventListener("click", () => { cur = i; renderAll(); });
+
+        // HTML5 drag & drop 重排
+        box.addEventListener("dragstart", e => {
+          e.dataTransfer.setData("text/plain", String(i));
+          e.dataTransfer.effectAllowed = "move";
+          box.classList.add("dragging");
+        });
+        box.addEventListener("dragend", () => {
+          box.classList.remove("dragging");
+          thumbs.querySelectorAll(".pres-thumb.drag-over").forEach(x => x.classList.remove("drag-over"));
+        });
+        box.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; box.classList.add("drag-over"); });
+        box.addEventListener("dragleave", () => box.classList.remove("drag-over"));
+        box.addEventListener("drop", e => {
+          e.preventDefault(); box.classList.remove("drag-over");
+          const from = +e.dataTransfer.getData("text/plain");
+          const to = i;
+          if (from !== to && from >= 0 && from < data.slides.length) {
+            snapshot();
+            const [moved] = data.slides.splice(from, 1);
+            data.slides.splice(to, 0, moved);
+            if (cur === from) cur = to;
+            else if (from < cur && to >= cur) cur--;
+            else if (from > cur && to <= cur) cur++;
+            renderAll(); ctx.markDirty();
+          }
+        });
+
         thumbs.appendChild(box);
       });
     }
@@ -389,6 +419,40 @@
 
     function addEl(o) { snapshot(); const el = Object.assign({ id: OS.util.uid("el"), type: "text", x: 60, y: 60, w: 240, h: 80, text: "文字", fontSize: 24, color: "#111827", anim: { type: "none", duration: 400, delay: 0 }, emphasis: { type: "none" } }, o); (data.slides[cur].elements || (data.slides[cur].elements = [])).push(el); selEl = el; renderAll(); ctx.markDirty(); }
     function deleteEl() { if (!selEl) { OS.toast("请先选中一个元素", "warn"); return; } snapshot(); const arr = data.slides[cur].elements; const i = arr.findIndex(e => e.id === selEl.id); if (i >= 0) arr.splice(i, 1); selEl = null; renderAll(); ctx.markDirty(); }
+
+    /* ---------- P0 补齐：插入图片 / 复制幻灯片 / 缩略图拖拽 ---------- */
+    function insertLocalImage() {
+      const input = document.createElement("input");
+      input.type = "file"; input.accept = "image/*";
+      input.onchange = () => {
+        const f = input.files && input.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = () => {
+          // 根据图片原始比例估算合适尺寸，保持 16:9 画布内居中
+          const img = new Image();
+          img.onload = () => {
+            const maxW = 400, maxH = 260;
+            const ratio = Math.min(maxW / img.width, maxH / img.height, 1);
+            const w = Math.round(img.width * ratio);
+            const h = Math.round(img.height * ratio);
+            addEl({ type: "image", src: r.result, w, h, x: Math.round((W - w) / 2), y: Math.round((H - h) / 2) });
+          };
+          img.src = r.result;
+        };
+        r.readAsDataURL(f);
+      };
+      input.click();
+    }
+    function duplicateSlide() {
+      snapshot();
+      const clone = JSON.parse(JSON.stringify(data.slides[cur]));
+      // 新 ID 避免 DOM 冲突
+      (clone.elements || []).forEach(e => { e.id = OS.util.uid("el"); });
+      data.slides.splice(cur + 1, 0, clone);
+      cur++;
+      renderAll(); ctx.markDirty();
+      OS.toast("已复制当前幻灯片", "ok");
+    }
     // 母版版式：用 placeholder 占位元素规范化当前页布局
     const LAYOUTS = ["title-content", "title-only", "section", "blank"];
     function layoutPlaceholders(layout) {
@@ -484,6 +548,7 @@
             {
               label: "幻灯片", items: [
                 { kind: "btn", icon: "slide-new", title: "新建幻灯片", label: "新建", onClick: () => { snapshot(); data.slides.splice(cur + 1, 0, { bg: "#ffffff", elements: [] }); cur++; renderAll(); ctx.markDirty(); } },
+                { kind: "btn", icon: "copy", title: "复制当前幻灯片", label: "复制", onClick: duplicateSlide },
                 { kind: "btn", icon: "trash", title: "删除幻灯片", label: "删除", onClick: () => { if (data.slides.length > 1) { snapshot(); data.slides.splice(cur, 1); cur = Math.max(0, cur - 1); renderAll(); ctx.markDirty(); } else OS.toast("至少保留一页", "warn"); } }
               ]
             },
@@ -499,6 +564,7 @@
             {
               label: "对象", items: [
                 { kind: "btn", icon: "text", title: "文本框", label: "文本框", onClick: () => addEl({ text: "文本框" }) },
+                { kind: "btn", icon: "image", title: "图片（本地文件）", label: "图片", onClick: insertLocalImage },
                 { kind: "btn", icon: "shape", title: "矩形", label: "矩形", onClick: () => addEl({ type: "shape", shape: "rect", fill: "#93c5fd", w: 160, h: 100 }) },
                 { kind: "btn", icon: "shape-circle", title: "椭圆", label: "椭圆", onClick: () => addEl({ type: "shape", shape: "ellipse", fill: "#fca5a5", w: 120, h: 120 }) },
                 { kind: "btn", icon: "arrow-right", title: "箭头", label: "箭头", onClick: () => addEl({ type: "shape", shape: "arrow", stroke: "#111827", w: 180, h: 24 }) }
