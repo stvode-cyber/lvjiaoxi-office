@@ -803,7 +803,7 @@
     }
 
     /* ---------- 表格网格拖选插入（竞品式：悬停预览行列数） ---------- */
-    function insertTableGrid() {
+    function insertTableGrid(e) {
       // 关掉已有的
       const existing = wrap.querySelector(".tbl-grid-panel");
       if (existing) { existing.remove(); return; }
@@ -816,6 +816,14 @@
         <div class="tbl-grid-footer">插入表格…</div>
       `;
       wrap.appendChild(panel);
+
+      // 定位到触发按钮正下方（split main button 或普通 btn）
+      const btn = e && e.currentTarget ? e.currentTarget : (e && e.target && e.target.closest(".rbtn,button"));
+      if (btn) {
+        const r = btn.getBoundingClientRect();
+        panel.style.top = (r.bottom + 4) + "px";
+        panel.style.left = r.left + "px";
+      }
 
       const box = panel.querySelector(".tbl-grid-box");
       const hint = panel.querySelector(".tbl-grid-dim");
