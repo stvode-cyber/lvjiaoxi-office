@@ -5094,6 +5094,12 @@
       {
         id: "export", label: "导出", groups: [
           {
+            label: "打印", items: [
+              { kind: "btn", icon: "print", title: "打印（Ctrl+P）：弹出系统打印对话框", label: "打印", onClick: () => exportAs("pdf") },
+              { kind: "btn", icon: "page-break", title: "页面设置：纸张、方向、页边距", label: "页面设置", onClick: openPageSetup }
+            ]
+          },
+          {
             label: "导出为", items: [
               { kind: "btn", icon: "save", title: "导出为 CSV（逗号分隔，UTF-8 BOM）", label: "CSV", onClick: () => exportAs("csv") },
               { kind: "btn", icon: "preview", title: "导出为 HTML 表格", label: "HTML", onClick: () => exportAs("html") },
@@ -5312,9 +5318,83 @@
           html += "</div>";
         }
         OS.util.download(new Blob([`<!DOCTYPE html><meta charset=UTF-8><title>${title}</title>` + html], { type: "text/html" }), title + ".html");
-      } else if (fmt === "pdf") window.print();
+      } else if (fmt === "pdf") doPrint();
       else if (fmt === "json") OS.util.download(new Blob([JSON.stringify(data)], { type: "application/json" }), title + ".json");
       else if (fmt === "pdffile") downloadPdfFile();
+    }
+
+    /* ---------- 打印：应用页面设置 + window.print() ---------- */
+    function doPrint() {
+      const ps = data.pageSetup || { paperSize: "A4", orientation: "portrait", margins: { top: 15, bottom: 15, left: 15, right: 15 } };
+      // 注入 @page CSS + 打印专用样式
+      const styleId = "__lvjx-print-style__";
+      let style = document.getElementById(styleId);
+      if (!style) { style = document.createElement("style"); style.id = styleId; document.head.appendChild(style); }
+      const orient = ps.orientation || "portrait";
+      const paperMap = { A4: "210mm 297mm", A3: "297mm 420mm", Letter: "216mm 279mm", Legal: "216mm 356mm" };
+      const size = paperMap[ps.paperSize] || "210mm 297mm";
+      const m = ps.margins || {};
+      const mt = (m.top || 15) + "mm", mb = (m.bottom || 15) + "mm";
+      const ml = (m.left || 15) + "mm", mr = (m.right || 15) + "mm";
+      style.textContent = `
+        @page { size: ${orient === "landscape" ? size.split(" ").reverse().join(" ") : size} ${orient}; margin: ${mt} ${mr} ${mb} ${ml}; }
+        @media print {
+          body * { visibility: hidden; }
+          table, table * { visibility: visible; }
+          table { position: absolute; left: 0; top: 0; width: 100% !important; border-collapse: collapse; }
+          th, td { border: 1px solid #999 !important; padding: 2px 4px !important; font-size: 11px !important; }
+        }`;
+      window.print();
+      setTimeout(() => { if (style && style.parentNode) style.remove(); }, 1000);
+    }
+
+    /* ---------- 页面设置模态框 ---------- */
+    function openPageSetup() {
+      const cur = data.pageSetup || { paperSize: "A4", orientation: "portrait", margins: { top: 15, bottom: 15, left: 15, right: 15 } };
+      const ov = document.createElement("div");
+      ov.className = "pg-overlay";
+      ov.innerHTML = `
+        <div class="pg-modal" style="width:420px">
+          <div class="pg-title">页面设置</div>
+          <div class="pg-row">
+            <label>纸张大小</label>
+            <select id="ps-paper"><option value="A4">A4 (210×297mm)</option><option value="A3">A3 (297×420mm)</option><option value="Letter">Letter (8.5×11in)</option><option value="Legal">Legal (8.5×14in)</option></select>
+          </div>
+          <div class="pg-row">
+            <label>方向</label>
+            <select id="ps-orient"><option value="portrait">纵向</option><option value="landscape">横向</option></select>
+          </div>
+          <div class="pg-row" style="display:flex;gap:8px;flex-wrap:wrap">
+            <div class="pg-field"><label>上边距 (mm)</label><input type="number" id="ps-mt" value="${cur.margins.top}" min="5" max="50"></div>
+            <div class="pg-field"><label>下边距 (mm)</label><input type="number" id="ps-mb" value="${cur.margins.bottom}" min="5" max="50"></div>
+            <div class="pg-field"><label>左边距 (mm)</label><input type="number" id="ps-ml" value="${cur.margins.left}" min="5" max="50"></div>
+            <div class="pg-field"><label>右边距 (mm)</label><input type="number" id="ps-mr" value="${cur.margins.right}" min="5" max="50"></div>
+          </div>
+          <div class="pg-actions">
+            <button class="pg-cancel">取消</button>
+            <button class="pg-ok">确定</button>
+          </div>
+        </div>`;
+      wrap.appendChild(ov);
+      ov.querySelector("#ps-paper").value = cur.paperSize;
+      ov.querySelector("#ps-orient").value = cur.orientation;
+      const close = () => ov.remove();
+      ov.querySelector(".pg-cancel").onclick = close;
+      ov.querySelector(".pg-ok").onclick = () => {
+        data.pageSetup = {
+          paperSize: ov.querySelector("#ps-paper").value,
+          orientation: ov.querySelector("#ps-orient").value,
+          margins: {
+            top: +ov.querySelector("#ps-mt").value || 15,
+            bottom: +ov.querySelector("#ps-mb").value || 15,
+            left: +ov.querySelector("#ps-ml").value || 15,
+            right: +ov.querySelector("#ps-mr").value || 15
+          }
+        };
+        close();
+        OS.toast("页面设置已保存", "ok");
+      };
+      ov.addEventListener("click", e => { if (e.target === ov) close(); });
     }
     function escapeHtmlCell(v) { return OS.util.escapeHtml(v == null ? "" : v); }
 
