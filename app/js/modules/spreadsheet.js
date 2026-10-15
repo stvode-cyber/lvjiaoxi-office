@@ -2998,6 +2998,59 @@
     function selectCol(col) { anchor = FE.idxToCol(col) + 1; selected = FE.idxToCol(col) + ROWS; paint(); updateStatus(); }
     function selectRow(row) { anchor = "A" + row; selected = FE.idxToCol(COLS) + row; paint(); updateStatus(); }
 
+    // ===== P0 辅助：Alt+= SUM 选区求和 =====
+    function sumSelection() {
+      const rg = rangeRect();
+      if (!rg) return;
+      const tl = FE.idxToCol(rg.c1) + rg.r1;
+      const br = FE.idxToCol(rg.c2) + rg.r2;
+      const formula = "=SUM(" + tl + ":" + br + ")";
+      // 写入 anchor 所在单元格，或选区下方一格（Excel 行为）
+      const ap = FE.parseRef(anchor);
+      let writeRef;
+      // 优先：选区正下方、同 anchor 列的格子
+      const belowRef = FE.idxToCol(ap.col) + (rg.r2 + 1);
+      if (rg.r2 + 1 <= ROWS && !data.cells[belowRef]) writeRef = belowRef;
+      else writeRef = anchor;
+      snapshot();
+      writeCell(writeRef, formula);
+      recompute(); applyFmt();
+      const td = table.querySelector(`td[data-ref="${writeRef}"]`);
+      if (td) { td.classList.add("selected"); anchor = writeRef; selected = writeRef; paint(); }
+      ctx.markDirty();
+      OS.toast("已写入 " + formula + " → " + writeRef, "ok");
+    }
+
+    // ===== P0 辅助：Delete/Backspace 清除选区内容 =====
+    function clearSelection() {
+      const rg = rangeRect();
+      if (!rg) return;
+      let count = 0;
+      snapshot();
+      for (let r = rg.r1; r <= rg.r2; r++)
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          if (data.cells[ref]) { delete data.cells[ref]; count++; }
+        }
+      recompute(); applyFmt(); ctx.markDirty();
+      if (count) OS.toast("已清除 " + count + " 个单元格", "ok");
+    }
+
+    // ===== P0 辅助：Ctrl+Shift+End/Home 选区扩展 =====
+    function expandSelectToCorner(direction) {
+      const rg = rangeRect(); if (!rg) return;
+      if (direction === "home") {
+        // 从当前选区扩展到 A1 对角
+        anchor = "A1";
+        selected = FE.idxToCol(rg.c2) + rg.r2;
+      } else {
+        const max = findDataMax();
+        anchor = FE.idxToCol(rg.c1) + rg.r1;
+        selected = FE.idxToCol(max.col) + max.row;
+      }
+      paint(); updateStatus();
+    }
+
     table.addEventListener("keydown", e => {
       const td = e.target.closest("td[data-ref]");
       if (!td) return;
@@ -3017,7 +3070,21 @@
       }
 
       // ===== 非编辑模式 =====
-      if (k === "F2") { e.preventDefault(); td.setAttribute("contenteditable", "true"); td.focus(); const s = window.getSelection(), r = document.createRange(); r.selectNodeContents(td); r.collapse(false); s.removeAllRanges(); s.addRange(r); }
+      // --- P0-1: Alt + = → SUM 选区求和 ---
+      if (e.altKey && !ctrl && !e.shiftKey && k === "=") { e.preventDefault(); sumSelection(); }
+      // --- P0-2: Ctrl + PageDown/PageUp → 切换 sheet ---
+      else if (ctrl && k === "PageDown") { e.preventDefault(); const nxt = (data.activeSheet + 1) % data.sheets.length; switchSheet(nxt); }
+      else if (ctrl && k === "PageUp") { e.preventDefault(); const nxt = (data.activeSheet - 1 + data.sheets.length) % data.sheets.length; switchSheet(nxt); }
+      // --- P0-3: Delete/Backspace → 清除选区内容 ---
+      else if (k === "Delete" || k === "Backspace") { e.preventDefault(); clearSelection(); }
+      // --- P0-4: Ctrl+9/Ctrl+0 → 隐藏行/列（占位，后续完整实现） ---
+      else if (ctrl && (k === "9" || k === "(")) { e.preventDefault(); OS.toast("隐藏行（Ctrl+9）— 开发中，后续版本落地", "info"); }
+      else if (ctrl && (k === "0" || k === ")")) { e.preventDefault(); OS.toast("隐藏列（Ctrl+0）— 开发中，后续版本落地", "info"); }
+      // --- P0-5: Ctrl+Shift+End/Home → 选区扩展到尾/头部 ---
+      else if (ctrl && e.shiftKey && k === "End") { e.preventDefault(); expandSelectToCorner("end"); }
+      else if (ctrl && e.shiftKey && k === "Home") { e.preventDefault(); expandSelectToCorner("home"); }
+      // --- 原有 ---
+      else if (k === "F2") { e.preventDefault(); td.setAttribute("contenteditable", "true"); td.focus(); const s = window.getSelection(), r = document.createRange(); r.selectNodeContents(td); r.collapse(false); s.removeAllRanges(); s.addRange(r); }
       else if (k === "Enter") { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
       else if (k === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
       else if (k.startsWith("Arrow")) {
