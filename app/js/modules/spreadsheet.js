@@ -3136,6 +3136,90 @@
       OS.toast(remove ? "已清除选区边框" : "已添加外边框", "ok");
     }
 
+    // ===== Ctrl+` 公式/值切换显示 =====
+    let showFormulasFlag = false;
+    function toggleFormulas() {
+      showFormulasFlag = !showFormulasFlag;
+      // 触发 applyFmt 重绘（它会根据 showFormulasFlag 决定 td.textContent 显示公式还是值）
+      applyFmt();
+      OS.toast("公式显示：" + (showFormulasFlag ? "开" : "关"), "ok");
+    }
+
+    // ===== Ctrl+Shift+* 选当前区域（从 anchor 向外扩展，遇空停）=====
+    function selectCurrentRegion() {
+      const ap = FE.parseRef(anchor);
+      // 向右扩展
+      let c2 = ap.col;
+      while (c2 < COLS) {
+        const r = FE.idxToCol(c2 + 1) + ap.row;
+        const cell = data.cells[r];
+        const nextHasData = cell && ((cell.v != null && cell.v !== "") || cell.f || cell.h);
+        const belowEmpty = data.cells[FE.idxToCol(c2 + 1) + (ap.row + 1)] == null;
+        if (!nextHasData && belowEmpty) break;
+        c2++;
+      }
+      // 向左扩展
+      let c1 = ap.col;
+      while (c1 > 1) {
+        const r = FE.idxToCol(c1 - 1) + ap.row;
+        const cell = data.cells[r];
+        const prevHasData = cell && ((cell.v != null && cell.v !== "") || cell.f || cell.h);
+        const belowEmpty = data.cells[FE.idxToCol(c1 - 1) + (ap.row + 1)] == null;
+        if (!prevHasData && belowEmpty) break;
+        c1--;
+      }
+      // 向上扩展
+      let r1 = ap.row;
+      while (r1 > 1) {
+        const c = FE.idxToCol(ap.col) + (r1 - 1);
+        const cell = data.cells[c];
+        const aboveHasData = cell && ((cell.v != null && cell.v !== "") || cell.f || cell.h);
+        const rightEmpty = data.cells[FE.idxToCol(ap.col + 1) + (r1 - 1)] == null;
+        if (!aboveHasData && rightEmpty) break;
+        r1--;
+      }
+      // 向下扩展
+      let r2 = ap.row;
+      while (r2 < ROWS) {
+        const c = FE.idxToCol(ap.col) + (r2 + 1);
+        const cell = data.cells[c];
+        const belowHasData = cell && ((cell.v != null && cell.v !== "") || cell.f || cell.h);
+        const rightEmpty = data.cells[FE.idxToCol(ap.col + 1) + (r2 + 1)] == null;
+        if (!belowHasData && rightEmpty) break;
+        r2++;
+      }
+      // 最终区域
+      const finalC2 = c2, finalR2 = r2;
+      anchor = FE.idxToCol(c1) + r1;
+      selected = FE.idxToCol(finalC2) + finalR2;
+      paint(); updateStatus();
+      OS.toast("已选择当前区域：" + FE.idxToCol(c1) + r1 + ":" + FE.idxToCol(finalC2) + finalR2, "ok");
+    }
+
+    // ===== Ctrl+Shift+O 选所有有批注单元格 =====
+    function selectAllComments() {
+      if (!data.comments || data.comments.length === 0) { OS.toast("当前表没有批注", "info"); return; }
+      const refs = data.comments.filter(c => c.sheet === data.activeSheet && !c.resolved).map(c => c.ref);
+      if (refs.length === 0) { OS.toast("没有未解决批注", "info"); return; }
+      // 以批注最多的矩形框选
+      const cols = refs.map(r => FE.parseRef(r).col);
+      const rows = refs.map(r => FE.parseRef(r).row);
+      const c1 = Math.min(...cols), c2 = Math.max(...cols);
+      const r1 = Math.min(...rows), r2 = Math.max(...rows);
+      anchor = FE.idxToCol(c1) + r1;
+      selected = FE.idxToCol(c2) + r2;
+      paint(); updateStatus();
+      OS.toast("已框选 " + refs.length + " 条批注所在区域", "ok");
+    }
+
+    // ===== Shift+F11 新建 worksheet =====
+    function newWorksheet() {
+      const idx = data.sheets.length;
+      data.sheets.push({ name: "Sheet" + (idx + 1), cells: {}, styles: {} });
+      switchSheet(idx);
+      OS.toast("已新建 " + data.sheets[idx].name, "ok");
+    }
+
     table.addEventListener("keydown", e => {
       const td = e.target.closest("td[data-ref]");
       if (!td) return;
@@ -3197,21 +3281,23 @@
       else if (e.shiftKey && k === "F9") { e.preventDefault(); OS.toast("已重算活动 sheet（FE 自动重算）", "ok"); }
       // --- Excel: 转下一格（下一列）---
       else if (ctrl && (k === "r" || k === "R")) { e.preventDefault(); fillRight(); }
-      // --- Excel: 转到 / 新建 sheet / 创建表 / 快速填充 / 超链接 / 快速分析（toast）---
+      // --- Excel: 转到 / 新建 sheet / 创建表 / 快速填充 / 超链接 ---
       else if (ctrl && (k === "g" || k === "G")) { e.preventDefault(); OS.toast("Ctrl+G 转到 — 开发中", "info"); }
-      else if (e.shiftKey && k === "F11") { e.preventDefault(); OS.toast("Shift+F11 新建工作表 — 开发中", "info"); }
+      else if (e.shiftKey && k === "F11") { e.preventDefault(); newWorksheet(); }
       else if (ctrl && (k === "l" || k === "L")) { e.preventDefault(); OS.toast("Ctrl+L 创建表 — 开发中", "info"); }
       else if (ctrl && (k === "t" || k === "T")) { e.preventDefault(); OS.toast("Ctrl+T 创建表 — 开发中", "info"); }
       else if (ctrl && e.shiftKey && k === "L") { e.preventDefault(); OS.toast("Ctrl+Shift+L 切换筛选 — 开发中", "info"); }
       else if (ctrl && (k === "e" || k === "E")) { e.preventDefault(); OS.toast("Ctrl+E 快速填充 — 开发中", "info"); }
       else if (ctrl && (k === "q" || k === "Q")) { e.preventDefault(); OS.toast("Ctrl+Q 快速分析 — 开发中", "info"); }
       else if (ctrl && (k === "k" || k === "K")) { e.preventDefault(); OS.toast("Ctrl+K 超链接 — 开发中", "info"); }
-      // --- Excel: 批注 / 重复 / 选择当前区域 ---
-      else if (e.shiftKey && k === "F2") { e.preventDefault(); OS.toast("Shift+F2 插入批注 — 开发中", "info"); }
+      // --- Excel: 批注 / 重复 / 选择当前区域 / 公式切换 ---
+      else if (e.shiftKey && k === "F2") { e.preventDefault(); addComment(); }
+      else if (ctrl && e.shiftKey && k === "F2") { e.preventDefault(); addComment(); OS.toast("已创建线程批注（同单格）", "ok"); }
       else if (k === "F4") { e.preventDefault(); OS.toast("F4 重复上一操作 — 开发中", "info"); }
-      else if (ctrl && e.shiftKey && k === "*") { e.preventDefault(); OS.toast("Ctrl+Shift+* 选择当前区域 — 开发中", "info"); }
+      else if (ctrl && e.shiftKey && k === "*") { e.preventDefault(); selectCurrentRegion(); }
       else if (k === "F8") { e.preventDefault(); OS.toast("F8 扩展选区模式 — 开发中", "info"); }
-      else if (ctrl && e.shiftKey && k === "O") { e.preventDefault(); OS.toast("Ctrl+Shift+O 选有批注单元格 — 开发中", "info"); }
+      else if (ctrl && e.shiftKey && k === "O") { e.preventDefault(); selectAllComments(); }
+      else if (ctrl && k === "`" || ctrl && k === "Dead") { e.preventDefault(); toggleFormulas(); }
       // --- Excel: Ctrl+A 选全表 ---
       else if (ctrl && k === "a") { e.preventDefault(); selectCol(1); selectRow(ROWS); }
 
@@ -5393,7 +5479,7 @@
             td.style["border" + side2] = b ? `${bCss(b.style)} ${b.color || "#333"}` : "";
           });
         }
-        // 数字格式渲染（不覆盖原始值，只改变显示）
+        // 数字格式渲染 + 公式/值切换
         if (s.numberFormat) {
           const cell = data.cells[ref];
           const rawVal = cell ? (cell.v != null ? cell.v : (typeof cell.f === "string" ? cell.f : "")) : "";
@@ -5401,6 +5487,34 @@
             const rendered = renderNumber(typeof rawVal === "number" ? rawVal : Number(rawVal), s.numberFormat);
             if (rendered !== rawVal && rendered !== undefined) td.textContent = rendered;
           }
+        }
+        // 公式/值切换：所有有 .f 的单元格，showFormulasFlag=true 时显示 =公式，显示值时不覆盖
+        if (showFormulasFlag) {
+          const cell = data.cells[ref];
+          if (cell && cell.f && typeof cell.f === "string") {
+            td.textContent = "=" + cell.f;
+            td.removeAttribute("data-formula-displayed");
+            td.setAttribute("data-formula-displayed", "1");
+          }
+        } else if (td.getAttribute("data-formula-displayed") === "1") {
+          // 从"显示公式"切回"显示值"，需要重渲染（但不破坏 numberFormat 已处理的情况）
+          const cell = data.cells[ref];
+          if (cell) {
+            // 重新走默认 td.textContent 渲染（paint 中已经设好，这里让浏览器重绘）
+            const defaultVal = cell.v != null ? cell.v : (cell.f ? "=" + cell.f : "");
+            // 如果有 numberFormat 就重新 apply 一次
+            if (s.numberFormat && typeof defaultVal === "number") {
+              const rendered = renderNumber(defaultVal, s.numberFormat);
+              td.textContent = rendered;
+            } else if (cell.f && cell.v != null) {
+              td.textContent = String(cell.v); // 显示值而不是公式
+            } else if (cell.f && cell.v == null) {
+              td.textContent = "=" + cell.f; // 没算出来时兜底显示公式
+            } else if (cell.v != null) {
+              td.textContent = String(cell.v);
+            }
+          }
+          td.removeAttribute("data-formula-displayed");
         }
       }
     }
