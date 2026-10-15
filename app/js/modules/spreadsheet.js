@@ -2194,6 +2194,34 @@
     let internalClipboard = null; // { r1, c1, r2, c2, cells, styles, comments, formulas }
     let internalClipboardHasData = false;
 
+    // ===== F4 重复上一操作 =====
+    let lastAction = null; // { fn, args: { patch, label }, offset: { dR, dC } }
+    function setLastAction(fn, args) {
+      // 记录当前选区 offset（anchor → selected），让 F4 能在偏移位置重放
+      const ap = FE.parseRef(anchor), sp = FE.parseRef(selected);
+      lastAction = { fn, args, offset: { dR: sp.row - ap.row, dC: sp.col - ap.col } };
+    }
+    function repeatLastAction() {
+      if (!lastAction) { OS.toast("无可重复的操作，请先做一个操作（加粗/格式/插入等）", "info"); return; }
+      const ap = FE.parseRef(anchor);
+      const { dR, dC } = lastAction.offset;
+      const newApR = Math.max(1, Math.min(ROWS, ap.row));
+      const newApC = Math.max(1, Math.min(COLS, ap.col));
+      const newSelR = Math.max(1, Math.min(ROWS, ap.row + dR));
+      const newSelC = Math.max(1, Math.min(COLS, ap.col + dC));
+      // 临时改 anchor/selected 为新位置，让 target 函数用 rangeRect() 自动算新选区
+      const prevAnchor = anchor, prevSelected = selected;
+      anchor = FE.idxToCol(newApC) + newApR;
+      selected = FE.idxToCol(newSelC) + newSelR;
+      try {
+        lastAction.fn(lastAction.args);
+        OS.toast("F4：已重复「" + (lastAction.args.label || "操作") + "」", "ok");
+      } catch (e) {
+        OS.toast("F4 执行失败：" + e.message, "warn");
+        anchor = prevAnchor; selected = prevSelected;
+      }
+    }
+
     // 构建表头与单元格
     const DEFAULT_COL_WIDTH = 64;
     const DEFAULT_ROW_HEIGHT = 18;
@@ -3480,33 +3508,33 @@
 
       // ===== 非编辑模式 =====
       // --- P0-1: Alt + = → SUM 选区求和 ---
-      if (e.altKey && !ctrl && !e.shiftKey && k === "=") { e.preventDefault(); sumSelection(); }
+      if (e.altKey && !ctrl && !e.shiftKey && k === "=") { e.preventDefault(); sumSelection(); setLastAction(() => sumSelection(), { label: "SUM求和" }); }
       // --- P0-2: Ctrl + PageDown/PageUp → 切换 sheet ---
       else if (ctrl && k === "PageDown") { e.preventDefault(); const nxt = (data.activeSheet + 1) % data.sheets.length; switchSheet(nxt); }
       else if (ctrl && k === "PageUp") { e.preventDefault(); const nxt = (data.activeSheet - 1 + data.sheets.length) % data.sheets.length; switchSheet(nxt); }
       // --- P0-3: Delete/Backspace → 清除选区内容 ---
-      else if (k === "Delete" || k === "Backspace") { e.preventDefault(); clearSelection(); }
-      // --- 隐藏 / 取消隐藏行 & 列（Ctrl+9/0 隐藏，Ctrl+Shift+9/0 取消隐藏）---
-      else if (ctrl && !e.shiftKey && (k === "9" || k === "(")) { e.preventDefault(); hideSelectedRows(); }
-      else if (ctrl && !e.shiftKey && (k === "0" || k === ")")) { e.preventDefault(); hideSelectedCols(); }
-      else if (ctrl && e.shiftKey && (k === "9" || k === "(")) { e.preventDefault(); unhideAllRows(); }
-      else if (ctrl && e.shiftKey && (k === "0" || k === ")")) { e.preventDefault(); unhideAllCols(); }
+      else if (k === "Delete" || k === "Backspace") { e.preventDefault(); clearSelection(); setLastAction(() => clearSelection(), { label: "清除内容" }); }
+      // --- 隐藏 / 取消隐藏行 & 列（Ctrl+9/0 隐藏，Ctrl+Shift+9/0 取消隐藏）+ F4 可重放 ---
+      else if (ctrl && !e.shiftKey && (k === "9" || k === "(")) { e.preventDefault(); hideSelectedRows(); setLastAction(() => hideSelectedRows(), { label: "隐藏行" }); }
+      else if (ctrl && !e.shiftKey && (k === "0" || k === ")")) { e.preventDefault(); hideSelectedCols(); setLastAction(() => hideSelectedCols(), { label: "隐藏列" }); }
+      else if (ctrl && e.shiftKey && (k === "9" || k === "(")) { e.preventDefault(); unhideAllRows(); setLastAction(() => unhideAllRows(), { label: "取消隐藏行" }); }
+      else if (ctrl && e.shiftKey && (k === "0" || k === ")")) { e.preventDefault(); unhideAllCols(); setLastAction(() => unhideAllCols(), { label: "取消隐藏列" }); }
       // --- P0-5: Ctrl+Shift+End/Home → 选区扩展到尾/头部 ---
       else if (ctrl && e.shiftKey && k === "End") { e.preventDefault(); expandSelectToCorner("end"); }
       else if (ctrl && e.shiftKey && k === "Home") { e.preventDefault(); expandSelectToCorner("home"); }
 
       // ====== Excel 完整快捷键批量补全（P1/P2） ======
       // --- Excel: 7 个数字格式（Ctrl+Shift+~/$/%/^/#/@/!） ---
-      else if (ctrl && e.shiftKey && k === "~")  { e.preventDefault(); applyNumberFormat("general"); }
-      else if (ctrl && e.shiftKey && k === "$")  { e.preventDefault(); applyNumberFormat("currency"); }
-      else if (ctrl && e.shiftKey && k === "%")  { e.preventDefault(); applyNumberFormat("percent"); }
-      else if (ctrl && e.shiftKey && k === "^")  { e.preventDefault(); applyNumberFormat("scientific"); }
-      else if (ctrl && e.shiftKey && k === "#")  { e.preventDefault(); applyNumberFormat("date"); }
-      else if (ctrl && e.shiftKey && k === "@")  { e.preventDefault(); applyNumberFormat("time"); }
-      else if (ctrl && e.shiftKey && (k === "!" || k === "1")) { e.preventDefault(); applyNumberFormat("comma"); }
+      else if (ctrl && e.shiftKey && k === "~")  { e.preventDefault(); applyNumberFormat("general"); setLastAction(a => applyNumberFormat(a.id), { id: "general", label: "数字格式：常规" }); }
+      else if (ctrl && e.shiftKey && k === "$")  { e.preventDefault(); applyNumberFormat("currency"); setLastAction(a => applyNumberFormat(a.id), { id: "currency", label: "数字格式：货币" }); }
+      else if (ctrl && e.shiftKey && k === "%")  { e.preventDefault(); applyNumberFormat("percent"); setLastAction(a => applyNumberFormat(a.id), { id: "percent", label: "数字格式：百分比" }); }
+      else if (ctrl && e.shiftKey && k === "^")  { e.preventDefault(); applyNumberFormat("scientific"); setLastAction(a => applyNumberFormat(a.id), { id: "scientific", label: "数字格式：科学" }); }
+      else if (ctrl && e.shiftKey && k === "#")  { e.preventDefault(); applyNumberFormat("date"); setLastAction(a => applyNumberFormat(a.id), { id: "date", label: "数字格式：日期" }); }
+      else if (ctrl && e.shiftKey && k === "@")  { e.preventDefault(); applyNumberFormat("time"); setLastAction(a => applyNumberFormat(a.id), { id: "time", label: "数字格式：时间" }); }
+      else if (ctrl && e.shiftKey && (k === "!" || k === "1")) { e.preventDefault(); applyNumberFormat("comma"); setLastAction(a => applyNumberFormat(a.id), { id: "comma", label: "数字格式：千分位" }); }
       // --- Excel: 边框 ---
-      else if (ctrl && e.shiftKey && k === "&")  { e.preventDefault(); setOuterBorder(false); }
-      else if (ctrl && e.shiftKey && k === "_")  { e.preventDefault(); setOuterBorder(true); }
+      else if (ctrl && e.shiftKey && k === "&")  { e.preventDefault(); setOuterBorder(false); setLastAction(a => setOuterBorder(a.remove), { remove: false, label: "外边框" }); }
+      else if (ctrl && e.shiftKey && k === "_")  { e.preventDefault(); setOuterBorder(true); setLastAction(a => setOuterBorder(a.remove), { remove: true, label: "去边框" }); }
       // --- Excel: 复制值 / 公式 ---
       else if (ctrl && e.shiftKey && k === '"')  { e.preventDefault(); copyFromAbove(true); }
       else if (ctrl && k === "'" || ctrl && k === "`") { e.preventDefault(); copyFromAbove(false); }
@@ -3533,25 +3561,25 @@
         }
       }
       // --- Ctrl+Alt+L/C/R 对齐（替代复杂的 Alt+HAC Excel 菜单导航）---
-      else if (ctrl && e.altKey && !e.shiftKey && (k === "l" || k === "L")) { e.preventDefault(); applyRangeStyle({ align: "left" }); OS.toast("左对齐", "ok"); }
-      else if (ctrl && e.altKey && !e.shiftKey && (k === "c" || k === "C")) { e.preventDefault(); applyRangeStyle({ align: "center" }); OS.toast("居中对齐", "ok"); }
-      else if (ctrl && e.altKey && !e.shiftKey && (k === "r" || k === "R")) { e.preventDefault(); applyRangeStyle({ align: "right" }); OS.toast("右对齐", "ok"); }
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "l" || k === "L")) { e.preventDefault(); applyRangeStyle({ align: "left" }); setLastAction(args => applyRangeStyle(args.patch), { patch: { align: "left" }, label: "左对齐" }); OS.toast("左对齐", "ok"); }
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "c" || k === "C")) { e.preventDefault(); applyRangeStyle({ align: "center" }); setLastAction(args => applyRangeStyle(args.patch), { patch: { align: "center" }, label: "居中对齐" }); OS.toast("居中对齐", "ok"); }
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "r" || k === "R")) { e.preventDefault(); applyRangeStyle({ align: "right" }); setLastAction(args => applyRangeStyle(args.patch), { patch: { align: "right" }, label: "右对齐" }); OS.toast("右对齐", "ok"); }
       // --- Ctrl+Alt+V 选择性粘贴 ---
       else if (ctrl && e.altKey && (k === "v" || k === "V")) { e.preventDefault(); selectPasteType(); }
       // --- F8 扩展选区模式（Excel 语义：开启后每次按方向键=Shift+方向键扩展）---
       else if (k === "F8") { e.preventDefault(); extendMode = !extendMode; OS.toast("扩展选区模式：" + (extendMode ? "开" : "关"), extendMode ? "ok" : "info"); }
-      // --- Ctrl++ / Ctrl+Shift++ / Ctrl+- 插入/删除 行列 ---
-      else if (ctrl && e.shiftKey && (k === "=" || k === "+")) { const rg = rangeRect(); if (rg) { e.preventDefault(); insertRowsAt(rg.r1, rg.r2 - rg.r1 + 1); } }
-      else if (ctrl && !e.shiftKey && (k === "=" || k === "+")) { const rg = rangeRect(); if (rg) { e.preventDefault(); insertColsAt(rg.c1, rg.c2 - rg.c1 + 1); } }
+      // --- Ctrl++ / Ctrl+Shift++ / Ctrl+- 插入/删除 行列 + F4 可重放 ---
+      else if (ctrl && e.shiftKey && (k === "=" || k === "+")) { const rg = rangeRect(); if (rg) { e.preventDefault(); insertRowsAt(rg.r1, rg.r2 - rg.r1 + 1); setLastAction(a => insertRowsAt(a.r, a.n), { r: rg.r1, n: rg.r2 - rg.r1 + 1, label: "插入行" }); } }
+      else if (ctrl && !e.shiftKey && (k === "=" || k === "+")) { const rg = rangeRect(); if (rg) { e.preventDefault(); insertColsAt(rg.c1, rg.c2 - rg.c1 + 1); setLastAction(a => insertColsAt(a.c, a.n), { c: rg.c1, n: rg.c2 - rg.c1 + 1, label: "插入列" }); } }
       else if (ctrl && !e.shiftKey && k === "-") {
         const rg = rangeRect(); if (!rg) return;
         e.preventDefault();
-        // Excel 语义：Shift 全选中 → 删行；A 列选中 → 删列；否则默认删行
         const ap = FE.parseRef(anchor); const sp = FE.parseRef(selected);
-        if (rg.c1 === 1 && rg.c2 >= COLS) deleteRowsAt(rg.r1, rg.r2 - rg.r1 + 1);
-        else if (rg.r1 === 1 && rg.r2 >= ROWS) deleteColsAt(rg.c1, rg.c2 - rg.c1 + 1);
-        else if ((k === "-" && e.altKey) || rg.r2 - rg.r1 >= rg.c2 - rg.c1) deleteRowsAt(rg.r1, rg.r2 - rg.r1 + 1);
-        else deleteColsAt(rg.c1, rg.c2 - rg.c1 + 1);
+        let r, n, fn;
+        if (rg.c1 === 1 && rg.c2 >= COLS) { r = rg.r1; n = rg.r2 - rg.r1 + 1; fn = () => deleteRowsAt(r, n); setLastAction(() => deleteRowsAt(r, n), { label: "删除行" }); }
+        else if (rg.r1 === 1 && rg.r2 >= ROWS) { r = rg.c1; n = rg.c2 - rg.c1 + 1; fn = () => deleteColsAt(r, n); setLastAction(() => deleteColsAt(r, n), { label: "删除列" }); }
+        else if ((k === "-" && e.altKey) || rg.r2 - rg.r1 >= rg.c2 - rg.c1) { r = rg.r1; n = rg.r2 - rg.r1 + 1; deleteRowsAt(r, n); setLastAction(() => deleteRowsAt(r, n), { label: "删除行" }); }
+        else { r = rg.c1; n = rg.c2 - rg.c1 + 1; deleteColsAt(r, n); setLastAction(() => deleteColsAt(r, n), { label: "删除列" }); }
       }
       else if (e.shiftKey && k === "F11") { e.preventDefault(); newWorksheet(); }
       else if (ctrl && (k === "l" || k === "L")) { e.preventDefault(); OS.toast("Ctrl+L 创建表 — 开发中", "info"); }
@@ -3562,7 +3590,7 @@
       // --- Excel: 批注 / 重复 / 选择当前区域 / 公式切换 ---
       else if (e.shiftKey && k === "F2") { e.preventDefault(); addComment(); }
       else if (ctrl && e.shiftKey && k === "F2") { e.preventDefault(); addComment(); OS.toast("已创建线程批注（同单格）", "ok"); }
-      else if (k === "F4") { e.preventDefault(); OS.toast("F4 重复上一操作 — 开发中", "info"); }
+      else if (k === "F4") { e.preventDefault(); repeatLastAction(); }
       else if (ctrl && e.shiftKey && k === "*") { e.preventDefault(); selectCurrentRegion(); }
       else if (ctrl && e.shiftKey && k === "O") { e.preventDefault(); selectAllComments(); }
       else if (ctrl && k === "`" || ctrl && k === "Dead") { e.preventDefault(); toggleFormulas(); }
@@ -3587,11 +3615,11 @@
       else if (k === "PageUp") { e.preventDefault(); commitCell(td); move(Math.max(1, pr.row - 20), pr.col); }
       else if (ctrl && k === " ") { e.preventDefault(); selectCol(pr.col); }
       else if (e.shiftKey && k === " ") { e.preventDefault(); selectRow(pr.row); }
-      // --- 样式：走选区批量（Excel 语义）---
-      else if (ctrl && (k === "b" || k === "B")) { e.preventDefault(); applyRangeStyle({ bold: !(data.styles[selected] && data.styles[selected].bold) }); }
-      else if (ctrl && (k === "i" || k === "I")) { e.preventDefault(); applyRangeStyle({ italic: !(data.styles[selected] && data.styles[selected].italic) }); }
-      else if (ctrl && (k === "u" || k === "U")) { e.preventDefault(); applyRangeStyle({ underline: !(data.styles[selected] && data.styles[selected].underline) }); }
-      else if (ctrl && k === "5") { e.preventDefault(); applyRangeStyle({ strikethrough: !(data.styles[selected] && data.styles[selected].strikethrough) }); }
+      // --- 样式：走选区批量（Excel 语义）+ F4 可重放 ---
+      else if (ctrl && (k === "b" || k === "B")) { e.preventDefault(); const v = !(data.styles[selected] && data.styles[selected].bold); applyRangeStyle({ bold: v }); setLastAction(a => applyRangeStyle(a.patch), { patch: { bold: v }, label: v ? "加粗" : "取消加粗" }); }
+      else if (ctrl && (k === "i" || k === "I")) { e.preventDefault(); const v = !(data.styles[selected] && data.styles[selected].italic); applyRangeStyle({ italic: v }); setLastAction(a => applyRangeStyle(a.patch), { patch: { italic: v }, label: v ? "斜体" : "取消斜体" }); }
+      else if (ctrl && (k === "u" || k === "U")) { e.preventDefault(); const v = !(data.styles[selected] && data.styles[selected].underline); applyRangeStyle({ underline: v }); setLastAction(a => applyRangeStyle(a.patch), { patch: { underline: v }, label: v ? "下划线" : "取消下划线" }); }
+      else if (ctrl && k === "5") { e.preventDefault(); const v = !(data.styles[selected] && data.styles[selected].strikethrough); applyRangeStyle({ strikethrough: v }); setLastAction(a => applyRangeStyle(a.patch), { patch: { strikethrough: v }, label: v ? "删除线" : "取消删除线" }); }
       else if (ctrl && k === "d") { e.preventDefault(); fillDown(); }
       else if (ctrl && k === "Enter") { e.preventDefault(); fillRangeWithCurrent(); }
       else if (ctrl && k === ";") { e.preventDefault(); commit(ref, new Date().toLocaleDateString()); recompute(); }
