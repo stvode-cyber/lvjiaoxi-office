@@ -2188,6 +2188,7 @@
 
     let selected = "A1", anchor = "A1";
     var cfAppliedRefs = [];
+    let extendMode = false;  // F8 扩展选区模式
 
     // 构建表头与单元格
     const DEFAULT_COL_WIDTH = 64;
@@ -3345,11 +3346,31 @@
       // --- Excel: 转下一格（下一列）---
       else if (ctrl && (k === "r" || k === "R")) { e.preventDefault(); fillRight(); }
       // --- Excel: 转到 / 新建 sheet / 创建表 / 快速填充 / 超链接 ---
-      else if (ctrl && (k === "g" || k === "G")) { e.preventDefault(); OS.toast("Ctrl+G 转到 — 开发中", "info"); }
+      // --- Ctrl+G 转到 ---
+      else if (ctrl && (k === "g" || k === "G")) { e.preventDefault(); const tgt = prompt("转到单元格或区域（如 A1、B5:E10）：", anchor); if (tgt) { const rg = rangeRectFromStr(tgt.trim()); if (rg) { anchor = FE.idxToCol(rg.c1) + rg.r1; selected = FE.idxToCol(rg.c2) + rg.r2; paint(); updateStatus(); const td = table.querySelector('td[data-ref="' + anchor + '"]'); if (td && td.scrollIntoView) td.scrollIntoView({ block: "center" }); OS.toast("已转到 " + tgt.trim(), "ok"); } else { const ap = FE.parseRef(tgt.trim()); if (ap) { selectCell(FE.idxToCol(ap.col) + ap.row); const td = table.querySelector('td[data-ref="' + FE.idxToCol(ap.col) + ap.row + '"]'); if (td && td.scrollIntoView) td.scrollIntoView({ block: "center" }); OS.toast("已转到 " + FE.idxToCol(ap.col) + ap.row, "ok"); } else OS.toast("无效引用：" + tgt.trim(), "warn"); } } }
+      // --- Ctrl+Shift+L 切换筛选 ---
+      else if (ctrl && e.shiftKey && k === "L") {
+        e.preventDefault();
+        if (data.filters && data.filters.length > 0) {
+          clearFilters(); OS.toast("已清除筛选（Ctrl+Shift+L 重新启用）", "ok");
+        } else {
+          // 对当前选区每列启用一个空 filter（等用户通过条件格式 UI 编辑）
+          const rg = rangeRect();
+          if (rg) {
+            for (let c = rg.c1; c <= rg.c2; c++) applyFilter({ col: c, range: FE.idxToCol(c) + rg.r1 + ":" + FE.idxToCol(c) + rg.r2 });
+            OS.toast("已对 " + (rg.c2 - rg.c1 + 1) + " 列启用筛选（Ctrl+Shift+L 清除）", "ok");
+          }
+        }
+      }
+      // --- Ctrl+Alt+L/C/R 对齐（替代复杂的 Alt+HAC Excel 菜单导航）---
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "l" || k === "L")) { e.preventDefault(); applyRangeStyle({ align: "left" }); OS.toast("左对齐", "ok"); }
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "c" || k === "C")) { e.preventDefault(); applyRangeStyle({ align: "center" }); OS.toast("居中对齐", "ok"); }
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "r" || k === "R")) { e.preventDefault(); applyRangeStyle({ align: "right" }); OS.toast("右对齐", "ok"); }
+      // --- F8 扩展选区模式（Excel 语义：开启后每次按方向键=Shift+方向键扩展）---
+      else if (k === "F8") { e.preventDefault(); extendMode = !extendMode; OS.toast("扩展选区模式：" + (extendMode ? "开" : "关"), extendMode ? "ok" : "info"); }
       else if (e.shiftKey && k === "F11") { e.preventDefault(); newWorksheet(); }
       else if (ctrl && (k === "l" || k === "L")) { e.preventDefault(); OS.toast("Ctrl+L 创建表 — 开发中", "info"); }
       else if (ctrl && (k === "t" || k === "T")) { e.preventDefault(); OS.toast("Ctrl+T 创建表 — 开发中", "info"); }
-      else if (ctrl && e.shiftKey && k === "L") { e.preventDefault(); OS.toast("Ctrl+Shift+L 切换筛选 — 开发中", "info"); }
       else if (ctrl && (k === "e" || k === "E")) { e.preventDefault(); OS.toast("Ctrl+E 快速填充 — 开发中", "info"); }
       else if (ctrl && (k === "q" || k === "Q")) { e.preventDefault(); OS.toast("Ctrl+Q 快速分析 — 开发中", "info"); }
       else if (ctrl && (k === "k" || k === "K")) { e.preventDefault(); OS.toast("Ctrl+K 超链接 — 开发中", "info"); }
@@ -3373,7 +3394,7 @@
         const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[k];
         if (ctrl && e.shiftKey) { const edge = findDataEdge(pr.row, pr.col, d); selected = FE.idxToCol(edge.col) + edge.row; paint(); updateStatus(); }
         else if (ctrl) { const edge = findDataEdge(pr.row, pr.col, d); commitCell(td); move(edge.row, edge.col); }
-        else if (e.shiftKey) { const nr = Math.max(1, Math.min(ROWS, pr.row + d[0])), nc = Math.max(1, Math.min(COLS, pr.col + d[1])); selected = FE.idxToCol(nc) + nr; paint(); updateStatus(); }
+        else if (e.shiftKey || extendMode) { const nr = Math.max(1, Math.min(ROWS, pr.row + d[0])), nc = Math.max(1, Math.min(COLS, pr.col + d[1])); selected = FE.idxToCol(nc) + nr; paint(); updateStatus(); }
         else { commitCell(td); move(pr.row + d[0], pr.col + d[1]); }
       }
       else if (k === "Home") { e.preventDefault(); if (ctrl) { commitCell(td); move(1, 1); } else { commitCell(td); move(pr.row, 1); } }
