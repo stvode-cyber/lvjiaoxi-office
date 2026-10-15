@@ -707,11 +707,7 @@
     };
   }
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[c]));
-  }
+  function escapeHtml(s) { return (global.OS && OS.util && OS.util.escapeHtml) ? OS.util.escapeHtml(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   const VERDICT_TEXT = {
     high: "高风险：发现自动执行脚本或外部程序启动动作，建议在可信环境外谨慎打开",

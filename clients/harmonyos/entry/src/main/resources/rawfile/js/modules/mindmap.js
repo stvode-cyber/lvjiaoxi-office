@@ -16,11 +16,11 @@
   function uid(p) { return OS.util.uid(p || "n"); }
   // TODO: [坑-mknode-color] 预防：渲染函数默认值必须显式硬编码，禁止依赖"上游总会传"；解析 JSON 前先判空
   function mkNode(text, x, y, parent, color) {
-    return { id: uid("n"), x: x || 0, y: y || 0, text: text || "", color: color || "#2563eb", shape: "rounded", fontSize: 14, parent: parent || null, isRoot: false };
+    return { id: uid("n"), x: x || 0, y: y || 0, text: text || "", color: color || "#7C3AED", shape: "rounded", fontSize: 14, parent: parent || null, isRoot: false };
   }
   function blank() {
     const root = mkNode("中心主题", 0, 0);
-    root.isRoot = true; root.color = "#1e3a5f";
+    root.isRoot = true; root.color = "#7C3AED";
     return { mode: "map", nodes: [root], edges: [], rootId: root.id };
   }
 
@@ -625,7 +625,7 @@
           layoutMap(); render(); syncSide(); updateModeBtns(); ctx.markDirty();
           OS.toast("已从 Markdown 导入 " + data.nodes.length + " 节点", "ok");
         } catch (err) { OS.toast("Markdown 解析失败：" + err.message, "err"); }
-      });
+      }).catch(err => { OS.toast("文件读取失败：" + err.message, "err"); });
     }
 
     /* ---- OPML 大纲导入（兼容 OmniOutliner / WorkFlowy） ---- */
@@ -666,7 +666,7 @@
           layoutMap(); render(); syncSide(); updateModeBtns(); ctx.markDirty();
           OS.toast("已从 OPML 导入 " + data.nodes.length + " 节点", "ok");
         } catch (err) { OS.toast("OPML 解析失败：" + err.message, "err"); }
-      });
+      }).catch(err => { OS.toast("文件读取失败：" + err.message, "err"); });
     }
 
     function importJson(file) {
@@ -682,7 +682,7 @@
             OS.toast("已导入", "ok");
           } else OS.toast("JSON 格式无效", "err");
         } catch (err) { OS.toast("解析失败：" + err.message, "err"); }
-      });
+      }).catch(err => { OS.toast("文件读取失败：" + err.message, "err"); });
     }
     const EXPORT_INK = { light: "#1a2332", dark: "#e6edf5" };
     const EXPORT_MUTED = { light: "#5a6c7d", dark: "#9fb0c3" };
@@ -727,7 +727,7 @@
       if (fmt === "md") { OS.util.download(new Blob([toMarkdown(data)], { type: "text/markdown;charset=utf-8" }), title + ".md"); OS.toast("已导出 Markdown", "ok"); return; }
       if (fmt === "docx") {
         if (OS.Exporter && typeof OS.Exporter.buildDocx === "function") {
-          OS.Exporter.buildDocx({ type: "writer", name: title, data: { html: toDocxHtml(data) } }).generateAsync({ type: "blob" }).then(b => OS.util.download(b, title + ".docx"));
+          OS.Exporter.buildDocx({ type: "writer", name: title, data: { html: toDocxHtml(data) } }).generateAsync({ type: "blob" }).then(b => OS.util.download(b, title + ".docx")).catch(e => OS.toast("导出失败：" + (e.message || e), "err"));
           OS.toast("已导出 DOCX", "ok");
         } else OS.toast("导出器未就绪", "err");
         return;

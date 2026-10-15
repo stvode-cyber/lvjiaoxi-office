@@ -111,13 +111,24 @@
      DOCX -> Writer HTML
      ============================================================ */
   async function parseDocx(zip) {
-    const docXml = await zip.file("word/document.xml").async("string");
-    const relsXml = zip.file("word/_rels/document.xml.rels") ? await zip.file("word/_rels/document.xml.rels").async("string") : null;
+    console.time("[DOCX] parseDocx 总耗时");
+    console.time("[DOCX] 1. I/O 预读");
+    // document.xml + rels + comments + numbering 4 路 I/O 并行
+    const [docXml, relsXml, commentDefs, numFmt] = await Promise.all([
+      zip.file("word/document.xml").async("string"),
+      zip.file("word/_rels/document.xml.rels") ? zip.file("word/_rels/document.xml.rels").async("string") : Promise.resolve(null),
+      parseComments(zip),
+      buildNumbering(zip)
+    ]);
     const rels = parseRels(relsXml);
-    const numFmt = await buildNumbering(zip);
-    const commentDefs = await parseComments(zip);
+    console.timeEnd("[DOCX] 1. I/O 预读");
+
+    console.time("[DOCX] 2. XML 解析 + 图片预读");
     const d = parseXML(docXml);
-    await prefetchDocxImages(d, rels, zip);   // 预读内嵌图片到 IMG_EMBED，供 runToHtml 生成 <img>
+    await prefetchDocxImages(d, rels, zip);
+    console.timeEnd("[DOCX] 2. XML 解析 + 图片预读");
+
+    console.time("[DOCX] 3. DOM 遍历");
     const body = first(d.documentElement, "body");
     if (!body) throw new Error("未找到文档正文");
 
@@ -156,6 +167,8 @@
       });
     });
 
+    console.timeEnd("[DOCX] 3. DOM 遍历");
+    console.timeEnd("[DOCX] parseDocx 总耗时");
     return { type: "writer", data: { html: html || "<p>（空文档）</p>", comments }, compat: "B", note: "DOCX 已导入（基本兼容：标题/格式/列表/表格/链接/批注保留）" };
   }
 
@@ -393,28 +406,172 @@
      XLSX -> Spreadsheet cells
      ============================================================ */
   async function parseXlsx(zip) {
+    console.time("[XLSX] parseXlsx 总耗时");
+    console.time("[XLSX] 1. I/O 预读");
     let shared = [];
     const sf = zip.file("xl/sharedStrings.xml");
-    if (sf) {
-      const d = parseXML(await sf.async("string"));
+    const wbFile = zip.file("xl/workbook.xml");
+    const stylesFile = zip.file("xl/styles.xml");
+    const relsFile = zip.file("xl/_rels/workbook.xml.rels");
+    // 预读所有 sheet*.xml
+    const sheetFiles = {};
+    for (const name of Object.keys(zip.files)) {
+      const m = name.match(/^xl\/worksheets\/sheet(\d+)\.xml$/);
+      if (m) sheetFiles[+m[1]] = zip.file(name);
+    }
+    if (!Object.keys(sheetFiles).length) {
+      // 兜底：只有一个 sheet 的情况
+      const sf2 = zip.file("xl/worksheets/sheet1.xml") || firstZip(zip, "xl/worksheets/sheet");
+      if (sf2) sheetFiles[1] = sf2;
+    }
+    if (!Object.keys(sheetFiles).length) throw new Error("未找到工作表");
+
+    const [sharedXml, wbXml, stylesXml, relsXml] = await Promise.all([
+      sf ? sf.async("string") : Promise.resolve(null),
+      wbFile ? wbFile.async("string") : Promise.resolve(null),
+      stylesFile ? stylesFile.async("string") : Promise.resolve(null),
+      relsFile ? relsFile.async("string") : Promise.resolve(null)
+    ]);
+    if (sharedXml) {
+      const d = parseXML(sharedXml);
       shared = all(d.documentElement, "si").map(si => all(si, "t").map(t => t.textContent).join(""));
     }
-    // 仅导入第一个工作表（套件当前为单表模型）
-    const sheetFile = zip.file("xl/worksheets/sheet1.xml") || firstZip(zip, "xl/worksheets/sheet");
-    if (!sheetFile) throw new Error("未找到工作表");
-    const d = parseXML(await sheetFile.async("string"));
+    console.timeEnd("[XLSX] 1. I/O 预读");
+
+    // ====== 解析 workbook.xml — sheet name 列表 + definedNames ======
+    let sheetDefs = []; // [{name:"Sheet1", sheetId:1, rId:"rId1"}]
+    let definedNames = []; // [{name:"myRange", formula:"Sheet1!$A$1:$C$10", localSheetId:null}]
+    if (wbXml) {
+      const wbD = parseXML(wbXml);
+      const sheetsEl = first(wbD.documentElement, "sheets");
+      if (sheetsEl) {
+        const nsMap = { r: "http://schemas.openxmlformats.org/officeDocument/2006/relationships" };
+        all(sheetsEl, "sheet").forEach(s => {
+          sheetDefs.push({
+            name: attr(s, "name") || ("Sheet" + sheetDefs.length),
+            sheetId: +(attr(s, "sheetId") || (sheetDefs.length + 1)),
+            rId: attr(s, "id") || ("rId" + (sheetDefs.length + 1))
+          });
+        });
+      }
+      const dnEl = first(wbD.documentElement, "definedNames");
+      if (dnEl) {
+        all(dnEl, "definedName").forEach(dn => {
+          definedNames.push({
+            name: attr(dn, "name") || "",
+            formula: (dn.textContent || "").trim(),
+            localSheetId: attr(dn, "localSheetId") ? +attr(dn, "localSheetId") : null
+          });
+        });
+      }
+    }
+    // 兜底：没有 workbook.xml 或 sheet 列表
+    if (!sheetDefs.length) {
+      Object.keys(sheetFiles).sort((a, b) => +a - +b).forEach(n => {
+        sheetDefs.push({ name: "Sheet" + n, sheetId: +n, rId: "rId" + n });
+      });
+    }
+
+    // ====== 解析 styles.xml ======
+    const fonts = [], fills = [], borders = [], cellXfs = [], xfAlignments = [];
+    const sideColor = el => { if (!el) return null; const c = first(el, "color"); const rgb = c ? attr(c, "rgb") : null; return rgb && rgb.length >= 8 ? "#" + rgb.substring(2).toLowerCase() : null; };
+    if (stylesXml) {
+      const sd = parseXML(stylesXml);
+      all(first(sd.documentElement, "fonts") || sd.documentElement, "font").forEach(f => {
+        fonts.push({
+          bold: !!first(f, "b"),
+          italic: !!first(f, "i"),
+          underline: !!first(f, "u"),
+          color: (() => { const c = first(f, "color"); if (!c) return null; const rgb = attr(c, "rgb"); return rgb && rgb.length >= 8 ? "#" + rgb.substring(2).toLowerCase() : null; })()
+        });
+      });
+      all(first(sd.documentElement, "fills") || sd.documentElement, "fill").forEach(f => {
+        const pf = first(f, "patternFill");
+        fills.push({
+          pattern: attr(pf, "patternType") || "none",
+          fg: (() => { if (!pf) return null; const c = first(pf, "fgColor"); if (!c) return null; const rgb = attr(c, "rgb"); return rgb && rgb.length >= 8 ? "#" + rgb.substring(2).toLowerCase() : null; })()
+        });
+      });
+      // borders: <border><left style="thin"><color rgb="FF000000"/></left>...</border>
+      all(first(sd.documentElement, "borders") || sd.documentElement, "border").forEach(b => {
+        const bd = {};
+        ["left", "right", "top", "bottom"].forEach(side => {
+          const el = first(b, side);
+          const st = el ? attr(el, "style") : null;
+          if (st) bd[side] = { style: st, color: sideColor(el) };
+        });
+        borders.push(bd);
+      });
+      all(first(sd.documentElement, "cellXfs") || sd.documentElement, "xf").forEach(xf => {
+        cellXfs.push({
+          fontId: +(attr(xf, "fontId") || 0),
+          fillId: +(attr(xf, "fillId") || 0),
+          borderId: +(attr(xf, "borderId") || 0),
+          applyFont: attr(xf, "applyFont") === "1",
+          applyFill: attr(xf, "applyFill") === "1",
+          applyBorder: attr(xf, "applyBorder") === "1",
+          applyAlignment: attr(xf, "applyAlignment") === "1"
+        });
+        // 解析 applyAlignment 内联 <alignment> 子元素 — 存局部数组，后面赋 styles._alignments
+        const alignEl = first(xf, "alignment");
+        if (alignEl) {
+          xfAlignments.push({
+            horizontal: attr(alignEl, "horizontal") || "",
+            vertical: attr(alignEl, "vertical") || "",
+            wrapText: attr(alignEl, "wrapText") === "1",
+            indent: +(attr(alignEl, "indent") || "0")
+          });
+        } else {
+          xfAlignments.push(null);
+        }
+      });
+    }
+
+    // ====== 单 sheet 解析函数（内部 async，共享外层 styles/fonts/...）======
+    async function _parseOneSheet(sheetXml, sheetIdx, relsMap) {
+    relsMap = relsMap || {};
+    const d = parseXML(sheetXml);
     const cells = {};
+    const styles = {};
+    styles._alignments = xfAlignments; // styles.xml 里每个 xf 的 <alignment> 子元素
+    const merges = [];
+    const _hyperlinks = []; // 超链接临时收集（内联 + hyperlinks 区域）
+    // cells 遍历时检测 <hyperlink r:id="rId1"/> 子元素
+    const hyperlinkChild = (cEl) => {
+      for (const child of (cEl.children || [])) {
+        if (child.localName === "hyperlink") {
+          const rid = attr(child, "id");
+          const loc = attr(child, "location") || attr(child, "ref");
+          if (rid && relsMap[rid]) _hyperlinks.push({ ref, target: relsMap[rid], display: "" });
+          else if (loc) _hyperlinks.push({ ref, target: loc, display: "" });
+          return true;
+        }
+      }
+      return false;
+    };
+    console.time("[XLSX] 2. 单元格遍历");
     let maxC = 1, maxR = 1;
     all(d.documentElement, "c").forEach(c => {
       const ref = attr(c, "r"); if (!ref) return;
       const t = attr(c, "t");
+      const sIdx = attr(c, "s");
       const f = first(c, "f");
       const v = first(c, "v");
       const is = first(c, "is");
       const { c: ci, r: ri } = refToRC(ref);
       maxC = Math.max(maxC, ci); maxR = Math.max(maxR, ri);
       if (f) {
-        cells[ref] = { f: "=" + (f.textContent || "").trim() };
+        const cell = { f: "=" + (f.textContent || "").trim() };
+        // 同时保存 v（Excel 缓存值），FE.run 失败时回退显示
+        if (v) {
+          let val;
+          if (t === "s") val = shared[+v.textContent] || "";
+          else if (t === "str") val = v.textContent;
+          else if (t === "b") val = v.textContent === "1" ? "TRUE" : "FALSE";
+          else val = v.textContent;
+          cell.v = isNum(val) ? Number(val) : val;
+        }
+        cells[ref] = cell;
       } else {
         let val;
         if (t === "s") val = shared[+v.textContent] || "";
@@ -424,9 +581,270 @@
         else val = v ? v.textContent : "";
         cells[ref] = { v: isNum(val) ? Number(val) : val };
       }
+      if (sIdx && cellXfs.length) {
+        const xf = cellXfs[+sIdx];
+        if (xf) {
+          const st = {};
+          if (xf.applyFont) {
+            const font = fonts[xf.fontId] || {};
+            if (font.bold) st.bold = true;
+            if (font.italic) st.italic = true;
+            if (font.underline) st.underline = true;
+            if (font.color) st.color = font.color;
+          }
+          if (xf.applyFill) {
+            const fill = fills[xf.fillId] || {};
+            if (fill.pattern === "solid" && fill.fg) st.bg = fill.fg;
+          }
+          if (xf.applyBorder) {
+            const bd = borders[xf.borderId] || {};
+            const sides = {};
+            ["left", "right", "top", "bottom"].forEach(side => { if (bd[side]) sides[side] = bd[side]; });
+            if (Object.keys(sides).length) st.border = sides;
+          }
+          if (Object.keys(st).length) styles[ref] = st;
+        }
+      }
+      // 内联 hyperlink 子元素
+      hyperlinkChild(c);
     });
-    const note = Object.keys(cells).length
-      ? "XLSX 已导入（基本兼容：值与公式保留；仅导入首个工作表）"
+
+    // hyperlinks 区域（独立 <hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks>）
+    const hlsEl = first(d.documentElement, "hyperlinks");
+    if (hlsEl) {
+      all(hlsEl, "hyperlink").forEach(hl => {
+        const hlRef = (attr(hl, "ref") || "").trim().toUpperCase();
+        const rid = attr(hl, "id");
+        const loc = attr(hl, "location");
+        let target = "";
+        if (rid && relsMap[rid]) target = relsMap[rid];
+        else if (loc) target = loc;
+        if (hlRef && target) _hyperlinks.push({ ref: hlRef, target, display: "" });
+      });
+    }
+
+    // mergeCells: <mergeCell ref="A1:B2"/>
+    const mergeCellsEl = first(d.documentElement, "mergeCells");
+    if (mergeCellsEl) all(mergeCellsEl, "mergeCell").forEach(m => { const ref = attr(m, "ref"); if (ref && ref.includes(":")) merges.push({ range: ref, type: "merge" }); });
+
+    // ---------- 数据验证导入 <dataValidation> ----------
+    const DV_TYPE_MAP = { whole: "whole", integer: "whole", decimal: "decimal", list: "list", date: "date", time: "time", textLength: "textLength", custom: "custom", formula: "custom" };
+    const DV_OP_MAP = { between: "between", notBetween: "notBetween", equal: "equal", notEqual: "notEqual", greaterThan: "greaterThan", lessThan: "lessThan", greaterThanOrEqual: "greaterThanOrEqual", lessThanOrEqual: "lessThanOrEqual" };
+    const validations = [];
+    const dvListEl = first(d.documentElement, "dataValidations");
+    if (dvListEl) {
+      all(dvListEl, "dataValidation").forEach(dv => {
+        const typeRaw = attr(dv, "type") || "list";
+        const opRaw = attr(dv, "operator") || "between";
+        const dvType = DV_TYPE_MAP[typeRaw] || "list";
+        const op = DV_OP_MAP[opRaw] || "between";
+        const sqref = (attr(dv, "sqref") || attr(dv, "ref") || "").trim().toUpperCase();
+        if (!sqref) return;
+        const allowBlank = attr(dv, "allowBlank") !== "0";
+        const showDropDown = attr(dv, "showDropDown") !== "0";
+        const form1 = first(dv, "formula1");
+        const form2 = first(dv, "formula2");
+        let formula1 = form1 ? (form1.textContent || "").trim() : null;
+        let formula2 = form2 ? (form2.textContent || "").trim() : null;
+        let listItems = null;
+        if (dvType === "list") {
+          let raw = formula1 || "";
+          if (raw.startsWith('"') && raw.endsWith('"')) raw = raw.slice(1, -1);
+          listItems = raw.split(",").map(s => s.trim()).filter(Boolean);
+          if (!listItems.length) listItems = null;
+        } else if (formula1 === "") formula1 = null;
+        if (formula2 === "") formula2 = null;
+        let errorAlert = { show: false, style: "stop", title: "", message: "" };
+        let inputMessage = { show: false, title: "", message: "" };
+        all(dv, "errorAlert").forEach(ea => {
+          errorAlert = {
+            show: attr(ea, "show") !== "0",
+            style: attr(ea, "errorStyle") || "stop",
+            title: attr(ea, "title") || "",
+            message: attr(ea, "errorMessage") || ""
+          };
+        });
+        all(dv, "inputMessage").forEach(im => {
+          inputMessage = {
+            show: attr(im, "show") !== "0",
+            title: attr(im, "title") || "",
+            message: attr(im, "prompt") || ""
+          };
+        });
+        validations.push({
+          range: sqref, type: dvType, operator: op,
+          formula1: formula1, formula2: formula2, list: listItems,
+          allowBlank: allowBlank, showDropDown: showDropDown,
+          errorAlert: errorAlert, inputMessage: inputMessage
+        });
+      });
+    }
+    // ---------- 条件格式导入 <conditionalFormatting> ----------
+    const condFormats = [];
+
+    // ---------- 冻结窗格 + 工作表级属性 ----------
+    let freeze = { row: 0, col: 0 };
+    let tabColor = "";
+    let defaultRowHeight = 18;
+    let customRowHeights = {}; // rowIdx → height
+    const svListEl = first(d.documentElement, "sheetViews");
+    if (svListEl) {
+      const sv = first(svListEl, "sheetView");
+      if (sv) {
+        const pane = first(sv, "pane");
+        if (pane) {
+          freeze.col = +(attr(pane, "xSplit") || "0");
+          freeze.row = +(attr(pane, "ySplit") || "0");
+        }
+      }
+    }
+    const tabColorEl = first(d.documentElement, "sheetPr");
+    if (tabColorEl) {
+      const tc = first(tabColorEl, "tabColor");
+      if (tc) tabColor = attr(tc, "rgb") || attr(tc, "theme") || "";
+    }
+    // sheetProtection 保护工作表
+    let protection = null;
+    const spEl = first(d.documentElement, "sheetProtection");
+    if (spEl) {
+      protection = {
+        enabled: attr(spEl, "sheet") !== "0",
+        password: attr(spEl, "password") || "",
+        sheet: attr(spEl, "sheet") !== "0",
+        objects: attr(spEl, "objects") !== "0",
+        scenarios: attr(spEl, "scenarios") !== "0",
+        formatCells: attr(spEl, "formatCells") !== "0",
+        formatColumns: attr(spEl, "formatColumns") !== "0",
+        formatRows: attr(spEl, "formatRows") !== "0",
+        insertColumns: attr(spEl, "insertColumns") !== "0",
+        insertRows: attr(spEl, "insertRows") !== "0",
+        deleteColumns: attr(spEl, "deleteColumns") !== "0",
+        deleteRows: attr(spEl, "deleteRows") !== "0"
+      };
+    }
+    // autoFilter 筛选器
+    let filters = [];
+    const afEl = first(d.documentElement, "autoFilter");
+    if (afEl) {
+      filters.push({ range: (attr(afEl, "ref") || "").trim().toUpperCase() });
+    }
+    const sdpEl = first(d.documentElement, "sheetFormatPr");
+    if (sdpEl) defaultRowHeight = +(attr(sdpEl, "defaultRowHeight") || "18");
+    // 自定义行高（<row customHeight="1" h="24"/>）
+    const rowsEl = first(d.documentElement, "sheetData");
+    if (rowsEl) {
+      all(rowsEl, "row").forEach(r => {
+        const customH = attr(r, "customHeight");
+        const h = attr(r, "ht");
+        if (customH === "1" && h) customRowHeights[+(attr(r, "r") || "0")] = +h;
+      });
+    }
+    // 自定义列宽 <cols><col min= max= width= customWidth=/>
+    const colsEl = first(d.documentElement, "cols");
+    const colWidths = [];
+    if (colsEl) {
+      all(colsEl, "col").forEach(c => {
+        const minC = +(attr(c, "min") || "0");
+        const maxC = +(attr(c, "max") || "0");
+        const w = +(attr(c, "width") || "0");
+        if (minC > 0 && maxC >= minC && w > 0) {
+          for (let ci = minC; ci <= maxC; ci++) colWidths[ci] = w;
+        }
+      });
+    }
+
+    const cfListEl = first(d.documentElement, "conditionalFormatting");
+    if (cfListEl) {
+      // OOXML 标准 op → 内部 op
+      const CF_OP_MAP = { "between": "between", "notBetween": "between", "equal": "eq", "notEqual": "ne", "greaterThan": "gt", "lessThan": "lt", "greaterThanOrEqual": "ge", "lessThanOrEqual": "le", "containsText": "contains" };
+      // OOXML type → 内部 type
+      const CF_TYPE_MAP = { "expression": "cell", "cellIs": "cell", "colorScale": "scale", "dataBar": "bar", "iconSet": "icon", "top10": "top" };
+      // OOXML operator → 内部 op（条件格式专用）
+      all(cfListEl, "cfRule").forEach(cf => {
+        const cfType = attr(cf, "type") || "expression";
+        const priority = +(attr(cf, "priority") || "0");
+        const opRaw = attr(cf, "operator") || "between";
+        const op = CF_OP_MAP[opRaw] || "between";
+        const internalType = CF_TYPE_MAP[cfType] || "cell";
+        let formula1 = "", formula2 = "";
+        const f1El = first(cf, "formula1"); if (f1El) formula1 = (f1El.textContent || "").trim();
+        const f2El = first(cf, "formula2"); if (f2El) formula2 = (f2El.textContent || "").trim();
+        let color1 = "", color2 = "", color3 = "";
+        // dxf 样式 → 取填充色
+        const dxf = first(cf, "dxf");
+        if (dxf) {
+          const fill = first(dxf, "fill");
+          const pattFill = fill ? first(fill, "patternFill") : null;
+          const fgColor = pattFill ? first(pattFill, "fgColor") : null;
+          if (fgColor) color1 = attr(fgColor, "rgb") || attr(fgColor, "theme") || "";
+        }
+        // colorScale 专用
+        const cs = first(cf, "colorScale");
+        if (cs) {
+          const colors = all(cs, "color").map(c => attr(c, "rgb") || attr(c, "theme") || "");
+          const vals = all(cs, "cfvo").map(v => +(attr(v, "val") || "0"));
+          color1 = colors[0] || ""; color2 = colors[1] || ""; color3 = colors[2] || "";
+        }
+        // dataBar 专用
+        const db = first(cf, "dataBar");
+        let barColor = "", negColor = "";
+        if (db) {
+          const colEl = first(db, "color"); if (colEl) barColor = attr(colEl, "rgb") || attr(colEl, "theme") || "";
+          const negBarColorEl = first(db, "negativeFillColor") || first(db, "negativeColor");
+          if (negBarColorEl) negColor = attr(negBarColorEl, "rgb") || attr(negBarColorEl, "theme") || "";
+        }
+        const rule = {
+          id: "cf" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          range: (attr(cfListEl, "sqref") || "").trim().toUpperCase(),
+          type: internalType,
+          priority: priority,
+          op: op, v: formula1, v2: formula2,
+          bg: color1, color: color1,
+          minColor: color1 || "#63be7b", midColor: color2 || "", maxColor: color3 || "#f8696b",
+          color: barColor || "#638ec4", negColor: negColor || "#f8696b"
+        };
+        condFormats.push(rule);
+      });
+    }
+      // 函数返回单 sheet 对象
+      return { name: "Sheet" + (sheetIdx + 1), rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles, merge: merges, charts: [], validations, condFormats, freeze, tabColor, defaultRowHeight, customRowHeights, colWidths, protection, filters, hyperlinks: _hyperlinks };
+    } // _parseOneSheet 结束
+
+    // ====== 循环解析所有 sheet（Promise.all 预读 xml + rels + 逐 sheet 调 _parseOneSheet）======
+    const sheetNumbers = Object.keys(sheetFiles).sort((a,b)=>+a-+b).map(n=>+n);
+    const allSheetXmls = await Promise.all(sheetNumbers.map(n => sheetFiles[n].async("string")));
+    // 预读每个 sheet 的 rels 文件 → relsMaps[idx] = { rId1: "https://...", rId2: "Sheet2!A1", ... }
+    const relsMaps = [];
+    for (const n of sheetNumbers) {
+      const relsFile = zip.file("xl/worksheets/_rels/sheet" + n + ".xml.rels");
+      if (relsFile) {
+        try {
+          const relsD = parseXML(await relsFile.async("string"));
+          const m = {};
+          all(first(relsD.documentElement, "Relationships") || relsD.documentElement, "Relationship").forEach(r => {
+            m[attr(r, "Id")] = attr(r, "Target") || "";
+          });
+          relsMaps.push(m);
+        } catch(e) { relsMaps.push({}); }
+      } else relsMaps.push({});
+    }
+    const sheets = [];
+    const safeRels = (idx) => relsMaps[idx] || {};
+    for (let i = 0; i < sheetDefs.length && i < allSheetXmls.length; i++) {
+      const sheet = await _parseOneSheet(allSheetXmls[i], i, safeRels(i));
+      sheet.name = sheetDefs[i].name;
+      sheets.push(sheet);
+    }
+    for (let i = sheetDefs.length; i < allSheetXmls.length; i++) {
+      const sheet = await _parseOneSheet(allSheetXmls[i], i, safeRels(i));
+      sheet.name = "Sheet" + (sheetNumbers[i] || i + 1);
+      sheets.push(sheet);
+    }
+    const hasFmt = sheets.some(s => Object.keys(s.styles).length);
+    const hasMerge = sheets.some(s => s.merge && s.merge.length);
+    const noteExtra = [hasFmt ? "格式已保留" : null, hasMerge ? "合并单元格已保留" : null].filter(Boolean).join("；");
+    const note = sheets.length
+      ? `XLSX 已导入（多表：${sheets.length} 个工作表${noteExtra ? "；" + noteExtra : ""}）`
       : "XLSX 已导入（空表）";
 
     // ---------- 批注导入（xl/comments/commentN.xml，逐 sheet）----------
@@ -467,13 +885,35 @@
       } catch (e) { /* 批注解析失败不阻断导入 */ }
     }
 
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles: {}, comments }, compat: "B", note };
+    console.timeEnd("[XLSX] 2. 单元格遍历");
+    console.timeEnd("[XLSX] parseXlsx 总耗时");
+    // 向后兼容：单表时同时暴露老单表结构（data.cells/styles/merge 等）
+    const compatFlat = sheets.length === 1 ? {
+      rows: sheets[0].rows, cols: sheets[0].cols,
+      cells: sheets[0].cells, styles: sheets[0].styles, merge: sheets[0].merge,
+      charts: sheets[0].charts, condFormats: sheets[0].condFormats,
+      validations: sheets[0].validations, filters: sheets[0].filters,
+      freeze: sheets[0].freeze, tabColor: sheets[0].tabColor,
+      defaultRowHeight: sheets[0].defaultRowHeight,
+      customRowHeights: sheets[0].customRowHeights,
+      colWidths: sheets[0].colWidths, protection: sheets[0].protection
+    } : {};
+    return {
+      type: "spreadsheet",
+      data: Object.assign({}, {
+        sheets, definedNames, comments,
+        compat: hasFmt ? "A" : "B", note
+      }, compatFlat),
+      compat: hasFmt ? "A" : "B",
+      note
+    };
   }
 
   /* ============================================================
      PPTX -> Presentation slides
      ============================================================ */
   async function parsePptx(zip) {
+    console.time("[PPTX] parsePptx 总耗时");
     // 安全取 zip 条目 — 大文件/特殊格式下 zip.file() 可能返回 null
     const safeFile = (name) => zip.file(name);
     // 幻灯片尺寸（EMU → 像素）
@@ -494,6 +934,7 @@
     const fx = W / sldW, fy = H / sldH;
 
     // ========== 1. 预读所有 slide rels + 预取 ppt/media 图片转 data URI ==========
+    console.time("[PPTX] 1. media + rels 预读");
     const mediaMap = {};   // rId -> { path, dataUrl }
     const allRels = {};    // slidePath -> { rId -> target }
     const mediaFiles = Object.keys(zip.files).filter(n => /^ppt\/media\//.test(n));
@@ -510,21 +951,63 @@
       else if (/\.webp$/.test(mp)) mime = "image/webp";
       else if (/\.mp3$/.test(mp)) mime = "audio/mpeg";
       else if (/\.mp4$/.test(mp)) mime = "video/mp4";
-      // base64 编码
-      let bin = "";
-      for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-      try { mediaMap[mp] = "data:" + mime + ";base64," + btoa(bin); } catch (e) { mediaMap[mp] = ""; }
+      // base64 编码（chunk 分割避免 O(N²) 字符串拼接）
+      try {
+        let bin = "";
+        const CHUNK = 8192;
+        for (let i = 0; i < u8.length; i += CHUNK) {
+          bin += String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + CHUNK, u8.length)));
+        }
+        mediaMap[mp] = "data:" + mime + ";base64," + btoa(bin);
+      } catch (e) { mediaMap[mp] = ""; }
     }));
 
-    // 预读所有 slide _rels 关系
+    // 预读所有 rels + 预解析 layout 背景（全部并行）
     const slideRels = Object.keys(zip.files).filter(n => /^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(n)).sort();
-    for (const rp of slideRels) {
-      const relF = zip.file(rp);
-      if (!relF) continue;
-      const relXml = await relF.async("string");
-      const slideName = rp.replace("ppt/slides/_rels/", "").replace(".rels", ""); // slide1.xml
-      allRels[slideName] = parseRels(relXml);
-    }
+    const layoutRels = Object.keys(zip.files).filter(n => /^ppt\/slideLayouts\/_rels\/slideLayout\d+\.xml\.rels$/.test(n)).sort();
+    const masterRels = Object.keys(zip.files).filter(n => /^ppt\/slideMasters\/_rels\/slideMaster\d+\.xml\.rels$/.test(n)).sort();
+    const layoutFiles = Object.keys(zip.files).filter(n => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n)).sort((a, b) => (+/slideLayout(\d+)/.exec(a)[1]) - (+/slideLayout(\d+)/.exec(b)[1]));
+
+    await Promise.all([
+      // slide rels
+      ...slideRels.map(async rp => {
+        const relF = zip.file(rp);
+        if (!relF) return;
+        const relXml = await relF.async("string");
+        const slideName = rp.replace("ppt/slides/_rels/", "").replace(".rels", "");
+        allRels[slideName] = parseRels(relXml);
+      }),
+      // slideLayout rels
+      ...layoutRels.map(async rp => {
+        const relF = zip.file(rp);
+        if (!relF) return;
+        const relXml = await relF.async("string");
+        const key = rp.replace("ppt/slideLayouts/_rels/", "").replace(".rels", "");
+        allRels[key] = parseRels(relXml);
+      }),
+      // slideMaster rels
+      ...masterRels.map(async rp => {
+        const relF = zip.file(rp);
+        if (!relF) return;
+        const relXml = await relF.async("string");
+        const key = rp.replace("ppt/slideMasters/_rels/", "").replace(".rels", "");
+        allRels[key] = parseRels(relXml);
+      }),
+      // layout 背景预解析
+      ...layoutFiles.map(async lf => {
+        try {
+          const lxd = parseXML(await zip.file(lf).async("string"));
+          const lbg = first(lxd.documentElement, "bg");
+          const layoutName = lf.split("/").pop();
+          const c = extractBgFillColor(lbg, allRels[layoutName], "ppt/slideLayouts/");
+          // 写回 allRels 旁路：用 _bg_ 前缀存布局背景
+          if (!allRels._layoutBg) allRels._layoutBg = {};
+          allRels._layoutBg[layoutName] = c || null;
+        } catch (_) {}
+      })
+    ]);
+    const layoutBgMap = allRels._layoutBg || {};
+    console.timeEnd("[PPTX] 1. media + rels 预读");
 
     // ========== 2. 读 slideMaster 的背景（用于继承回退） ==========
     let masterBg = "#ffffff";
@@ -532,25 +1015,8 @@
     if (sm) {
       const smd = parseXML(await sm.async("string"));
       const mbg = first(smd.documentElement, "bg");
-      const c = extractBgFillColor(mbg);
+      const c = extractBgFillColor(mbg, allRels["slideMaster1.xml"], "ppt/slideMasters/");
       if (c) masterBg = c;
-    }
-
-    // ========== 2.5 预解析所有 slideLayout 的背景 ==========
-    // PPTX 背景继承链：slide 自己的 bg → slideLayout bg → slideMaster bg → 默认白
-    // slideLayout 文件列表
-    const layoutBgMap = {}; // "slideLayout1.xml" -> "#2196f3"
-    const layoutFiles = Object.keys(zip.files)
-      .filter(n => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n))
-      .sort((a, b) => (+/slideLayout(\d+)/.exec(a)[1]) - (+/slideLayout(\d+)/.exec(b)[1]));
-    for (const lf of layoutFiles) {
-      try {
-        const lxd = parseXML(await zip.file(lf).async("string"));
-        const lbg = first(lxd.documentElement, "bg");
-        const c = extractBgFillColor(lbg);
-        const layoutName = lf.split("/").pop(); // "slideLayout1.xml"
-        layoutBgMap[layoutName] = c || null;
-      } catch (_) {}
     }
 
     // ========== 3. 遍历每张 slide ==========
@@ -558,13 +1024,19 @@
       .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
       .sort((a, b) => (+/slide(\d+)/.exec(a)[1]) - (+/slide(\d+)/.exec(b)[1]));
 
-    // 工具：从 rId 找 media base64
-    function resolveMediaByRels(rels, rId) {
+    // 工具：从 rId 找 media base64（baseDir 决定相对路径解析根目录：slides / slideLayouts / slideMasters）
+    function resolveMediaByRels(rels, rId, baseDir) {
       if (!rels || !rId) return null;
       const target = rels[rId];
       if (!target) return null;
-      // target 相对 slide：../media/image1.png -> ppt/media/image1.png
-      const path = ("ppt/slides/" + target).replace(/ppt\/slides\/\.\.\//, "ppt/");
+      baseDir = baseDir || "ppt/slides/";
+      // target 相对 baseDir：../media/image1.png -> ppt/media/image1.png
+      let path = baseDir + target;
+      // 折叠 "xxx/../" → "" （例："ppt/slides/../media/image.png" -> "ppt/media/image.png"）
+      // 用循环处理多层嵌套（a/b/../../c → c）
+      while (path.indexOf("/../") !== -1) {
+        path = path.replace(/[^/]+\/\.\.\//, "");
+      }
       const dataUrl = mediaMap[path];
       return dataUrl || null;
     }
@@ -589,12 +1061,13 @@
       return null;
     }
 
-    // 工具：从 <p:bg> / <p:bgPr> 节点提取背景色（覆盖 PPTX 所有标准背景类型）
+    // 工具：从 <p:bg> / <p:bgPr> 节点提取背景值（颜色字符串 或 "url(data:图片base64)"）
     // PPTX 背景结构：<p:bg><p:bgPr>{solidFill|gradFill|blipFill|noFill}</p:bgPr></p:bg>
     // 或引用：<p:bg><p:bgRef idx="N"><a:schemeClr val="xxx"/></p:bgRef></p:bg>
-    function extractBgFillColor(bgNode) {
+    // blipFill 需要 rels + baseDir 从 rId 找 media 图片
+    function extractBgFillColor(bgNode, rels, baseDir) {
       if (!bgNode) return null;
-      // 路径1：bgPr 直接填充（solidFill / gradFill / noFill）
+      // 路径1：bgPr 直接填充（solidFill / gradFill / blipFill / noFill）
       const bgPr = first(bgNode, "bgPr");
       const fillHost = bgPr || bgNode;
       // solidFill
@@ -608,6 +1081,16 @@
           const firstGs = gsLst.children[0];
           const c = extractFillColor(firstGs);
           if (c) return c;
+        }
+      }
+      // blipFill 图片背景 → 从 rels 找 rId → mediaMap 拿 data URL
+      const blipFill = first(fillHost, "blipFill");
+      if (blipFill && rels) {
+        const blip = first(blipFill, "blip");
+        if (blip) {
+          const rId = attr(blip, "embed"); // attr() 自动处理 r:embed 命名空间
+          const dataUrl = resolveMediaByRels(rels, rId, baseDir);
+          if (dataUrl) return "url(" + dataUrl + ")";
         }
       }
       // bgRef 引用（idx 指向 theme/slideLayout，简化处理：直接在里面找颜色）
@@ -760,7 +1243,7 @@
       // 背景继承链：slide 自己的 bg → slideLayout bg → slideMaster bg → 默认白
       let bgColor = masterBg;
       const bgNode = first(sld, "bg");
-      const slideOwnBg = extractBgFillColor(bgNode);
+      const slideOwnBg = extractBgFillColor(bgNode, rels, "ppt/slides/");
       if (slideOwnBg) {
         bgColor = slideOwnBg; // slide 自己设了 → 最高优先级
       } else {
@@ -867,6 +1350,7 @@
       } catch (e) { /* 不阻断导入 */ }
     }
 
+    console.timeEnd("[PPTX] parsePptx 总耗时");
     return { type: "presentation", data: { slides, comments }, compat: "B", note: `PPTX 已导入 ${slides.length} 页（基础兼容：文本/图片/形状/位置/样式保留${comments.length ? "；批注 " + comments.length + " 条" : ""}）` };
   }
 

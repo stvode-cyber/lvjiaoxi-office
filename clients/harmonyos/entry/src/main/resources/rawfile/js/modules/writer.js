@@ -94,6 +94,18 @@
       ctx.markDirty();
     }
 
+    /* ---------- 中西文字体分别设置（fallback 链：西文先、中文兜底） ---------- */
+    let _fontZh = "Microsoft YaHei";
+    let _fontEn = "Arial";
+    function _applyDualFont() {
+      page.focus();
+      const chain = `"${_fontEn}", "${_fontZh}"`;
+      try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
+      try { document.execCommand("fontName", false, chain); } catch (e) {}
+      try { document.execCommand("styleWithCSS", false, false); } catch (e) {}
+      ctx.markDirty();
+    }
+
     /* ---------- P0 增强：字体 / 段落 / 剪贴板 辅助 ---------- */
     function setFontSize(px) {
       page.focus();
@@ -189,6 +201,57 @@
       page.focus();
       blk.style[prop] = val;
       ctx.markDirty();
+    }
+
+    /* ---------- 段落设置：精确缩进/间距/首行 ---------- */
+    function openParagraphFormat() {
+      const blk = currentBlock();
+      const get = prop => parseFloat((blk && blk.style[prop]) || 0) || 0;
+      const cur = {
+        left: get("paddingLeft"),
+        right: get("paddingRight"),
+        firstLine: get("textIndent"),
+        spaceBefore: get("marginTop"),
+        spaceAfter: get("marginBottom")
+      };
+      const ov = document.createElement("div");
+      ov.className = "pg-overlay";
+      ov.innerHTML = `
+        <div class="pg-modal">
+          <div class="pg-title">段落设置</div>
+          <div class="pg-row">
+            <label class="pg-field"><span>左缩进 (px)</span><input type="number" id="pgl" value="${cur.left}" min="0" max="200" step="1"></label>
+            <label class="pg-field"><span>右缩进 (px)</span><input type="number" id="pgr" value="${cur.right}" min="0" max="200" step="1"></label>
+          </div>
+          <div class="pg-row">
+            <label class="pg-field"><span>首行缩进 (px)</span><input type="number" id="pgfl" value="${cur.firstLine}" min="0" max="200" step="1"></label>
+          </div>
+          <div class="pg-row">
+            <label class="pg-field"><span>段前间距 (px)</span><input type="number" id="pgsb" value="${cur.spaceBefore}" min="0" max="100" step="1"></label>
+            <label class="pg-field"><span>段后间距 (px)</span><input type="number" id="pgsa" value="${cur.spaceAfter}" min="0" max="100" step="1"></label>
+          </div>
+          <div class="pg-actions">
+            <button class="pg-cancel">取消</button>
+            <button class="pg-ok primary">确定</button>
+          </div>
+        </div>`;
+      wrap.appendChild(ov);
+      const close = () => ov.remove();
+      ov.querySelector(".pg-cancel").onclick = close;
+      ov.querySelector(".pg-ok").onclick = () => {
+        page.focus();
+        const blk2 = currentBlock();
+        if (blk2) {
+          blk2.style.paddingLeft   = (ov.querySelector("#pgl").value || 0) + "px";
+          blk2.style.paddingRight  = (ov.querySelector("#pgr").value || 0) + "px";
+          blk2.style.textIndent    = (ov.querySelector("#pgfl").value || 0) + "px";
+          blk2.style.marginTop     = (ov.querySelector("#pgsb").value || 0) + "px";
+          blk2.style.marginBottom  = (ov.querySelector("#pgsa").value || 0) + "px";
+          ctx.markDirty();
+        }
+        close();
+      };
+      ov.addEventListener("click", e => { if (e.target === ov) close(); });
     }
 
     function wrapCharBorder() {
@@ -739,6 +802,78 @@
       _on(ov, "click", e => { if (e.target === ov) ov.remove(); });
     }
 
+    /* ---------- 表格网格拖选插入（竞品式：悬停预览行列数） ---------- */
+    function insertTableGrid(e) {
+      // 关掉已有的
+      const existing = wrap.querySelector(".tbl-grid-panel");
+      if (existing) { existing.remove(); return; }
+
+      const panel = document.createElement("div");
+      panel.className = "tbl-grid-panel";
+      panel.innerHTML = `
+        <div class="tbl-grid-hint"><span class="tbl-grid-dim">0 × 0</span> 表格</div>
+        <div class="tbl-grid-box"></div>
+        <div class="tbl-grid-footer">插入表格…</div>
+      `;
+      wrap.appendChild(panel);
+
+      // 定位到触发按钮正下方（split main button 或普通 btn）
+      const btn = e && e.currentTarget ? e.currentTarget : (e && e.target && e.target.closest(".rbtn,button"));
+      if (btn) {
+        const r = btn.getBoundingClientRect();
+        panel.style.top = (r.bottom + 4) + "px";
+        panel.style.left = r.left + "px";
+      }
+
+      const box = panel.querySelector(".tbl-grid-box");
+      const hint = panel.querySelector(".tbl-grid-dim");
+      const GRID_COLS = 10, GRID_ROWS = 8;
+      let highlight = { r: 0, c: 0 };
+
+      // 生成网格单元格
+      for (let r = 1; r <= GRID_ROWS; r++) {
+        for (let c = 1; c <= GRID_COLS; c++) {
+          const cell = document.createElement("div");
+          cell.className = "tbl-grid-cell";
+          cell.dataset.r = r; cell.dataset.c = c;
+          box.appendChild(cell);
+        }
+      }
+
+      function refreshHighlight() {
+        box.querySelectorAll(".tbl-grid-cell").forEach(el => {
+          const r = +el.dataset.r, c = +el.dataset.c;
+          el.classList.toggle("on", r <= highlight.r && c <= highlight.c);
+        });
+      }
+
+      box.addEventListener("mouseover", e => {
+        const cell = e.target.closest(".tbl-grid-cell");
+        if (!cell) return;
+        highlight = { r: +cell.dataset.r, c: +cell.dataset.c };
+        hint.textContent = highlight.c + " × " + highlight.r;
+        refreshHighlight();
+      });
+
+      box.addEventListener("click", e => {
+        const cell = e.target.closest(".tbl-grid-cell");
+        if (!cell) return;
+        const rows = +cell.dataset.r, cols = +cell.dataset.c;
+        const html = '<table><tbody>' + Array.from({ length: rows }).map(() =>
+          '<tr>' + Array.from({ length: cols }).map(() => '<td>　</td>').join("") + '</tr>'
+        ).join("") + '</tbody></table><p><br></p>';
+        exec("insertHTML", html);
+        panel.remove();
+      });
+
+      // 点外部关掉
+      setTimeout(() => {
+        document.addEventListener("click", closePanel, { once: true });
+        document.addEventListener("scroll", closePanel, true);
+      }, 0);
+      function closePanel() { panel.remove(); document.removeEventListener("scroll", closePanel, true); }
+    }
+
     /* ---------- 功能区（标签页） ---------- */
     const ribbon = OS.Ribbon.create({
       file: { onOpen: ctx.openBackstage },
@@ -755,18 +890,26 @@
             },
             {
               label: "字体", items: [
-                { kind: "select", title: "字体", width: 120, value: "",
+                { kind: "select", title: "中文字体", width: 100, value: "Microsoft YaHei",
                   options: [
-                    { value: "", label: "默认字体" },
                     { value: "Microsoft YaHei", label: "微软雅黑" },
                     { value: "SimSun", label: "宋体" },
                     { value: "SimHei", label: "黑体" },
                     { value: "KaiTi", label: "楷体" },
                     { value: "NSimSun", label: "新宋体" },
-                    { value: "Arial", label: "Arial" },
-                    { value: "Times New Roman", label: "Times New Roman" }
+                    { value: "FangSong", label: "仿宋" }
                   ],
-                  onChange: v => { if (v) exec("fontName", v); } },
+                  onChange: v => { _fontZh = v; _applyDualFont(); } },
+                { kind: "select", title: "西文字体", width: 100, value: "Arial",
+                  options: [
+                    { value: "Arial", label: "Arial" },
+                    { value: "Times New Roman", label: "Times New Roman" },
+                    { value: "Calibri", label: "Calibri" },
+                    { value: "Georgia", label: "Georgia" },
+                    { value: "Courier New", label: "Courier New" },
+                    { value: "Verdana", label: "Verdana" }
+                  ],
+                  onChange: v => { _fontEn = v; _applyDualFont(); } },
                 { kind: "select", title: "字号", width: 60, value: "",
                   options: [
                     { value: "", label: "默认" },
@@ -814,8 +957,16 @@
                 { kind: "btn", icon: "list-bullet", title: "项目符号", onClick: () => exec("insertUnorderedList") },
                 { kind: "btn", icon: "list-number", title: "编号", onClick: () => exec("insertOrderedList") },
                 { kind: "btn", icon: "list-number", title: "多级列表", onClick: multiLevelList },
-                { kind: "btn", icon: "indent", title: "增加缩进", onClick: () => exec("indent") },
-                { kind: "btn", icon: "outdent", title: "减少缩进", onClick: () => exec("outdent") },
+                {
+                  kind: "split", icon: "indent", title: "段落设置（精确缩进/间距/首行）", label: "缩进",
+                  onClick: openParagraphFormat,
+                  menu: [
+                    { label: "增加缩进", onClick: () => exec("indent") },
+                    { label: "减少缩进", onClick: () => exec("outdent") },
+                    { divider: true },
+                    { label: "段落设置…", onClick: openParagraphFormat }
+                  ]
+                },
                 { kind: "select", title: "行距", width: 64, value: "1.5",
                   options: [
                     { value: "1", label: "1.0" }, { value: "1.15", label: "1.15" },
@@ -843,9 +994,17 @@
           id: "insert", label: "插入", groups: [
             {
               label: "表格", items: [
-                { kind: "btn", icon: "table", title: "插入 3×3 表格", onClick: () => exec("insertHTML",
-                  '<table><tbody>' + Array.from({ length: 3 }).map(() =>
-                    '<tr>' + Array.from({ length: 3 }).map(() => '<td>　</td>').join("") + '</tr>').join("") + '</tbody></table><p><br></p>') }
+                {
+                  kind: "split", icon: "table", label: "表格", title: "插入表格（网格选择行列数）",
+                  onClick: insertTableGrid,
+                  menu: [
+                    { label: "插入表格…", onClick: insertTableGrid },
+                    { divider: true },
+                    { label: "快速 3×3", onClick: () => exec("insertHTML", '<table><tbody>' + Array.from({length:3}).map(()=>'<tr>'+Array.from({length:3}).map(()=>'<td>　</td>').join("")+'</tr>').join("")+'</tbody></table><p><br></p>') },
+                    { label: "快速 5×5", onClick: () => exec("insertHTML", '<table><tbody>' + Array.from({length:5}).map(()=>'<tr>'+Array.from({length:5}).map(()=>'<td>　</td>').join("")+'</tr>').join("")+'</tbody></table><p><br></p>') },
+                    { label: "插入 1 行 2 列表头", onClick: () => exec("insertHTML", '<table><tbody><tr><th>列 1</th><th>列 2</th></tr></tbody></table><p><br></p>') }
+                  ]
+                }
               ]
             },
             {
@@ -933,10 +1092,20 @@
     });
 
     wrap.querySelector("#cmt-toggle").addEventListener("click", togglePanel);
+    // 模块专用快捷键（shell.js 全局已覆盖 Ctrl+S/F/P/Z/Y/K/E/N/O/W/Q/R/Tab/F1/F5）
     page.addEventListener("keydown", e => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); ctx.saveNow && ctx.saveNow(); }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") { e.preventDefault(); openFindReplace(); }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") { e.preventDefault(); doPrintPaginated(); }
+      const k = e.key.toLowerCase();
+      const ctrl = e.ctrlKey || e.metaKey;
+      // Ctrl+Shift+> 增大字号
+      if (ctrl && e.shiftKey && k === ">") { e.preventDefault(); bumpFontSize(1); }
+      // Ctrl+Shift+< 减小字号
+      else if (ctrl && e.shiftKey && k === "<") { e.preventDefault(); bumpFontSize(-1); }
+      // Ctrl+Shift+L 项目符号
+      else if (ctrl && e.shiftKey && k === "l") { e.preventDefault(); exec("insertUnorderedList"); }
+      // Ctrl+Shift+J 两端对齐
+      else if (ctrl && e.shiftKey && k === "j") { e.preventDefault(); exec("justifyFull"); }
+      // Ctrl+Shift+N 编号
+      else if (ctrl && e.shiftKey && k === "n") { e.preventDefault(); exec("insertOrderedList"); }
     });
 
     /* ---------- 查找 / 替换 + 字数统计 ---------- */

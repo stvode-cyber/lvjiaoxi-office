@@ -352,12 +352,13 @@
   }
 
   function docCard(d) {
-    const info = OS.TYPE_INFO[d.type] || { ico: "📄", name: d.type, accent: "#64748b" };
-    const accent = (OS.Templates && OS.Templates.list.find(t => t.module === d.type && t.id.endsWith("-blank"))
-      ? OS.Templates.list.find(t => t.module === d.type && t.id.endsWith("-blank")).accent : "#64748b");
+    const info = OS.TYPE_INFO[d.type] || { ico: "file", name: d.type, color: "#64748b" };
+    const tplAccent = (OS.Templates && OS.Templates.list.find(t => t.module === d.type && t.id.endsWith("-blank"))
+      ? OS.Templates.list.find(t => t.module === d.type && t.id.endsWith("-blank")).accent : null);
+    const accent = tplAccent || info.color || "#64748b";
     const el = document.createElement("div");
     el.className = "doc-card"; el.dataset.id = d.id;
-    el.innerHTML = `<div class="doc-ico" style="--doc-accent:${accent}">${info.ico}</div>
+    el.innerHTML = `<div class="doc-ico" style="--doc-accent:${accent}">${OS.icons.svg(info.ico, 22)}</div>
       <div class="doc-name">${OS.util.escapeHtml(d.name)}</div>
       <div class="doc-meta">${info.name} · ${OS.util.fmtTime(d.updatedAt)} · ${OS.util.fmtSize(d.size || 0)}</div>
       <button class="doc-del" title="删除" aria-label="删除">🗑</button>`;
@@ -434,6 +435,13 @@
     tabs.forEach(x => { if (x.wrap) x.wrap.style.display = (x.id === t.id) ? "" : "none"; });
     document.querySelectorAll(".tab").forEach(el => el.classList.toggle("active", el.dataset.id === t.id));
 
+    // 模块色传递到 #module-host（顶部指示线）和 .editor
+    const info = OS.TYPE_INFO[t.doc.type];
+    const modColor = info?.color || "#64748b";
+    document.getElementById("module-host")?.style.setProperty("--mod-color", modColor);
+    document.getElementById("editor")?.style.setProperty("--mod-color", modColor);
+    if (t.wrap) t.wrap.style.setProperty("--mod-color", modColor);
+
     // 功能区切换
     const host = $("#ribbon-host"); host.innerHTML = "";
     const ribbon = t.instance.ribbon || t.instance._ribbon;
@@ -487,11 +495,12 @@
   function renderTabbar() {
     const bar = $("#tabbar"); bar.innerHTML = "";
     tabs.forEach(t => {
-      const info = OS.TYPE_INFO[t.doc.type] || { ico: "📄" };
+      const info = OS.TYPE_INFO[t.doc.type] || { ico: "file", color: "#64748b" };
       const el = document.createElement("button");
       el.className = "tab" + (t.id === activeId ? " active" : "");
       el.dataset.id = t.id;
-      el.innerHTML = `<span class="tab-ico">${info.ico}</span><span class="tab-name">${OS.util.escapeHtml(t.doc.name)}</span>${t.dirty ? '<span class="dirty-dot"></span>' : ""}<span class="tab-close">✕</span>`;
+      el.innerHTML = `<span class="tab-ico" style="--mod-color:${info.color}">${OS.icons.svg(info.ico, 16)}</span><span class="tab-name">${OS.util.escapeHtml(t.doc.name)}</span>${t.dirty ? '<span class="dirty-dot"></span>' : ""}<span class="tab-close">✕</span>`;
+      el.style.setProperty("--mod-color", info.color);
       el.addEventListener("click", e => {
         if (e.target.classList.contains("tab-close")) { e.stopPropagation(); closeTab(t.id); }
         else activate(t);
@@ -556,7 +565,9 @@
     const info = OS.TYPE_INFO[t.doc.type] || { name: t.doc.type };
     const comp = OS.COMPAT[t.doc.compat];
     const sb = $("#statusbar");
-    sb.innerHTML = `
+    const isSheet = t.doc.type === "spreadsheet";
+    sb.hidden = isSheet;  // spreadsheet 模块隐藏全局 footer，用模块内 bottombar
+    const html = `
       <span class="sb-item">${info.name}</span>
       <span class="sb-item">${OS.util.fmtSize(t.doc.size || 0)}</span>
       ${comp ? `<span class="sb-item" style="color:${comp.color.replace('var(--ok)','#0e7c3a').replace('var(--warn)','#b9700f').replace('var(--danger)','#c4312b')}">${comp.label}</span>` : ""}
@@ -570,13 +581,22 @@
         <span class="sb-zoomval" id="zb-val" title="重置为 100%">${zoom}%</span>
         <button id="zb-in" title="放大">＋</button>
       </span>`;
-    sb.querySelector("#zb-out").onclick = () => applyZoom(-10);
-    sb.querySelector("#zb-in").onclick = () => applyZoom(10);
-    sb.querySelector("#zb-val").onclick = () => { zoom = 100; applyZoom(0); };
-    const tasksBtn = sb.querySelector("#sb-tasks-btn");
+    sb.innerHTML = html;
+    // spreadsheet: 同步到模块内 bottombar
+    if (isSheet) {
+      const sf = document.querySelector(".sheet-footer");
+      if (sf) { sf.innerHTML = html; sf.hidden = false; }
+    }
+    const zbOut = document.querySelector("#zb-out") || document.querySelector(".sheet-footer #zb-out");
+    const zbIn = document.querySelector("#zb-in") || document.querySelector(".sheet-footer #zb-in");
+    const zbVal = document.querySelector("#zb-val") || document.querySelector(".sheet-footer #zb-val");
+    if (zbOut) zbOut.onclick = () => applyZoom(-10);
+    if (zbIn) zbIn.onclick = () => applyZoom(10);
+    if (zbVal) zbVal.onclick = () => { zoom = 100; applyZoom(0); };
+    const tasksBtn = document.querySelector("#sb-tasks-btn") || document.querySelector(".sheet-footer #sb-tasks-btn");
     if (tasksBtn) {
       tasksBtn.onclick = () => OS.Tasks && OS.Tasks.togglePanel();
-      OS.Tasks && OS.Tasks.setBadgeEl(sb.querySelector("#sb-tasks"));
+      OS.Tasks && OS.Tasks.setBadgeEl(document.querySelector("#sb-tasks") || document.querySelector(".sheet-footer #sb-tasks"));
     }
   }
 
@@ -1170,14 +1190,14 @@
       <div class="tab-switcher-panel">
         <div class="tab-switcher-title">按住 Ctrl + Tab 切换标签（松开 Ctrl 确认）</div>
         <div class="tab-switcher-list">${tabs.map((t, i) => {
-          const mod = t.doc && t.doc.data && t.doc.data.modules ? t.doc.data.modules[0] : (t.doc && t.doc.type ? t.doc.type : "doc");
-          const labels = { writer: "Writer", spreadsheet: "Sheet", presentation: "Slide", pdf: "PDF", mindmap: "MindMap" };
+          const mod = t.doc && t.doc.data && t.doc.data.modules ? t.doc.data.modules[0] : (t.doc && t.doc.type ? t.doc.type : "writer");
+          const info = OS.TYPE_INFO[mod] || { ico: "file", color: "#64748b", name: mod };
           const name = (t.doc && t.doc.name) || (t.doc && t.doc.title) || (t.doc && t.doc.type) || "未命名";
-          return `<div class="tab-switcher-item ${i === (curIdx + 1) % tabs.length ? "active" : ""}" data-idx="${i}">
-            <div class="tab-switcher-icon">${OS.icons.svg(mod === "writer" ? "doc" : mod === "spreadsheet" ? "grid" : mod === "pdf" ? "file" : mod === "presentation" ? "slides" : "mindmap", 18)}</div>
+          return `<div class="tab-switcher-item ${i === (curIdx + 1) % tabs.length ? "active" : ""}" data-idx="${i}" style="--mod-color:${info.color}">
+            <div class="tab-switcher-icon">${OS.icons.svg(info.ico, 24)}</div>
             <div class="tab-switcher-info">
               <div class="tab-switcher-name">${name}${t.dirty ? " ●" : ""}</div>
-              <div class="tab-switcher-type">${labels[mod] || mod}</div>
+              <div class="tab-switcher-type">${info.name || mod}</div>
             </div>
           </div>`;
         }).join("")}</div>
@@ -1749,11 +1769,11 @@
         if (!q.trim()) return;
         if (!res.length) { resultsEl.innerHTML = '<div class="gs-empty">没有匹配的文档内容</div>'; return; }
         res.forEach(r => {
-          const info = OS.TYPE_INFO[r.docType] || { ico: "📄", name: r.docType };
+          const info = OS.TYPE_INFO[r.docType] || { ico: "file", name: r.docType };
           const item = document.createElement("button");
           item.className = "gs-item";
           item.innerHTML =
-            `<span class="gs-doc">${info.ico} ${OS.util.escapeHtml(r.docName)}</span>` +
+            `<span class="gs-doc">${OS.icons.svg(info.ico, 14)} ${OS.util.escapeHtml(r.docName)}</span>` +
             `<span class="gs-label">${OS.util.escapeHtml(r.label || "")}</span>` +
             `<span class="gs-preview">${r.previewHtml || ""}</span>`;
           item.onclick = () => focusResult(r);

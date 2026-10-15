@@ -425,12 +425,12 @@
     C: { label: "只读兼容", color: "var(--danger)", desc: "仅查看，编辑可能丢失格式" }
   };
 
-  // 类型图标/中文名
+  // 类型图标/中文名（ico = icons.js PATHS key，非 emoji；color = 模块品牌色）
   OS.TYPE_INFO = {
-    writer: { ico: "📝", name: "文档", ext: "docx" },
-    spreadsheet: { ico: "📊", name: "表格", ext: "xlsx" },
-    presentation: { ico: "📽️", name: "演示", ext: "pptx" },
-    mindmap: { ico: "🧠", name: "脑图", ext: "json" },
-    pdf: { ico: "📄", name: "PDF", ext: "pdf" }
+    writer:      { ico: "docx",   name: "文档", ext: "docx",  color: "#2B579A" },
+    spreadsheet: { ico: "grid",   name: "表格", ext: "xlsx",  color: "#217346" },
+    presentation:{ ico: "slide",  name: "演示", ext: "pptx",  color: "#D04423" },
+    mindmap:     { ico: "mindmap",name: "脑图", ext: "json",  color: "#7C3AED" },
+    pdf:         { ico: "pdf",    name: "PDF",  ext: "pdf",   color: "#E53935" }
   };
 })(window);

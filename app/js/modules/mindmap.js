@@ -16,11 +16,11 @@
   function uid(p) { return OS.util.uid(p || "n"); }
   // TODO: [坑-mknode-color] 预防：渲染函数默认值必须显式硬编码，禁止依赖"上游总会传"；解析 JSON 前先判空
   function mkNode(text, x, y, parent, color) {
-    return { id: uid("n"), x: x || 0, y: y || 0, text: text || "", color: color || "#2563eb", shape: "rounded", fontSize: 14, parent: parent || null, isRoot: false };
+    return { id: uid("n"), x: x || 0, y: y || 0, text: text || "", color: color || "#7C3AED", shape: "rounded", fontSize: 14, parent: parent || null, isRoot: false };
   }
   function blank() {
     const root = mkNode("中心主题", 0, 0);
-    root.isRoot = true; root.color = "#1e3a5f";
+    root.isRoot = true; root.color = "#7C3AED";
     return { mode: "map", nodes: [root], edges: [], rootId: root.id };
   }
 

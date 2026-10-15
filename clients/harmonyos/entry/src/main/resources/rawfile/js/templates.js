@@ -60,10 +60,10 @@
 
   /* ---------- 模板定义 ---------- */
   const TEMPLATES = [
-    /* Writer */
-    { id: "writer-blank", module: "writer", name: "空白文档", desc: "从零开始撰写", accent: "#2563eb", thumb: thumbDoc("#2563eb"),
+    /* Writer — 模块色 #2B579A */
+    { id: "writer-blank", module: "writer", name: "空白文档", desc: "从零开始撰写", accent: "#2B579A", thumb: thumbDoc("#2B579A"),
       build: () => ({ html: "<h1>未命名文档</h1><p><br></p>" }) },
-    { id: "writer-report", module: "writer", name: "工作报告", desc: "章节式周报 / 月报", accent: "#2563eb", thumb: thumbDoc("#2563eb"),
+    { id: "writer-report", module: "writer", name: "工作报告", desc: "章节式周报 / 月报", accent: "#2B579A", thumb: thumbDoc("#2B579A"),
       build: () => ({ html:
         '<h1>工作报告</h1>' +
         '<p style="color:#64748b">汇报人：________　日期：____年__月__日</p>' +
@@ -71,7 +71,7 @@
         '<h2>二、重点项目进展</h2><ul><li>项目 A：……</li><li>项目 B：……</li></ul>' +
         '<h2>三、问题与风险</h2><p>描述当前遇到的阻塞与应对方案。</p>' +
         '<h2>四、下期计划</h2><p>列出下阶段目标与关键里程碑。</p>' }) },
-    { id: "writer-minutes", module: "writer", name: "会议纪要", desc: "议程 / 决议 / 待办", accent: "#2563eb", thumb: thumbDoc("#2563eb"),
+    { id: "writer-minutes", module: "writer", name: "会议纪要", desc: "议程 / 决议 / 待办", accent: "#2B579A", thumb: thumbDoc("#2B579A"),
       build: () => ({ html:
         '<h1>会议纪要</h1>' +
         '<p style="color:#64748b">时间：　　地点：　　主持人：</p>' +
@@ -79,7 +79,7 @@
         '<h2>会议议程</h2><ol><li>……</li><li>……</li></ol>' +
         '<h2>决议事项</h2><ul><li>……</li></ul>' +
         '<h2>待办跟进</h2><ul><li>……（负责人 / 截止日期）</li></ul>' }) },
-    { id: "writer-resume", module: "writer", name: "简历", desc: "教育 / 经历 / 技能", accent: "#2563eb", thumb: thumbDoc("#2563eb"),
+    { id: "writer-resume", module: "writer", name: "简历", desc: "教育 / 经历 / 技能", accent: "#2B579A", thumb: thumbDoc("#2B579A"),
       build: () => ({ html:
         '<h1>姓名</h1>' +
         '<p style="color:#64748b">电话 | 邮箱 | 所在城市</p>' +
@@ -88,10 +88,10 @@
         '<h2>工作经历</h2><ul><li>公司 · 岗位（20__–20__）：负责……</li></ul>' +
         '<h2>专业技能</h2><p>……</p>' }) },
 
-    /* Spreadsheet */
-    { id: "sheet-blank", module: "spreadsheet", name: "空白表格", desc: "自由组织数据", accent: "#0e9f6e", thumb: thumbSheet("#0e9f6e"),
+    /* Spreadsheet — 模块色 #217346 */
+    { id: "sheet-blank", module: "spreadsheet", name: "空白表格", desc: "自由组织数据", accent: "#217346", thumb: thumbSheet("#217346"),
       build: () => ({ rows: 100, cols: 16, cells: {}, styles: {} }) },
-    { id: "sheet-budget", module: "spreadsheet", name: "月度预算", desc: "预算 / 实际 / 差额（带公式）", accent: "#0e9f6e", thumb: thumbSheet("#0e9f6e"),
+    { id: "sheet-budget", module: "spreadsheet", name: "月度预算", desc: "预算 / 实际 / 差额（带公式）", accent: "#217346", thumb: thumbSheet("#217346"),
       build: () => ({
         rows: 60, cols: 12,
         cells: {
@@ -108,7 +108,7 @@
           A8: { bold: true }, B8: { bold: true }, C8: { bold: true }, D8: { bold: true }
         }
       }) },
-    { id: "sheet-project", module: "spreadsheet", name: "项目计划", desc: "任务 / 负责人 / 进度", accent: "#0e9f6e", thumb: thumbSheet("#0e9f6e"),
+    { id: "sheet-project", module: "spreadsheet", name: "项目计划", desc: "任务 / 负责人 / 进度", accent: "#217346", thumb: thumbSheet("#217346"),
       build: () => ({
         rows: 60, cols: 12,
         cells: {
@@ -123,7 +123,7 @@
           A1: { bold: true, fontSize: 16 }, A3: { bold: true }, B3: { bold: true }, C3: { bold: true }, D3: { bold: true }, E3: { bold: true }
         }
       }) },
-    { id: "sheet-scores", module: "spreadsheet", name: "成绩表", desc: "各科 / 平均分（带公式）", accent: "#0e9f6e", thumb: thumbSheet("#0e9f6e"),
+    { id: "sheet-scores", module: "spreadsheet", name: "成绩表", desc: "各科 / 平均分（带公式）", accent: "#217346", thumb: thumbSheet("#217346"),
       build: () => ({
         rows: 60, cols: 12,
         cells: {
@@ -138,59 +138,59 @@
         }
       }) },
 
-    /* Presentation */
-    { id: "pres-blank", module: "presentation", name: "空白演示", desc: "从空白幻灯片开始", accent: "#7c3aed", thumb: thumbPres("#7c3aed"),
-      build: () => ({ slides: [{ bg: "#ffffff", elements: [{ id: uid("el"), type: "text", x: 220, y: 170, w: 320, h: 90, text: "点击编辑标题", fontSize: 32, color:OS.theme.getVar("undefined"), bold: true }] }] }) },
-    { id: "pres-business", module: "presentation", name: "商务汇报", desc: "封面 + 内容 + 结尾", accent: "#7c3aed", thumb: thumbPres("#7c3aed"),
+    /* Presentation — 模块色 #D04423（修复 OS.theme.getVar("undefined") bug） */
+    { id: "pres-blank", module: "presentation", name: "空白演示", desc: "从空白幻灯片开始", accent: "#D04423", thumb: thumbPres("#D04423"),
+      build: () => ({ slides: [{ bg: "#ffffff", elements: [{ id: uid("el"), type: "text", x: 220, y: 170, w: 320, h: 90, text: "点击编辑标题", fontSize: 32, color: "#D04423", bold: true }] }] }) },
+    { id: "pres-business", module: "presentation", name: "商务汇报", desc: "封面 + 内容 + 结尾", accent: "#D04423", thumb: thumbPres("#D04423"),
       build: () => ({ slides: [
-        { bg: "#1e3a5f", elements: [
-          { id: uid("el"), type: "text", x: 120, y: 150, w: 520, h: 80, text: "季度业务汇报", fontSize: 40, color:OS.theme.getVar("undefined"), bold: true },
-          { id: uid("el"), type: "text", x: 120, y: 240, w: 520, h: 40, text: "2026 Q3 · 战略与执行", fontSize: 20, color: "#cbd5e1" }
+        { bg: "#ffffff", elements: [
+          { id: uid("el"), type: "text", x: 120, y: 150, w: 520, h: 80, text: "季度业务汇报", fontSize: 40, color: "#D04423", bold: true },
+          { id: uid("el"), type: "text", x: 120, y: 240, w: 520, h: 40, text: "2026 Q3 · 战略与执行", fontSize: 20, color: "#64748b" }
         ] },
         { bg: "#ffffff", elements: [
-          { id: uid("el"), type: "text", x: 60, y: 50, w: 640, h: 50, text: "核心进展", fontSize: 28, color: "#1e3a5f", bold: true },
+          { id: uid("el"), type: "text", x: 60, y: 50, w: 640, h: 50, text: "核心进展", fontSize: 28, color: "#D04423", bold: true },
           { id: uid("el"), type: "text", x: 60, y: 120, w: 640, h: 200, text: "• 营收同比增长 18%\n• 新签客户 120 家\n• 产品 NPS 提升至 62", fontSize: 18, color: "#334155" }
         ] },
-        { bg: "#1e3a5f", elements: [
-          { id: uid("el"), type: "text", x: 240, y: 185, w: 280, h: 60, text: "谢谢观看", fontSize: 36, color:OS.theme.getVar("undefined"), bold: true }
+        { bg: "#D04423", elements: [
+          { id: uid("el"), type: "text", x: 240, y: 185, w: 280, h: 60, text: "谢谢观看", fontSize: 36, color: "#ffffff", bold: true }
         ] }
       ] }) },
-    { id: "pres-lesson", module: "presentation", name: "教学课件", desc: "标题 + 要点 + 小结", accent: "#7c3aed", thumb: thumbPres("#7c3aed"),
+    { id: "pres-lesson", module: "presentation", name: "教学课件", desc: "标题 + 要点 + 小结", accent: "#D04423", thumb: thumbPres("#D04423"),
       build: () => ({ slides: [
         { bg: "#ffffff", elements: [
-          { id: uid("el"), type: "text", x: 60, y: 60, w: 640, h: 60, text: "第 3 课：光合作用", fontSize: 30, color: "#166534", bold: true }
+          { id: uid("el"), type: "text", x: 60, y: 60, w: 640, h: 60, text: "第 3 课：光合作用", fontSize: 30, color: "#D04423", bold: true }
         ] },
         { bg: "#ffffff", elements: [
-          { id: uid("el"), type: "text", x: 60, y: 50, w: 640, h: 50, text: "学习目标", fontSize: 24, color: "#166534", bold: true },
+          { id: uid("el"), type: "text", x: 60, y: 50, w: 640, h: 50, text: "学习目标", fontSize: 24, color: "#D04423", bold: true },
           { id: uid("el"), type: "text", x: 60, y: 120, w: 640, h: 200, text: "• 理解光合作用的原理\n• 掌握反应方程式\n• 认识其在生态系统中的作用", fontSize: 18, color: "#334155" }
         ] },
         { bg: "#ffffff", elements: [
-          { id: uid("el"), type: "text", x: 60, y: 50, w: 640, h: 50, text: "小结", fontSize: 24, color: "#166534", bold: true },
+          { id: uid("el"), type: "text", x: 60, y: 50, w: 640, h: 50, text: "小结", fontSize: 24, color: "#D04423", bold: true },
           { id: uid("el"), type: "text", x: 60, y: 120, w: 640, h: 160, text: "• 6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂\n• 叶绿体是场所，光是能量来源", fontSize: 18, color: "#334155" }
         ] }
       ] }) },
 
-    /* MindMap */
-    { id: "mind-blank", module: "mindmap", name: "空白脑图", desc: "从中心主题发散", accent: "#ea580c", thumb: thumbMind("#ea580c"),
+    /* MindMap — 模块色 #7C3AED */
+    { id: "mind-blank", module: "mindmap", name: "空白脑图", desc: "从中心主题发散", accent: "#7C3AED", thumb: thumbMind("#7C3AED"),
       build: () => {
-        const r = { id: "r", x: 0, y: 0, text: "中心主题", isRoot: true, color: "#1e3a5f" };
+        const r = { id: "r", x: 0, y: 0, text: "中心主题", isRoot: true, color: "#7C3AED" };
         return { mode: "map", nodes: [r], edges: [], rootId: "r" };
       } },
-    { id: "mind-project", module: "mindmap", name: "项目计划", desc: "需求 / 设计 / 开发 / 上线", accent: "#ea580c", thumb: thumbMind("#ea580c"),
+    { id: "mind-project", module: "mindmap", name: "项目计划", desc: "需求 / 设计 / 开发 / 上线", accent: "#7C3AED", thumb: thumbMind("#7C3AED"),
       build: () => {
-        const mk = (id, text) => ({ id, x: 0, y: 0, text, parent: "r", color: "#ea580c", shape: "rounded", fontSize: 14, isRoot: false });
+        const mk = (id, text) => ({ id, x: 0, y: 0, text, parent: "r", color: "#7C3AED", shape: "rounded", fontSize: 14, isRoot: false });
         const nodes = [
-          { id: "r", x: 0, y: 0, text: "项目启动", isRoot: true, color: "#1e3a5f" },
+          { id: "r", x: 0, y: 0, text: "项目启动", isRoot: true, color: "#7C3AED" },
           mk("n1", "需求"), mk("n2", "设计"), mk("n3", "开发"), mk("n4", "上线")
         ];
         const edges = ["n1", "n2", "n3", "n4"].map(n => ({ id: "e_" + n, from: "r", to: n }));
         return { mode: "map", nodes, edges, rootId: "r" };
       } },
-    { id: "mind-book", module: "mindmap", name: "读书笔记", desc: "观点 / 人物 / 启发", accent: "#ea580c", thumb: thumbMind("#ea580c"),
+    { id: "mind-book", module: "mindmap", name: "读书笔记", desc: "观点 / 人物 / 启发", accent: "#7C3AED", thumb: thumbMind("#7C3AED"),
       build: () => {
-        const mk = (id, text) => ({ id, x: 0, y: 0, text, parent: "r", color: "#ea580c", shape: "rounded", fontSize: 14, isRoot: false });
+        const mk = (id, text) => ({ id, x: 0, y: 0, text, parent: "r", color: "#7C3AED", shape: "rounded", fontSize: 14, isRoot: false });
         const nodes = [
-          { id: "r", x: 0, y: 0, text: "《书名》", isRoot: true, color: "#7c2d12" },
+          { id: "r", x: 0, y: 0, text: "《书名》", isRoot: true, color: "#7C3AED" },
           mk("n1", "核心观点"), mk("n2", "人物"), mk("n3", "启发")
         ];
         const edges = ["n1", "n2", "n3"].map(n => ({ id: "e_" + n, from: "r", to: n }));

@@ -47,67 +47,80 @@
       {
         "ext": "pdf",
         "name": "绿角犀 PDF 文档",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/pdf.ico"
       },
       {
         "ext": "ofd",
         "name": "绿角犀 OFD 文档",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/ofd.ico"
       },
       {
         "ext": "lvjx",
         "name": "绿角犀存档文件",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/lvjx.ico"
       },
       {
         "ext": "docx",
         "name": "绿角犀 Word 文档",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/docx.ico"
       },
       {
         "ext": "xlsx",
         "name": "绿角犀表格文档",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/xlsx.ico"
       },
       {
         "ext": "pptx",
         "name": "绿角犀演示文档",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/pptx.ico"
       },
       {
         "ext": "txt",
         "name": "绿角犀文本文档",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/docx.ico"
       },
       {
         "ext": "xmind",
         "name": "绿角犀思维导图",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/xmind.ico"
       },
       {
         "ext": "xls",
         "name": "绿角犀 Excel 表格（旧版）",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/xlsx.ico"
       },
       {
         "ext": "ppt",
         "name": "绿角犀 PowerPoint 演示（旧版）",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/pptx.ico"
       },
       {
         "ext": "odt",
         "name": "绿角犀 ODF 文字文档",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/docx.ico"
       },
       {
         "ext": "ods",
         "name": "绿角犀 ODF 电子表格",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/xlsx.ico"
       },
       {
         "ext": "odp",
         "name": "绿角犀 ODF 演示文档",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "file-assoc/pptx.ico"
       }
     ],
     "win": {
@@ -172,6 +185,8 @@
     "ws": "^8.21.3"
   },
   "dependencies": {
+    "jimp": "^1.6.1",
+    "sharp": "^0.35.5",
     "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   }

@@ -80,6 +80,7 @@
     play: `<polygon points="6 4 20 12 6 20 6 4"/>`,
     "play-from": `<polygon points="6 4 16 10.7 6 17.3 6 4"/><line x1="19" y1="4" x2="19" y2="20"/>`,
     // —— 脑图 ——
+    mindmap: `<circle cx="12" cy="12" r="3.2"/><path d="M12 12 5 5M12 12 19 5M12 12 5 19M12 12 19 19"/><circle cx="5" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="5" cy="19" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="19" r="1.5" fill="currentColor" stroke="none"/>`,
     "node-add": `<circle cx="8" cy="12" r="4"/><line x1="12" y1="12" x2="20" y2="12"/><line x1="17" y1="9" x2="17" y2="15"/>`,
     "node-child": `<circle cx="6" cy="12" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 12h3M15 6l1.5 4.5M15 18l1.5-4.5"/>`,
     "node-color": `<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/>`,
@@ -93,16 +94,17 @@
     "chevron-right": `<polyline points="9 6 15 12 9 18"/>`,
     check: `<polyline points="20 6 9 17 4 12"/>`,
     file: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>`,
-    docx: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/>`,
-    txt: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>`,
-    md: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 16V11l2.5 2 2.5-2v5"/><path d="M15.5 16V11h2.1M17.55 13.2V16"/>`,
-    "file-new": `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="12" x2="12" y2="18"/><line x1="9" y1="15" x2="15" y2="15"/>`,
-    save: `<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>`,
-    "save-as": `<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/><path d="M21 16v5M18.5 18.5h5"/>`,
-    export: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>`,
-    import: `<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><polyline points="9 14 12 17 15 14"/><line x1="12" y1="17" x2="12" y2="12"/>`,
-    print: `<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>`,
-    pdf: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8.5" y1="13" x2="8.5" y2="17"/><line x1="11.5" y1="13" x2="11.5" y2="17"/><line x1="14.5" y1="13" x2="14.5" y2="17"/>`,
+    // —— 5 大模块专属图标（粗描边 + 高辨识度）——
+    // Writer: 文档 + 3 条段落线（首行缩进）
+    docx: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 12h3M8 16h3M8 20h6" stroke-width="2.5"/>`,
+    // Spreadsheet: 3×2 表格（更像 Excel 网格）
+    grid: `<rect x="3" y="3" width="18" height="18" rx="1.5" stroke-width="2.5"/><line x1="9" y1="3" x2="9" y2="21" stroke-width="2"/><line x1="15" y1="3" x2="15" y2="21" stroke-width="2"/><line x1="3" y1="12" x2="21" y2="12" stroke-width="2"/>`,
+    // Presentation: 投影幕布 + 三脚架（更宽更醒目）
+    slide: `<rect x="2" y="3" width="20" height="12" rx="2" stroke-width="2.5"/><line x1="12" y1="15" x2="12" y2="20" stroke-width="2.5"/><line x1="8" y1="20" x2="16" y2="20" stroke-width="2.5"/>`,
+    // PDF: 文件 + 大写 P-D-F 三个字母字形
+    pdf: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-width="2.5"/><polyline points="14 2 14 8 20 8" stroke-width="2.5"/><path d="M8.5 12v6M8.5 12h2.2a1.2 1.2 0 0 1 0 2.4H8.5M11.8 12v6M14.5 12h2.2M14.5 15h2" stroke-width="1.8"/>`,
+    // MindMap: 中心圆 + 5 向分叉 + 端点小圆（比之前多一个分叉）
+    mindmap: `<circle cx="12" cy="12" r="3" stroke-width="2.5"/><path d="M12 9 6 4M12 9 18 4M15 12 21 12M12 15 6 20M12 15 18 20" stroke-width="2.2"/><circle cx="6" cy="4" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="4" r="1.4" fill="currentColor" stroke="none"/><circle cx="21" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="6" cy="20" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="20" r="1.4" fill="currentColor" stroke="none"/>`,
     "page-setup": `<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 3 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/>`,
     "page-break": `<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 3 14 8 20 8"/><line x1="7" y1="13" x2="17" y2="13" stroke-dasharray="2.5 2.5"/><polyline points="10 10 12 13 14 10"/><polyline points="10 16 12 13 14 16"/>`,
     "toc": `<line x1="9" y1="7" x2="19" y2="7"/><line x1="9" y1="12" x2="19" y2="12"/><line x1="9" y1="17" x2="19" y2="17"/><circle cx="5" cy="7" r="1" fill="currentColor" stroke="none"/><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="5" cy="17" r="1" fill="currentColor" stroke="none"/>`,

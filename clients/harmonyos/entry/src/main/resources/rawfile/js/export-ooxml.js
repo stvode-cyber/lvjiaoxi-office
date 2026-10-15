@@ -539,7 +539,55 @@
     const JSZip = global.JSZip;
     const zip = new JSZip();
     const data = doc.data || {};
-    const sheets = (data.sheets && data.sheets.length) ? data.sheets : [ { name: "Sheet1", cells: data.cells || {}, charts: data.charts || [] } ];
+    const sheets = (data.sheets && data.sheets.length) ? data.sheets : [ { name: "Sheet1", cells: data.cells || {}, styles: data.styles || {}, merge: data.merge || [], charts: data.charts || [] } ];
+
+    // ====== 样式收集（跨 sheet 共享一份 styles.xml）======
+    const fontDefs = [{}];                       // 0 = 默认字体
+    const fillDefs = [{ pattern: "none" }, { pattern: "gray125" }];  // Excel 惯例：0=none 1=gray125
+    const borderDefs = [{}];                     // 0 = 无边框
+    const xfs = [{ fontId: 0, fillId: 0, borderId: 0 }];
+    const xfMap = {};
+    function xfId(font, bg, border) {
+      const fk = JSON.stringify(font || {}), bk = JSON.stringify(border || {});
+      const key = fk + "|" + (bg || "") + "|" + bk;
+      if (xfMap[key] != null) return xfMap[key];
+      let fontId = 0;
+      if (font && Object.keys(font).length) {
+        const exist = fontDefs.findIndex(f => JSON.stringify(f) === fk);
+        if (exist >= 0) fontId = exist; else { fontId = fontDefs.length; fontDefs.push(font); }
+      }
+      let fillId = 0;
+      if (bg) {
+        const exist = fillDefs.findIndex(f => f.pattern === "solid" && f.fg === bg);
+        if (exist >= 0) fillId = exist; else { fillId = fillDefs.length; fillDefs.push({ pattern: "solid", fg: bg }); }
+      }
+      let borderId = 0;
+      if (border && Object.keys(border).length) {
+        const exist = borderDefs.findIndex(b => JSON.stringify(b) === bk);
+        if (exist >= 0) borderId = exist; else { borderId = borderDefs.length; borderDefs.push(border); }
+      }
+      const idx = xfs.length;
+      xfs.push({
+        fontId, fillId, borderId,
+        applyFont: fontId > 0, applyFill: fillId > 0, applyBorder: borderId > 0,
+        applyAlignment: !!(st.alignment && Object.keys(st.alignment).length),
+        alignment: st.alignment || null
+      });
+      xfMap[key] = idx;
+      return idx;
+    }
+    function styleSAttr(sh, ref) {
+      const st = (sh.styles || {})[ref];
+      if (!st) return { sAttr: "", hasStyle: false };
+      const hasStyle = !!(st.bold || st.italic || st.underline || st.color || st.bg || st.border);
+      if (!hasStyle) return { sAttr: "", hasStyle: false };
+      const font = {};
+      if (st.bold) font.bold = true;
+      if (st.italic) font.italic = true;
+      if (st.underline) font.underline = true;
+      if (st.color) font.color = st.color;
+      return { sAttr: ' s="' + xfId(font, st.bg, st.border) + '"', hasStyle: true };
+    }
 
     const sst = []; const sstMap = {};
     function sid(s) { if (sstMap[s] != null) return sstMap[s]; const id = sst.length; sst.push(s); sstMap[s] = id; return id; }
@@ -549,10 +597,114 @@
     const sheetEntries = [];      // { file, xml }
     const drawingEntries = [];    // { sheetIdx, drawingXml, drawingRelsXml, chartFiles }
     const cmtEntries = [];        // { sheetIdx, xml }
+    const sheetHyperlinkRels = {}; // idx → [{rid, target, external}]
     const allAuthors = new Set();
     // 先遍历收集所有批注作者
     (data.comments || []).forEach(c => { if (c.author) allAuthors.add(c.author); });
     const authorList = Array.from(allAuthors);
+
+    // 数据验证 → OOXML <dataValidations>
+    function _dvXml(dvs) {
+      // 内部 type/op → OOXML 标准名（已经对齐，直接用）
+      let xml = '<dataValidations count="' + dvs.length + '">';
+      for (const v of dvs) {
+        const attrs = [];
+        attrs.push('type="' + (v.type || "list") + '"');
+        if (v.type && v.type !== "list" && v.type !== "custom") {
+          attrs.push('operator="' + (v.operator || "between") + '"');
+        }
+        attrs.push('allowBlank="' + (v.allowBlank === false ? "0" : "1") + '"');
+        if (v.type === "list") attrs.push('showDropDown="' + (v.showDropDown === false ? "0" : "1") + '"');
+        attrs.push('sqref="' + esc(v.range || "") + '"');
+
+        let form1 = "";
+        let form2 = "";
+        if (v.type === "list") {
+          // list 类型：确保 formula1 是 "item1,item2" 格式
+          const items = v.list || [];
+          if (items.length) form1 = '"' + items.join(",") + '"';
+          else if (v.formula1) form1 = String(v.formula1);
+        } else if (v.type === "custom") {
+          form1 = v.formula1 ? String(v.formula1) : "";
+        } else {
+          form1 = v.formula1 != null ? String(v.formula1) : "";
+          form2 = v.formula2 != null ? String(v.formula2) : "";
+        }
+
+        let children = "";
+        if (form1) children += "<formula1>" + esc(form1) + "</formula1>";
+        if (form2) children += "<formula2>" + esc(form2) + "</formula2>";
+
+        // errorAlert 子元素
+        const ea = v.errorAlert || {};
+        if (ea.show !== false) {
+          children += '<errorAlert show="1" errorStyle="' + (ea.style || "stop") + '"' +
+            (ea.title ? ' title="' + esc(ea.title) + '"' : '') +
+            (ea.message ? ' errorMessage="' + esc(ea.message) + '"' : '') + "/>";
+        }
+        // inputMessage 子元素
+        const im = v.inputMessage || {};
+        if (im.show) {
+          children += '<inputMessage show="1"' +
+            (im.title ? ' title="' + esc(im.title) + '"' : '') +
+            (im.message ? ' prompt="' + esc(im.message) + '"' : '') + "/>";
+        }
+        xml += '<dataValidation ' + attrs.join(" ") + ">" + children + "</dataValidation>";
+      }
+      xml += "</dataValidations>";
+      return xml;
+    }
+
+    // 条件格式 → OOXML <conditionalFormatting>
+    function _cfXml(cfs) {
+      let xml = "";
+      for (const f of cfs) {
+        const sqref = esc(f.range || "");
+        let type = "expression", op = "between";
+        let formula1 = "", formula2 = "";
+        let extra = "";
+        if (f.type === "cell") {
+          type = "cellIs";
+          // 内部 op → OOXML 标准名
+          const OP_MAP = { "between": "between", "eq": "equal", "ne": "notEqual", "gt": "greaterThan", "lt": "lessThan", "ge": "greaterThanOrEqual", "le": "lessThanOrEqual", "contains": "containsText" };
+          op = OP_MAP[f.op] || "between";
+          formula1 = f.v != null ? String(f.v) : "";
+          formula2 = f.v2 != null ? String(f.v2) : "";
+          let fillColor = f.bg || f.color || "#f8696b";
+          extra = '<dxf><fill><patternFill patternType="solid"><fgColor rgb="' + fillColor + '"/></patternFill></fill></dxf>';
+        } else if (f.type === "scale") {
+          type = "colorScale";
+          const csColors = [];
+          csColors.push('<color rgb="' + (f.minColor || "#63be7b") + '"/>');
+          if (f.midColor) csColors.push('<color rgb="' + f.midColor + '"/>');
+          csColors.push('<color rgb="' + (f.maxColor || "#f8696b") + '"/>');
+          const cfvos = [];
+          cfvos.push('<cfvo type="min"/>');
+          if (f.midColor) cfvos.push('<cfvo val="50" type="percentile"/>');
+          cfvos.push('<cfvo type="max"/>');
+          extra = '<colorScale>' + cfvos.join("") + csColors.join("") + '</colorScale>';
+        } else if (f.type === "bar") {
+          type = "dataBar";
+          let barXml = '<dataBar>';
+          barXml += '<cfvo type="min"/><cfvo type="max"/>';
+          barXml += '<color rgb="' + (f.color || "#638ec4") + '"/>';
+          barXml += '</dataBar>';
+          extra = barXml;
+        } else if (f.type === "icon") {
+          type = "iconSet";
+          let icoXml = '<iconSet iconSet="' + (f.iconSet || "3TrafficLights1") + '">';
+          icoXml += '<cfvo type="percent"/><cfvo type="percent" val="67"/><cfvo type="percent" val="33"/>';
+          icoXml += '</iconSet>';
+          extra = icoXml;
+        }
+        xml += '<conditionalFormatting sqref="' + sqref + '"><cfRule type="' + type + '" priority="' + (f.priority || "1") + '" operator="' + op + '">';
+        if (formula1) xml += '<formula1>' + esc(formula1) + '</formula1>';
+        if (formula2) xml += '<formula2>' + esc(formula2) + '</formula2>';
+        xml += extra;
+        xml += '</cfRule></conditionalFormatting>';
+      }
+      return xml;
+    }
 
     sheets.forEach((sh, i) => {
       const idx = i + 1;
@@ -586,20 +738,29 @@
         let cellsXml = "";
         cols.forEach(c => {
           const cell = row[c]; const ref = c + r;
+          const { sAttr, hasStyle } = styleSAttr(sh, ref);
           if (cell && cell.f != null && cell.f !== "") {
             let val = "";
             try { if (OS.FormulaEngine) val = OS.FormulaEngine.run(cell.f, getCellVal); } catch (e) {}
             const sv = (typeof val === "number") ? val : (val == null ? "" : String(val));
-            cellsXml += '<c r="' + ref + '"><f>' + esc(cell.f.replace(/^=/, "")) + "</f><v>" + esc(sv) + "</v></c>";
+            cellsXml += '<c r="' + ref + '"' + sAttr + '><f>' + esc(cell.f.replace(/^=/, "")) + "</f><v>" + esc(sv) + "</v></c>";
           } else {
             const v = cell ? cell.v : undefined;
-            if (v == null || v === "") return;
-            if (typeof v === "number") cellsXml += '<c r="' + ref + '"><v>' + v + "</v></c>";
-            else if (typeof v === "boolean") cellsXml += '<c r="' + ref + '" t="b"><v>' + (v ? 1 : 0) + "</v></c>";
-            else cellsXml += '<c r="' + ref + '" t="s"><v>' + sid(String(v)) + "</v></c>";
+            if (v == null || v === "") {
+              if (hasStyle) cellsXml += '<c r="' + ref + '"' + sAttr + "/>";
+              return;
+            }
+            if (typeof v === "number") cellsXml += '<c r="' + ref + '"' + sAttr + '><v>' + v + "</v></c>";
+            else if (typeof v === "boolean") cellsXml += '<c r="' + ref + '"' + sAttr + ' t="b"><v>' + (v ? 1 : 0) + "</v></c>";
+            else cellsXml += '<c r="' + ref + '"' + sAttr + ' t="s"><v>' + sid(String(v)) + "</v></c>";
           }
         });
-        if (cellsXml) rowsXml += '<row r="' + r + '">' + cellsXml + "</row>";
+        if (cellsXml) {
+          let rowAttrs = 'r="' + r + '"';
+          const rh = (sh.customRowHeights && sh.customRowHeights[r]) || 0;
+          if (rh > 0) rowAttrs += ' ht="' + rh.toFixed(1) + '" customHeight="1"';
+          rowsXml += '<row ' + rowAttrs + '>' + cellsXml + "</row>";
+        }
       }
 
       const charts = sh.charts || [];
@@ -627,13 +788,109 @@
           commentsXml + "</comments>";
       }
 
+      const merges = sh.merge || [];
+      const mergeXml = merges.length
+        ? '<mergeCells count="' + merges.length + '">' + merges.map(m => '<mergeCell ref="' + esc(m) + '"/>').join("") + "</mergeCells>"
+        : "";
+
+      // dataValidations
+      const dvs = sh.validations || [];
+      const dvXml = dvs.length ? _dvXml(dvs) : "";
+
+      // conditionalFormatting
+      const cfs = sh.condFormats || [];
+      const cfXml = cfs.length ? _cfXml(cfs) : "";
+
+      // 工作表级属性：sheetViews (冻结窗格) + sheetPr (tabColor) + sheetFormatPr (行高)
+      let sheetViewsXml = "";
+      const fr = sh.freeze || { row: 0, col: 0 };
+      if (fr.row > 0 || fr.col > 0) {
+        sheetViewsXml = '<sheetViews><sheetView workbookViewId="0">' +
+          '<pane xSplit="' + fr.col + '" ySplit="' + fr.row + '" topLeftCell="' + esc(colName(fr.col + 1)) + (fr.row + 1) + '" activePane="bottomRight" state="frozen"/>' +
+          '<selection pane="bottomRight" activeCell="A1" sqref="A1"/>' +
+          '</sheetView></sheetViews>';
+      }
+      let sheetPrXml = "";
+      if (sh.tabColor) {
+        sheetPrXml = '<sheetPr><tabColor rgb="' + esc(sh.tabColor) + '"/></sheetPr>';
+      }
+      let sheetFormatPrXml = "";
+      const defRH = sh.defaultRowHeight || 18;
+      sheetFormatPrXml = '<sheetFormatPr defaultRowHeight="' + defRH + '"/>';
+
+      // 自定义列宽 <cols><col>
+      let colsXml = "";
+      const cw = sh.colWidths || [];
+      const hasCustomCols = cw.some(w => w && w > 0 && Math.abs(w - 64) > 0.1); // 有非默认列宽
+      if (hasCustomCols) {
+        let cXml = '<cols>';
+        let inGroup = false, groupMin = -1, groupMax = -1, groupWidth = 0;
+        const flushGroup = () => {
+          if (inGroup) {
+            cXml += '<col min="' + groupMin + '" max="' + groupMax + '" width="' + groupWidth.toFixed(1) + '" customWidth="1"/>';
+            inGroup = false; groupMin = -1; groupMax = -1; groupWidth = 0;
+          }
+        };
+        for (let c = 1; c < cw.length; c++) {
+          const w = cw[c];
+          if (!w || w === 64) { flushGroup(); continue; }
+          if (inGroup && Math.abs(groupWidth - w) < 0.01) { groupMax = c; }
+          else { flushGroup(); inGroup = true; groupMin = c; groupMax = c; groupWidth = w; }
+        }
+        flushGroup();
+        cXml += "</cols>";
+        colsXml = cXml;
+      }
+
+      // sheetProtection 保护工作表
+      let spXml = "";
+      if (sh.protection && sh.protection.enabled) {
+        const p = sh.protection;
+        spXml = '<sheetProtection' +
+          ' sheet="' + (p.sheet !== false ? "1" : "0") + '"' +
+          ' objects="' + (p.objects !== false ? "1" : "0") + '"' +
+          ' scenarios="' + (p.scenarios !== false ? "1" : "0") + '"' +
+          ' formatCells="' + (p.formatCells !== false ? "1" : "0") + '"' +
+          ' formatColumns="' + (p.formatColumns !== false ? "1" : "0") + '"' +
+          ' formatRows="' + (p.formatRows !== false ? "1" : "0") + '"' +
+          ' insertColumns="' + (p.insertColumns !== false ? "1" : "0") + '"' +
+          ' insertRows="' + (p.insertRows !== false ? "1" : "0") + '"' +
+          ' deleteColumns="' + (p.deleteColumns !== false ? "1" : "0") + '"' +
+          ' deleteRows="' + (p.deleteRows !== false ? "1" : "0") + '"' +
+          (p.password ? ' password="' + p.password + '"' : "") + '/>';
+      }
+
+      // autoFilter 筛选器
+      let afXml = "";
+      const f = (sh.filters && sh.filters[0]) || null;
+      if (f && f.range) afXml = '<autoFilter ref="' + f.range + '"/>';
+
+      // hyperlinks 超链接（区域式，ref→rId）
+      let hlXml = "";
+      const hls = (sh.hyperlinks && sh.hyperlinks.length) ? sh.hyperlinks : [];
+      const hlRels = []; // 每个 rId 对应 target
+      if (hls.length) {
+        let items = [];
+        hls.forEach((h, hi) => {
+          const rid = "rIdH" + (hi + 1);
+          items.push('<hyperlink ref="' + (h.ref || "").toUpperCase() + '" r:id="' + rid + '"/>');
+          hlRels.push({ rid, target: h.target || "", external: !!(h.target && /^https?:|^ftps?:|^mailto:|^file:/i.test(h.target)) });
+        });
+        hlXml = '<hyperlinks>' + items.join("") + '</hyperlinks>';
+      }
+
       const sheetXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-        '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheetData>' + rowsXml + "</sheetData>" +
+        '<worksheet xmlns="' + X.w + '" xmlns:r="' + X.r + '">' +
+        sheetPrXml + sheetViewsXml + sheetFormatPrXml + colsXml +
+        "<sheetData>" + rowsXml + "</sheetData>" +
+        afXml + hlXml + mergeXml + dvXml + cfXml +
+        spXml +
         (chartParts ? '<drawing r:id="rIdD"/>' : "") +
         (hasCmt ? '<legacyDrawing r:id="rIdC"/>' : "") + "</worksheet>";
 
       sheetEntries.push({ file: "xl/worksheets/sheet" + idx + ".xml", xml: sheetXml });
+      if (hlRels.length) sheetHyperlinkRels[idx] = hlRels;
       if (chartParts) {
         drawingEntries.push({ sheetIdx: idx, drawingXml: chartParts.drawingXml, drawingRelsXml: chartParts.drawingRelsXml, chartFiles: chartParts.chartFiles });
         chartCT += '<Override PartName="/xl/drawings/drawing' + idx + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.drawing+xml"/>' +
@@ -654,17 +911,66 @@
       '<sst xmlns="' + X.w + '" count="' + sst.length + '" uniqueCount="' + sst.length + '">' +
       sst.map(s => "<si><t>" + esc(s) + "</t></si>").join("") + "</sst>";
 
+    const rgbAttr = c => ' rgb="FF' + String(c).replace("#", "").toUpperCase() + '"';
+    const fontsXml = '<fonts count="' + fontDefs.length + '">' + fontDefs.map(f => {
+      let x = "<font>";
+      if (f.bold) x += "<b/>";
+      if (f.italic) x += "<i/>";
+      if (f.underline) x += "<u/>";
+      if (f.color) x += "<color" + rgbAttr(f.color) + "/>";
+      x += '<sz val="11"/><name val="Calibri"/></font>';
+      return x;
+    }).join("") + "</fonts>";
+    const fillsXml = '<fills count="' + fillDefs.length + '">' + fillDefs.map(f => {
+      if (f.pattern === "solid" && f.fg) return '<fill><patternFill patternType="solid"><fgColor' + rgbAttr(f.fg) + '/><bgColor indexed="64"/></patternFill></fill>';
+      return '<fill><patternFill patternType="' + (f.pattern || "none") + '"/></fill>';
+    }).join("") + "</fills>";
+    const bordersXml = '<borders count="' + borderDefs.length + '">' + borderDefs.map(b => {
+      const side = s => {
+        const bd = b[s];
+        return bd ? "<" + s + ' style="' + esc(bd.style) + '">' + (bd.color ? "<color" + rgbAttr(bd.color) + "/>" : "") + "</" + s + ">" : "<" + s + "/>";
+      };
+      return "<border>" + side("left") + side("right") + side("top") + side("bottom") + "<diagonal/></border>";
+    }).join("") + "</borders>";
+    const cellXfsXml = '<cellXfs count="' + xfs.length + '">' + xfs.map(x => {
+      let attrs = '<xf numFmtId="0" fontId="' + x.fontId + '" fillId="' + x.fillId + '" borderId="' + x.borderId + '" xfId="0"' +
+        (x.applyFont ? ' applyFont="1"' : "") +
+        (x.applyFill ? ' applyFill="1"' : "") +
+        (x.applyBorder ? ' applyBorder="1"' : "") +
+        (x.applyAlignment ? ' applyAlignment="1"' : "");
+      let alignXml = "";
+      if (x.alignment) {
+        const a = x.alignment;
+        let aAttrs = "";
+        if (a.horizontal) aAttrs += ' horizontal="' + a.horizontal + '"';
+        if (a.vertical) aAttrs += ' vertical="' + a.vertical + '"';
+        if (a.wrapText) aAttrs += ' wrapText="1"';
+        if (a.indent) aAttrs += ' indent="' + a.indent + '"';
+        if (aAttrs) alignXml = "<alignment" + aAttrs + "/>";
+      }
+      return attrs + (alignXml ? ">" + alignXml + "</xf>" : "/>");
+    }).join("") + "</cellXfs>";
+
     const stylesXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-      '<styleSheet xmlns="' + X.w + '"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
-      '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>' +
-      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<styleSheet xmlns="' + X.w + '">' + fontsXml + fillsXml + bordersXml +
       '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-      '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>';
+      cellXfsXml + "</styleSheet>";
+
+    // definedNames 命名区域（workbook.xml 级）
+    let dnXml = "";
+    const dns = (data.names && data.names.length) ? data.names : (data.definedNames || []);
+    if (dns.length) {
+      dnXml = '<definedNames>' + dns.map(d => {
+        let attr = 'name="' + esc(d.name || "") + '"';
+        if (d.localSheetId != null) attr += ' localSheetId="' + d.localSheetId + '"';
+        return '<definedName ' + attr + '>' + esc(d.formula || "") + "</definedName>";
+      }).join("") + "</definedNames>";
+    }
 
     const workbookXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-      '<workbook xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheets>' + wbSheets + "</sheets></workbook>";
+      '<workbook xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheets>' + wbSheets + "</sheets>" + dnXml + "</workbook>";
 
     const wbRelsXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
@@ -704,12 +1010,18 @@
     zip.file("xl/workbook.xml", workbookXml);
     zip.file("xl/_rels/workbook.xml.rels", wbRelsXml);
     sheetEntries.forEach(s => zip.file(s.file, s.xml));
+    // 辅助：生成 hyperlink Relationship XML 片段
+    const hlRelXml = (idx) => {
+      const hls = sheetHyperlinkRels[idx]; if (!hls || !hls.length) return "";
+      return hls.map(h => '<Relationship Id="' + h.rid + '" Type="' + X.r + '/hyperlink" Target="' + esc(h.target) + '"' + (h.external ? ' TargetMode="External"' : "") + "/>").join("");
+    };
     drawingEntries.forEach(d => {
       const idx = d.sheetIdx;
       zip.file("xl/drawings/drawing" + idx + ".xml", d.drawingXml);
       zip.file("xl/drawings/_rels/drawing" + idx + ".xml.rels", d.drawingRelsXml);
       zip.file("xl/worksheets/_rels/sheet" + idx + ".xml.rels",
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="' + X.rel + '">' +
+        hlRelXml(idx) +
         '<Relationship Id="rIdD" Type="' + X.r + '/drawing" Target="../drawings/drawing' + idx + '.xml"/></Relationships>');
       Object.keys(d.chartFiles).forEach(name => zip.file(name, d.chartFiles[name]));
     });
@@ -720,15 +1032,27 @@
       const relsPath = "xl/worksheets/_rels/sheet" + idx + ".xml.rels";
       let relsXml = "";
       if (zip.files[relsPath]) {
-        // 已存在（有 chart）— 在末尾加 comment 关系
+        // 已存在（有 chart）— 在末尾加 comment + hyperlink 关系
         const old = zip.files[relsPath].asText();
+        const hlXml = hlRelXml(idx);
         relsXml = old.replace("</Relationships>",
+          hlXml +
           '<Relationship Id="rIdC" Type="' + X.r + '/comments" Target="../comments/comment' + idx + '.xml"/></Relationships>');
       } else {
         relsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="' + X.rel + '">' +
+          hlRelXml(idx) +
           '<Relationship Id="rIdC" Type="' + X.r + '/comments" Target="../comments/comment' + idx + '.xml"/></Relationships>';
       }
       zip.file(relsPath, relsXml);
+    });
+    // 只有 hyperlink 但没 drawing 也没 comment 的 sheet → 也要写 worksheet rels
+    Object.keys(sheetHyperlinkRels).forEach(idx => {
+      const relsPath = "xl/worksheets/_rels/sheet" + idx + ".xml.rels";
+      if (!zip.files[relsPath]) {
+        zip.file(relsPath,
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="' + X.rel + '">' +
+          hlRelXml(+idx) + '</Relationships>');
+      }
     });
     zip.file("xl/styles.xml", stylesXml);
     zip.file("xl/sharedStrings.xml", sstXml);

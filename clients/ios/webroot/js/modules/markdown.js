@@ -175,15 +175,17 @@
     let dragging = false;
     let startX = 0, startFlex = 0;
     splitter.addEventListener("mousedown", (e) => { dragging = true; startX = e.clientX; startFlex = parseFloat(src.style.flex || 1); e.preventDefault(); });
-    document.addEventListener("mousemove", (e) => {
+    const _mmSplitMove = (e) => {
       if (!dragging) return;
       const dx = e.clientX - startX;
       const total = main.clientWidth;
       const ratio = Math.max(0.15, Math.min(0.85, (startFlex * 100 + (dx / total) * 100) / 100));
       src.style.flex = ratio;
       preview.style.flex = (1 - ratio);
-    });
-    document.addEventListener("mouseup", () => { dragging = false; });
+    };
+    const _mmSplitUp = () => { dragging = false; };
+    document.addEventListener("mousemove", _mmSplitMove);
+    document.addEventListener("mouseup", _mmSplitUp);
 
     // 预览 div
     const preview = document.createElement("div");
@@ -265,7 +267,12 @@
       canRedo: () => true,
       getSource: () => src.value,
       setSource: (txt) => { src.value = txt; data.source = txt; data.html = mdToHtml(txt); preview.innerHTML = data.html; },
-      destroy: () => { /* 清理 */ }
+      destroy: () => {
+        document.removeEventListener("mousemove", _mmSplitMove);
+        document.removeEventListener("mouseup", _mmSplitUp);
+        if (_style && _style.parentNode) _style.parentNode.removeChild(_style);
+        wrap.remove();
+      }
     };
   }
 
