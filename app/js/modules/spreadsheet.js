@@ -2413,10 +2413,41 @@
     function recompute() {
       // 1. 清 cache 和旧 spill 记录
       for (const k in cache) delete cache[k];
+
+      // 1.5 数组公式重算：遍历所有 isArrayFormula cell，按 arrayRef 分组，从 anchor 重新 FE.run → 位置分配
+      const visitedArrays = new Set();
+      for (const ref in data.cells) {
+        const raw = data.cells[ref];
+        if (raw.isArrayFormula && raw.arrayRef) {
+          if (visitedArrays.has(raw.arrayRef)) continue;
+          visitedArrays.add(raw.arrayRef);
+          const r = FE.parseRef(raw.arrayRef);
+          const anchorRef = FE.idxToCol(r.col) + r.row;
+          let result;
+          try { result = FE.run(raw.f, getCell, anchorRef); } catch (e) { result = "#CALC!"; }
+          const is2D = result && Array.isArray(result) && result.length > 0 && Array.isArray(result[0]);
+          const is1D = result && Array.isArray(result) && result.length > 0 && !Array.isArray(result[0]);
+          for (let row = r.row; row <= r.row2; row++) {
+            for (let col = r.col; col <= r.col2; col++) {
+              const cellRef = FE.idxToCol(col) + row;
+              const cell = data.cells[cellRef];
+              if (!cell || !cell.isArrayFormula) continue;
+              const ri = row - r.row, ci = col - r.col;
+              let v = "#N/A";
+              if (is2D && ri < result.length && ci < result[0].length) v = result[ri][ci];
+              else if (is1D && ri < result.length && ci === 0) v = result[ri];
+              else if (!is2D && !is1D) v = result;
+              cell.v = (v instanceof Date ? v.toLocaleDateString() : (v instanceof Error ? "#CALC!" : v));
+              delete cache[cellRef];
+            }
+          }
+        }
+      }
+
       // 2. 预算所有带公式的单元格，让动态数组先铺满 cache
       for (const ref in data.cells) {
         const raw = data.cells[ref];
-        if (raw.f && raw.f.startsWith("=")) getCell(ref);
+        if (raw.f && raw.f.startsWith("=") && !raw.isArrayFormula) getCell(ref);
       }
       // 3. 统一写 DOM（此时 cache 已被预算全部填满）
       table.querySelectorAll("td[data-ref]").forEach(td => {
@@ -3505,6 +3536,13 @@
           r.selectNodeContents(td); r.collapse(false); sel.removeAllRanges(); sel.addRange(r);
         }
         else if (k === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
+        else if (ctrl && e.shiftKey && k === "Enter") {
+          // Ctrl+Shift+Enter → 数组公式（当前输入 + 选区）
+          e.preventDefault();
+          const formula = "=" + td.textContent.replace(/^=/, "");
+          td.removeAttribute("contenteditable");
+          writeArrayFormula(formula);
+        }
         else if (ctrl && k === "Enter") { e.preventDefault(); commitCell(td); fillRangeWithCurrent(); }
         return;
       }
@@ -5588,6 +5626,77 @@
         applyFilters(); applyFmt(); paint();
       }, { obj, filters: data.filters.slice(-(rg.c2 - rg.c1 + 1)), label: "创建表 " + name });
       OS.toast("已创建表「" + name + "」（" + hdrRowCount + "×" + (rg.c2 - rg.c1 + 1) + "，带 autofilter）", "ok");
+    }
+
+    /* ---------------- Ctrl+Shift+Enter 数组公式（CSE）---------------- */
+    function writeArrayFormula(formula) {
+      const rg = rangeRect(); if (!rg) return;
+      snapshot();
+
+      // 1. 用 anchor 调 FE.run 算结果
+      let result;
+      try {
+        result = FE.run(formula, getCell, anchor);
+      } catch (e) {
+        OS.toast("数组公式计算失败：" + e.message, "warn"); return;
+      }
+
+      // 2. 如果结果不是数组 → 退化为普通写（兼容单格数组公式场景）
+      const is2D = result && Array.isArray(result) && result.length > 0 && Array.isArray(result[0]);
+      const is1D = result && Array.isArray(result) && result.length > 0 && !Array.isArray(result[0]);
+      let rows, cols;
+      if (is2D) { rows = result.length; cols = result[0].length; }
+      else if (is1D) { rows = result.length; cols = 1; }
+      else { rows = 1; cols = 1; }
+
+      // 3. 实际写入选区（只算选区范围，多余数组行忽略；选区更大则不足部分填 #N/A）
+      const sRg = { r1: FE.parseRef(anchor).row, r2: FE.parseRef(selected || anchor).row, c1: FE.parseRef(anchor).col, c2: FE.parseRef(selected || anchor).col };
+      const tr = Math.min(Math.max(sRg.r1, rg.r1), Math.max(sRg.r2, rg.r2));
+      const br = Math.max(Math.min(sRg.r1, rg.r1), Math.min(sRg.r2, rg.r2));
+      const lc = Math.min(Math.max(sRg.c1, rg.c1), Math.max(sRg.c2, rg.c2));
+      const rc = Math.max(Math.min(sRg.c1, rg.c1), Math.min(sRg.c2, rg.c2));
+      // 规范化 r1≤r2, c1≤c2
+      const r1 = Math.min(tr, br), r2 = Math.max(tr, br);
+      const c1 = Math.min(lc, rc), c2 = Math.max(lc, rc);
+
+      const totalCells = (r2 - r1 + 1) * (c2 - c1 + 1);
+      const arrayRef = FE.idxToCol(c1) + r1 + ":" + FE.idxToCol(c2) + r2;
+      const formulaBody = formula.startsWith("=") ? formula : ("=" + formula);
+
+      // 4. 按位置分配：每个 cell 存相同公式体 + isArrayFormula 标记 + arrayRef + 对应位置值
+      for (let r = r1; r <= r2; r++) {
+        for (let c = c1; c <= c2; c++) {
+          const cellRef = FE.idxToCol(c) + r;
+          let val = "#N/A";
+          const ri = r - r1; // 相对于数组起点的行偏移
+          const ci = c - c1; // 列偏移
+          if (is2D && ri < rows && ci < cols) val = result[ri][ci];
+          else if (is1D && ri < rows && ci === 0) val = result[ri];
+          else if (!is2D && !is1D) val = result;
+          // 清理旧数据，写数组公式结构
+          data.cells[cellRef] = {
+            f: formulaBody,
+            isArrayFormula: true,
+            arrayRef,
+            v: (val instanceof Date ? val.toLocaleDateString() : (val instanceof Error ? "#CALC!" : val))
+          };
+          // 清 cache
+          delete cache[cellRef];
+        }
+      }
+
+      // 5. 标记 anchor cell，用于 recompute 管线识别
+      // （anchor 本身已有 isArrayFormula + arrayRef，无需额外）
+
+      // 6. 重算 + 渲染
+      recompute();
+      applyFmt();
+      paint();
+      ctx.markDirty();
+      setLastAction(a => {
+        writeArrayFormula(a.formula);
+      }, { formula: formulaBody, label: "数组公式" });
+      OS.toast("数组公式已写入（" + (r2 - r1 + 1) + "×" + (c2 - c1 + 1) + "）", "ok");
     }
 
     function openFlashFillModal() {

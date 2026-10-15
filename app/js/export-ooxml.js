@@ -759,7 +759,10 @@
             let val = "";
             try { if (OS.FormulaEngine) val = OS.FormulaEngine.run(cell.f, getCellVal); } catch (e) {}
             const sv = (typeof val === "number") ? val : (val == null ? "" : String(val));
-            cellsXml += '<c r="' + ref + '"' + sAttr + '><f>' + esc(cell.f.replace(/^=/, "")) + "</f><v>" + esc(sv) + "</v></c>";
+            let fTag = '<f';
+            if (cell.isArrayFormula && cell.arrayRef) fTag += ' t="array" ref="' + esc(cell.arrayRef.toUpperCase()) + '"';
+            fTag += '>' + esc(cell.f.replace(/^=/, "")) + "</f>";
+            cellsXml += '<c r="' + ref + '"' + sAttr + '>' + fTag + '<v>' + esc(sv) + "</v></c>";
           } else {
             const v = cell ? cell.v : undefined;
             if (v == null || v === "") {
