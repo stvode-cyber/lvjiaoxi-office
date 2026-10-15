@@ -1,5 +1,21 @@
 ---
 
+## [2026-10-15] ledger#72 — .xls 旧版 Excel 导入样式丢失修复方案
+
+- **选了啥**：重写 `import-ooxml.js` `parseXls()` 函数 — 从 `sheet_to_json()` 改为直接遍历 `ws["!ref"]` + 逐格 `ws[address]` 读取，加 `cellStyles: true` + `cellHTML: true` 选项读样式 → 写 `data.styles[ref].numberFormat/bold/background/align/wrapText`
+- **为啥**：用户反馈 `天梭报价表.xls` 导入后价格 `￥180` 显示成裸数字 `180`，`"图片\n可查"` 显示成一行（\n 丢了），`"日本机  "` 末尾空格被 trim。根因是 L1765 用了 `XLSX.utils.sheet_to_json(ws, { header:1, defval:"", raw:false })` — SheetJS `raw:false` 自动 trim 空格 + \n，且完全忽略样式层；`XLSX.read` 也没开 `cellStyles: true`
+- **已确认的技术细节**：
+  - SheetJS API：`wb.SSF[numFmtKey]` → 格式字符串
+  - 逐格读取：`ws[address]`（如 `ws["B3"]`）→ `{ v, f, s: { numFmt, font, fill, alignment, border } }`
+  - 范围：`ws["!ref"]` → `"A1:I74"` → `XLSX.utils.decode_range("A1:I74")` 拿 r/c
+  - 换行渲染：spreadsheet.js `paint()` td 加 `white-space: pre-line`
+- **关联文件**：
+  - `app/js/import-ooxml.js` `parseXls()` L1758-1782
+  - `app/js/modules/spreadsheet.js` `paint()` td 渲染
+- **决策人**：用户反馈 + AI 对比验证
+
+---
+
 ## [2026-10-15] ledger#71 — 模块品牌色贯穿全 UI + emoji→SVG 图标
 
 - **选了啥**：5 大模块各有独立品牌色，通过 `--mod-color` CSS 变量在 shell→tab→ribbon→module-host 全链路传递；store.js TYPE_INFO 从 emoji 换成 SVG key + color 字段

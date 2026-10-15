@@ -7,40 +7,103 @@
 
 ## 🎯 交付快照（新 AI 读这里就够了）
 
-**当前阶段**：v1.1.13 发版后 — UI 模块品牌色 + SVG 图标体系建立
+**当前阶段**：v1.1.25 快捷键全面补完（≈ 60+ 条 Exceljet 清单覆盖）→ **xls 导入 3 bug 修复中（数字格式丢失 + \n 换行符 + 空格 trim）**
 
 | 项 | 值 |
 |---|---|
-| 测试基线 | **109/110 代码级全绿**（唯一失败 `_cdp_test.js` 需 Electron 9222，环境依赖） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.13.exe` = 188.2 MB |
-| SHA256 | `7C7A276A4ADF7525C9106990430C3A02C6E1833BFC19A60648AF9D82574ADEC7` |
-| 发布状态 | ✅ **main 已全推 + tag v1.1.13 已推**（GitHub 网络正常） |
-| 版本号 | 1.1.13（6 落点全对齐：package.json/index.html/sw.js CACHE v39/version.json/iOS/HarmonyOS） |
-| 台账状态 | decisions.md 最新 #71（模块品牌色贯穿），issues.md L1\|xlsx-import 已升级 |
-| Git 远端 | ✅ **HEAD `1113cd5` 已推到 origin/main，v1.1.13 tag 已推** |
+| 测试基线 | **109/110 代码级全绿**（唯一失败 `_cdp_test.js` 需 Electron 9222，环境依赖；v1.1.25 起多了 1 绿！） |
+| 最新版本 | **v1.1.25**（Exceljet 246 条有效真功能 ≈ 60+ 已覆盖） |
+| 发布状态 | ✅ **main 已全推 + tags v1.1.14~v1.1.25 全部已推** |
+| 版本号 | 1.1.25（6 落点全对齐：package.json/index.html/sw.js CACHE v51/version.json/iOS/HarmonyOS） |
+| Git 远端 | ✅ **HEAD `8888043` 已推到 origin/main，v1.1.25 tag 已推** |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456** |
+| **铁律⑧** | ✅ 已加（AGENTS-铁律.md）— **所有文件改动必须先告知方案 → 用户确认 → 再动手** |
 
 ---
 
-## 🚀 v1.1.10 ~ v1.1.13 变更速览（2026-10-13 ~ 2026-10-15）
+## 🚨 下一个明确任务（**新窗口 AI 直接开始**）
+
+**修复 Excel .xls 导入 3 bug** — 用户给的文件 `c:\Users\Administrator\Documents\xwechat_files\wxid_abkc5ywohnc222_8ad7\msg\file\2026-10\天梭报价表.xls`，对比原文件 vs 应用截图发现：
+
+| Bug | 原文件 | 应用显示 | 根因位置 |
+|---|---|---|---|
+| 🔴 **价格数字格式丢失** | `￥180`（人民币 `"￥"#,##0`） | `180`（裸数字） | `import-ooxml.js#L1758-1782 parseXls()` |
+| 🟡 **换行符 \n 丢失** | `"图片\n可查"`（两行） | `"图片可查"`（一行） | 同上 |
+| 🟢 **末尾空格被 trim** | `"日本机  "`（末尾 2 空格） | `"日本机"`（无空格） | 同上 |
+
+### 修复方案（已完整分析 → 直接按这个改）
+
+**改 `app/js/import-ooxml.js` `parseXls()` 函数（L1758-1782）：**
+
+| # | 改什么 |
+|---|---|
+| 1 | `XLSX.read(buf, {...})` 选项加 `cellStyles: true` + `cellHTML: true`（让 SheetJS 读样式） |
+| 2 | `sheet_to_json(ws, { raw: false })` 改为直接遍历 `ws["!ref"]` 范围，从 `ws[address]` 逐格读（保留 raw 值，不 trim） |
+| 3 | 遍历中加 `cell.s` 样式读取：`cell.s.numFmt` → `wb.SSF[numFmt].format_str` → 写 `data.styles[ref].numberFormat`；`cell.s.font` → `bold/italic/underline/color`；`cell.s.alignment` → `align/wrapText`；`cell.s.fill` → `background` |
+| 4 | spreadsheet.js `paint()` 里 td 渲染加 `white-space: pre-line`（让 \n 显示成换行） |
+| 5 | 测试文件用 `天梭报价表.xls` 导入对比修复效果 |
+
+**已确认的 SheetJS API：**
+- `wb.SSF[numFmtKey]` → 格式字符串（如 `'"￥"#,##0;"￥"\-#,##0'`）
+- `ws[address]`（如 `ws["A1"]`）→ cell 对象含 `.v`（值）+ `.f`（公式）+ `.s`（样式）
+- `ws["!ref"]` → 范围字符串如 `"A1:I74"`
+
+---
+
+## 📊 v1.1.13 → v1.1.25 快捷键补完（Exceljet 对照）
+
+**12 个版本，+35 个真功能快捷键**：
 
 | 版本 | 核心功能 |
 |---|---|
-| **v1.1.10** | Writer 表格网格面板定位修复（commit `adba432`） |
-| **v1.1.11** | PPT 插图 + 幻灯片复制 + 缩略图拖拽排序（commit `0be7ca0` ledger#69） |
-| **v1.1.12** | Excel 打印对话框 + 页面设置（纸张/方向/边距）（commit `f2d86ef` ledger#70） |
-| **v1.1.13** | UI 模块品牌色（Word#2B579A/Excel#217346/PPT#D04423/MindMap#7C3AED/PDF#E53935）+ 5 大模块专属 SVG 图标替换 emoji（commit `5368c95` ledger#71） |
+| v1.1.13 | UI 品牌色（Word 蓝/Excel 绿/PPT 红/MindMap 紫/PDF 红）+ SVG 图标 |
+| v1.1.14 | Alt+= SUM / Ctrl+PageDownUp 切 sheet / Delete 清除 / Ctrl+Shift+EndHome / Ctrl+90 显隐行 |
+| v1.1.15 | **7 数字格式**（Ctrl+Shift+~/$/%/^/#/@/!） / Ctrl+Shift+&_ 边框 / Ctrl+R / F9 / Ctrl+5 删除线 / **Ctrl+B/I/U bug 修** |
+| v1.1.16 | Shift+F2 批注 / Shift+F11 新建 sheet / Ctrl+\` 公式值切换 / Ctrl+Shift+\* 当前区域 / Ctrl+Shift+O 批注格 |
+| v1.1.18 | Ctrl+G 转到 / Ctrl+Shift+L 筛选 / Ctrl+Alt+LCR 对齐 / F8 扩展模式 |
+| v1.1.20 | **Ctrl+Alt+V 选择性粘贴 6 模式**（internalClipboard + TSV fallback） |
+| v1.1.21 | **F4 重复上一操作**（20+ 操作 + offset 偏移算法） |
+| v1.1.22 | **Ctrl+E 快速填充**（6 规则 inferFlashFillPattern + modal fallback） |
+| v1.1.23 | **Ctrl+K 超链接**（内部 #A1 + 外部 URL + XLSX anchor/r:id 双模式） |
+| v1.1.24 | **Ctrl+L/T 创建表**（ListObject + XLSX workbook tableParts + xl/tables/table1.xml） |
+| v1.1.25 | **Ctrl+Shift+Enter 数组公式 CSE**（isArrayFormula + arrayRef 标记 + recompute 管线位置重分配 + XLSX `<f t="array">`） |
+
+**覆盖率**：Exceljet 246 条清单，排除 Dialog/DragDrop/Ribbon Alt/Pivot/VBA 等，有效真功能 ≈ 150 条，我们落地 ≈ 60+ 条。
+
+**剩余低优先级**：Ctrl+Q 快速分析（需图表面板）/ Ctrl+F3 名称管理器（需 names UI）/ Shift+F3 插入函数（需函数列表 UI）
+
+### 架构新增数据结构（v1.1.14~v1.1.25）
+
+| 结构 | 用途 | 落点 |
+|---|---|---|
+| `internalClipboard` | Ctrl+Alt+V 选择性粘贴内存对象 | spreadsheet.js 变量 |
+| `lastAction / setLastAction()` | F4 重复上一操作栈 | spreadsheet.js 变量 + 函数 |
+| `data.cells[ref].hyperlink = { url, friendly }` | Ctrl+K 超链接 | 跟 cell.v / cell.f 同层 |
+| `data.listObjects = [{ name, ref, columns }]` | Ctrl+L/T 创建表 | 跟 cells/styles/filters 平级 |
+| `data.cells[ref].isArrayFormula + arrayRef` | Ctrl+Shift+Enter 数组公式 | 跟 cell.f / cell.v 同层 |
+
+### 导出层扩展（export-ooxml.js）
+
+| 功能 | OOXML 落点 |
+|---|---|
+| 超链接 | `xl/worksheets/_rels/sheet{N}.xml.rels` + `<hyperlink r:id="..."/>` 或 `anchor` |
+| ListObject 表 | `xl/tables/table{N}.xml` + workbook `<tableParts>` + _rels |
+| 数组公式 | `<f t="array" ref="B1:C3">` |
 
 ---
 
-## 🚨 Writer 最终交付（2026-10-12）— P0/P1 全清
+## 🚨 铁律（**新 AI 必须知道**）
 
-| 功能 | 状态 | 说明 |
-|---|---|---|
-| 表格网格拖选 10×8 | ✅ commit `d71ac06` | insertTableGrid() 悬停预览 |
-| 段落设置精确缩进 | ✅ commit `79739e3` | openParagraphFormat() 复用 .pg-modal |
-| 快捷键体系清理 | ✅ commit `e25fb2f` | shell 全局唯一路由 + 模块 5 专用键 |
-| 中西文字体分别设置 | ✅ commit `92ffa2f` | fallback 链 `"Arial", "微软雅黑"` |
+1. **铁律⑧ 先告知再动手** — AGENTS-铁律.md 已加。所有文件改动必须先告知方案 → 用户说"好/确认/继续"再动手
+2. **免确认不等于跳过告知** — 权限层说"免确认"但铁律⑧ 覆盖它，文件改动必须先通报
+3. **Electron main 进程 `*Sync` 一律禁用** — 阻塞 Chromium → 闪退
+4. **mount 初始化顺序** — bindAliases（数据提升）→ buildGrid（数据消费）
+5. **XLSX merge 格式** — 对象 `{ range, type }` 不是纯字符串
+6. **Excel 缓存值** — `<f>` 有了也要保留 `<v>`
+7. **FE 大小写** — 函数名 scope key 统一大写
+8. **版本号 6 落点必须同步** — package.json / index.html / sw.js / version.json / iOS / HarmonyOS
+
+---
 
 ---
 
