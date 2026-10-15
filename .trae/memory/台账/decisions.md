@@ -1,5 +1,24 @@
 ---
 
+## [2026-10-15] ledger#71 — 模块品牌色贯穿全 UI + emoji→SVG 图标
+
+- **选了啥**：5 大模块各有独立品牌色，通过 `--mod-color` CSS 变量在 shell→tab→ribbon→module-host 全链路传递；store.js TYPE_INFO 从 emoji 换成 SVG key + color 字段
+  - Writer → `#2B579A`（Word 蓝）
+  - Spreadsheet → `#217346`（Excel 绿）
+  - Presentation → `#D04423`（PPT 红）
+  - MindMap → `#7C3AED`（紫）
+  - PDF → `#E53935`（红）
+- **为啥**：emoji 在不同系统字体渲染差异大 + 无品牌辨识度。SVG 图标 + 模块色让每个模块有独特视觉身份，用户一眼知道在哪个模块
+- **备选方案**：只换图标不换色 → 辨识度不够；每模块独立 CSS 文件 → 重复太多
+- **关键技术**：
+  - shell.js mount 时 `info.color` → `t.wrap.style.setProperty("--mod-color", modColor)` + `#module-host` + `#editor`
+  - style.css 所有 `var(--accent)` → `var(--mod-color,var(--accent))` fallback
+  - `color-mix(in srgb,var(--mod-color,var(--accent)) 14%,transparent)` 替代 `var(--accent-soft)`
+- **关联文件**：store.js TYPE_INFO、icons.js PATHS 5 新图标、shell.js setActiveTab、style.css 全量 CSS 变量、templates.js accent 对齐
+- **决策人**：AI
+
+---
+
 ## [2026-10-13] Writer 表格网格拖选无反应 — position:fixed 缺 top/left 定位
 
 - **根因**：insertTableGrid() 创建的面板 `.tbl-grid-panel` 只有 `position:fixed`（CSS L508）**没有 top/left 坐标**，元素停在 CSS 静态流位置（wrap flex column 末尾 = 页面底部视口外），所以用户点了按钮面板确实创建了（DOM 里 count=1）但看不见

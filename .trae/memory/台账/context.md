@@ -7,37 +7,29 @@
 
 ## 🎯 交付快照（新 AI 读这里就够了）
 
-**当前阶段**：v1.1.8 发版后 — Excel 全模块闭环 + Writer 审计补 P0/P1 + 快捷键体系清理
+**当前阶段**：v1.1.13 发版后 — UI 模块品牌色 + SVG 图标体系建立
 
 | 项 | 值 |
 |---|---|
 | 测试基线 | **109/110 代码级全绿**（唯一失败 `_cdp_test.js` 需 Electron 9222，环境依赖） |
-| 最新 dist | `dist\绿角犀 Office Setup 1.1.8.exe` = 165.5 MB |
-| 发布状态 | ✅ **v1.1.7 + v1.1.8 已发 GitHub Release**（`lvjiaoxi_office_setup_1.1.8.exe` 附件已上传） |
-| 版本号 | 1.1.8（6 落点全对齐：package.json/index.html/sw.js/version.json/iOS/HarmonyOS） |
-| 台账状态 | decisions.md 最新 #65（Writer 段落设置精确缩进），issues.md L1\|xlsx-import 已升级 |
-| Git 远端 | ⚠️ **main 已推到 `79739e3`，4 个 commit 本地积压待 push** |
+| 最新 dist | `dist\绿角犀 Office Setup 1.1.13.exe` = 188.2 MB |
+| SHA256 | `7C7A276A4ADF7525C9106990430C3A02C6E1833BFC19A60648AF9D82574ADEC7` |
+| 发布状态 | ✅ **main 已全推 + tag v1.1.13 已推**（GitHub 网络正常） |
+| 版本号 | 1.1.13（6 落点全对齐：package.json/index.html/sw.js CACHE v39/version.json/iOS/HarmonyOS） |
+| 台账状态 | decisions.md 最新 #71（模块品牌色贯穿），issues.md L1\|xlsx-import 已升级 |
+| Git 远端 | ✅ **HEAD `1113cd5` 已推到 origin/main，v1.1.13 tag 已推** |
 | 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456** |
 
 ---
 
-## ⚠️ GitHub 断网 — 待 push 清单（2026-10-12 22:00）
+## 🚀 v1.1.10 ~ v1.1.13 变更速览（2026-10-13 ~ 2026-10-15）
 
-```powershell
-# GitHub 443 连续断 6+ 次，3 次 retry 全挂，先做后推
-# 下次会话第一件事：push 这 4 个 commit + tag v1.1.9
-git push origin main          # 推 e25fb2f / 92ffa2f / 850fe37
-git push origin v1.1.9        # 推 tag
-# Setup.exe 已构建：dist\绿角犀 Office Setup 1.1.9.exe = 165.5 MB
-# SHA256: fdf6af35bc312a921b0014d5e5e6c8943f6dd0c41d368730ad4dceb15d7e56f2（和 v1.1.8 同 hash）
-```
-
-| 本地待 push commit | 说明 |
+| 版本 | 核心功能 |
 |---|---|
-| `e25fb2f` | fix(writer): remove dup Ctrl+SFP + 5 module hotkeys (ledger#66) |
-| `92ffa2f` | feat(writer): dual CJK/Latin font families via fallback chain (ledger#67) |
-| `850fe37` | chore: bump v1.1.8 → v1.1.9 (6 file sync) |
-| tag `v1.1.9` | 指向 HEAD（850fe37） |
+| **v1.1.10** | Writer 表格网格面板定位修复（commit `adba432`） |
+| **v1.1.11** | PPT 插图 + 幻灯片复制 + 缩略图拖拽排序（commit `0be7ca0` ledger#69） |
+| **v1.1.12** | Excel 打印对话框 + 页面设置（纸张/方向/边距）（commit `f2d86ef` ledger#70） |
+| **v1.1.13** | UI 模块品牌色（Word#2B579A/Excel#217346/PPT#D04423/MindMap#7C3AED/PDF#E53935）+ 5 大模块专属 SVG 图标替换 emoji（commit `5368c95` ledger#71） |
 
 ---
 
