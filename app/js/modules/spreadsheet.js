@@ -3584,7 +3584,7 @@
       else if (e.shiftKey && k === "F11") { e.preventDefault(); newWorksheet(); }
       else if (ctrl && (k === "l" || k === "L")) { e.preventDefault(); OS.toast("Ctrl+L 创建表 — 开发中", "info"); }
       else if (ctrl && (k === "t" || k === "T")) { e.preventDefault(); OS.toast("Ctrl+T 创建表 — 开发中", "info"); }
-      else if (ctrl && (k === "e" || k === "E")) { e.preventDefault(); OS.toast("Ctrl+E 快速填充 — 开发中", "info"); }
+      else if (ctrl && (k === "e" || k === "E")) { e.preventDefault(); doFlashFill(); }
       else if (ctrl && (k === "q" || k === "Q")) { e.preventDefault(); OS.toast("Ctrl+Q 快速分析 — 开发中", "info"); }
       else if (ctrl && (k === "k" || k === "K")) { e.preventDefault(); OS.toast("Ctrl+K 超链接 — 开发中", "info"); }
       // --- Excel: 批注 / 重复 / 选择当前区域 / 公式切换 ---
@@ -5409,6 +5409,67 @@
       }
       return "";
     }
+    /* ---------------- Ctrl+E 自动快速填充（Excel 语义）---------------- */
+    // 锚点所在列 = 结果列，左边相邻列 = 参考列；从上往下找样例对，推断 pattern，填剩余空行
+    function doFlashFill() {
+      const ap = FE.parseRef(anchor);
+      const fillCol = ap.col; // 结果列 = anchor 所在列
+      const refCol = fillCol - 1; // 默认左边相邻列当参考
+      if (refCol < 1) { OS.toast("结果列左边没参考列，打开手动对话框", "info"); openFlashFillModal(); return; }
+
+      // 1. 收集样例对：从上往下扫，参考列非空 + 结果列非空
+      const refSamples = [], fillSamples = [];
+      const startRow = Math.max(1, ap.row - 50);
+      for (let r = startRow; r <= ap.row; r++) {
+        const refRef = FE.idxToCol(refCol) + r;
+        const fillRef = FE.idxToCol(fillCol) + r;
+        const rv = data.cells[refRef], fv = data.cells[fillRef];
+        const rVal = rv != null ? (rv.v != null ? rv.v : (rv.f ? FE.evalFormula(rv.f, refRef) : null)) : null;
+        const fVal = fv != null ? (fv.v != null ? fv.v : (fv.f ? FE.evalFormula(fv.f, fillRef) : null)) : null;
+        if (rVal != null && rVal !== "" && fVal != null && fVal !== "") {
+          refSamples.push(String(rVal));
+          fillSamples.push(String(fVal));
+        }
+      }
+      if (refSamples.length < 2) { OS.toast("样例不够（需要 ≥ 2 对），打开手动对话框", "info"); openFlashFillModal(); return; }
+
+      // 2. 推断 pattern
+      const pattern = inferFlashFillPattern(refSamples, fillSamples);
+      if (!pattern) { OS.toast("无法推断填充规则，打开手动对话框", "warn"); openFlashFillModal(); return; }
+
+      // 3. 找到结果列当前已填的最后一行 → 从下一行开始填
+      let lastFilledRow = ap.row;
+      for (let r = ap.row; r <= ROWS; r++) {
+        const ref = FE.idxToCol(fillCol) + r;
+        const cell = data.cells[ref];
+        const v = cell ? (cell.v != null ? cell.v : (cell.f ? 1 : null)) : null;
+        if (v != null && v !== "") lastFilledRow = r; else break;
+      }
+      snapshot();
+      let filled = 0;
+      for (let r = lastFilledRow + 1; r <= ROWS; r++) {
+        const refRef = FE.idxToCol(refCol) + r;
+        const fillRef = FE.idxToCol(fillCol) + r;
+        const rv = data.cells[refRef];
+        const refVal = rv != null ? (rv.v != null ? rv.v : (rv.f ? FE.evalFormula(rv.f, refRef) : null)) : null;
+        // 参考列为空 → 填到数据结束
+        if (refVal == null || refVal === "") break;
+        // 结果列已有值 → 跳过
+        const existing = data.cells[fillRef];
+        const eV = existing ? (existing.v != null ? existing.v : (existing.f ? 1 : null)) : null;
+        if (eV != null && eV !== "") continue;
+        const newVal = applyFlashFillPattern(pattern, String(refVal));
+        writeCell(fillRef, newVal);
+        filled++;
+      }
+      recompute(); applyFmt(); paint(); ctx.markDirty();
+      // 切选区到填充区域末尾
+      selected = FE.idxToCol(fillCol) + Math.min(ROWS, lastFilledRow + filled);
+      paint(); updateStatus();
+      setLastAction(a => { for (let r = a.startRow; r <= a.startRow + a.filled - 1; r++) { const refRef = FE.idxToCol(a.refCol) + r; const fillRef = FE.idxToCol(a.fillCol) + r; const rv = data.cells[refRef]; const refVal = rv ? (rv.v != null ? rv.v : (rv.f ? FE.evalFormula(rv.f, refRef) : null)) : null; if (refVal != null && refVal !== "") writeCell(fillRef, applyFlashFillPattern(a.pattern, String(refVal))); } recompute(); applyFmt(); paint(); }, { pattern, refCol, fillCol: fillCol, startRow: lastFilledRow + 1, filled, label: "Ctrl+E 快速填充" });
+      OS.toast("Ctrl+E 填充完成：" + filled + " 行（规则：" + pattern.type + "）", "ok");
+    }
+
     function openFlashFillModal() {
       const rg = rangeRect(); if (!rg) { OS.toast("请先选中样例区域", "warn"); return; }
       const m = openModal("快速填充 Flash Fill");
