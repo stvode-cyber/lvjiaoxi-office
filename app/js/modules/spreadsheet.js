@@ -3051,6 +3051,91 @@
       paint(); updateStatus();
     }
 
+    // ===== 批量样式：给整个选区（不是只 selected）设样式 =====
+    function applyRangeStyle(patch) {
+      const rg = rangeRect(); if (!rg) return;
+      snapshot();
+      for (let r = rg.r1; r <= rg.r2; r++)
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          data.styles[ref] = Object.assign(data.styles[ref] || {}, patch);
+        }
+      applyFmt(); applyCondFormat(); ctx.markDirty();
+    }
+
+    // ===== Excel 7 个数字格式快捷键 =====
+    function applyNumberFormat(fmtId) {
+      const FMTS = {
+        "general":    { code: "General",     label: "常规" },
+        "currency":   { code: "$#,##0.00",  label: "货币" },
+        "percent":    { code: "0%",          label: "百分比" },
+        "scientific": { code: "0.00E+00",    label: "科学" },
+        "date":       { code: "yyyy-mm-dd", label: "日期" },
+        "time":       { code: "h:mm:ss",     label: "时间" },
+        "comma":      { code: "#,##0.00",    label: "千分位" }
+      };
+      const f = FMTS[fmtId]; if (!f) return;
+      applyRangeStyle({ numberFormat: f.code });
+      OS.toast("数字格式：" + f.label, "ok");
+    }
+
+    // ===== 上一格复制值 / 复制公式 =====
+    function copyFromAbove(onlyValue) {
+      const ap = FE.parseRef(anchor);
+      if (ap.row <= 1) { OS.toast("已是第一行", "info"); return; }
+      const aboveRef = FE.idxToCol(ap.col) + (ap.row - 1);
+      const above = data.cells[aboveRef];
+      if (!above) { OS.toast("上一格为空", "info"); return; }
+      snapshot();
+      if (onlyValue) {
+        const v = above.v != null ? above.v : (above.f != null ? FE.evalFormula(above.f, aboveRef) : null);
+        writeCell(anchor, v == null ? "" : v);
+      } else {
+        if (above.f != null) writeCell(anchor, "=" + above.f);
+        else writeCell(anchor, above.v != null ? above.v : "");
+      }
+      recompute(); applyFmt(); ctx.markDirty();
+    }
+
+    // ===== 向右填充（对应 Ctrl+D 向下填充） =====
+    function fillRight() {
+      const rg = rangeRect(); if (!rg || rg.c2 <= rg.c1) return;
+      snapshot();
+      const srcRef = FE.idxToCol(rg.c1) + anchorRow();
+      const src = data.cells[srcRef];
+      if (!src) { OS.toast("源单元格为空", "info"); return; }
+      for (let c = rg.c1 + 1; c <= rg.c2; c++) {
+        const ref = FE.idxToCol(c) + anchorRow();
+        if (src.f) writeCell(ref, "=" + src.f);
+        else writeCell(ref, src.v != null ? src.v : "");
+      }
+      recompute(); applyFmt(); ctx.markDirty();
+      OS.toast("已向右填充 " + (rg.c2 - rg.c1) + " 格", "ok");
+    }
+    function anchorRow() { return FE.parseRef(anchor).row; }
+
+    // ===== 边框快捷：Ctrl+Shift+& 外边框 / Ctrl+Shift+_ 去边框 =====
+    function setOuterBorder(remove) {
+      const rg = rangeRect(); if (!rg) return;
+      snapshot();
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          const s = data.styles[ref] || (data.styles[ref] = {});
+          if (!s.border) s.border = {};
+          if (remove) { s.border = {}; continue; }
+          const isEdgeLeft = c === rg.c1, isEdgeRight = c === rg.c2;
+          const isEdgeTop = r === rg.r1, isEdgeBottom = r === rg.r2;
+          if (isEdgeLeft)   s.border.left   = { style: "thin", color: "#333" }; else delete s.border.left;
+          if (isEdgeRight)  s.border.right  = { style: "thin", color: "#333" }; else delete s.border.right;
+          if (isEdgeTop)    s.border.top    = { style: "thin", color: "#333" }; else delete s.border.top;
+          if (isEdgeBottom) s.border.bottom = { style: "thin", color: "#333" }; else delete s.border.bottom;
+        }
+      }
+      applyFmt(); applyCondFormat(); ctx.markDirty();
+      OS.toast(remove ? "已清除选区边框" : "已添加外边框", "ok");
+    }
+
     table.addEventListener("keydown", e => {
       const td = e.target.closest("td[data-ref]");
       if (!td) return;
@@ -3063,7 +3148,15 @@
       // ===== 编辑模式下只拦截特定键 =====
       if (editing) {
         if (k === "Escape") { e.preventDefault(); td.removeAttribute("contenteditable"); recompute(); }
-        else if (k === "Enter" && !ctrl) { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
+        else if (k === "Enter" && !ctrl && !e.altKey) { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
+        else if (k === "Enter" && e.altKey) {
+          // Alt+Enter → 单元格内换行（插入 \n 而不是提交）
+          e.preventDefault();
+          td.textContent = td.textContent + "\n";
+          // 光标移到末尾
+          const sel = window.getSelection(), r = document.createRange();
+          r.selectNodeContents(td); r.collapse(false); sel.removeAllRanges(); sel.addRange(r);
+        }
         else if (k === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
         else if (ctrl && k === "Enter") { e.preventDefault(); commitCell(td); fillRangeWithCurrent(); }
         return;
@@ -3077,13 +3170,52 @@
       else if (ctrl && k === "PageUp") { e.preventDefault(); const nxt = (data.activeSheet - 1 + data.sheets.length) % data.sheets.length; switchSheet(nxt); }
       // --- P0-3: Delete/Backspace → 清除选区内容 ---
       else if (k === "Delete" || k === "Backspace") { e.preventDefault(); clearSelection(); }
-      // --- P0-4: Ctrl+9/Ctrl+0 → 隐藏行/列（占位，后续完整实现） ---
-      else if (ctrl && (k === "9" || k === "(")) { e.preventDefault(); OS.toast("隐藏行（Ctrl+9）— 开发中，后续版本落地", "info"); }
-      else if (ctrl && (k === "0" || k === ")")) { e.preventDefault(); OS.toast("隐藏列（Ctrl+0）— 开发中，后续版本落地", "info"); }
+      // --- P0-4: Ctrl+9/Ctrl+0 → 隐藏行/列（toast 占位） ---
+      else if (ctrl && (k === "9" || k === "(")) { e.preventDefault(); OS.toast("隐藏行（Ctrl+9）— 后续完整实现", "info"); }
+      else if (ctrl && (k === "0" || k === ")")) { e.preventDefault(); OS.toast("隐藏列（Ctrl+0）— 后续完整实现", "info"); }
       // --- P0-5: Ctrl+Shift+End/Home → 选区扩展到尾/头部 ---
       else if (ctrl && e.shiftKey && k === "End") { e.preventDefault(); expandSelectToCorner("end"); }
       else if (ctrl && e.shiftKey && k === "Home") { e.preventDefault(); expandSelectToCorner("home"); }
-      // --- 原有 ---
+
+      // ====== Excel 完整快捷键批量补全（P1/P2） ======
+      // --- Excel: 7 个数字格式（Ctrl+Shift+~/$/%/^/#/@/!） ---
+      else if (ctrl && e.shiftKey && k === "~")  { e.preventDefault(); applyNumberFormat("general"); }
+      else if (ctrl && e.shiftKey && k === "$")  { e.preventDefault(); applyNumberFormat("currency"); }
+      else if (ctrl && e.shiftKey && k === "%")  { e.preventDefault(); applyNumberFormat("percent"); }
+      else if (ctrl && e.shiftKey && k === "^")  { e.preventDefault(); applyNumberFormat("scientific"); }
+      else if (ctrl && e.shiftKey && k === "#")  { e.preventDefault(); applyNumberFormat("date"); }
+      else if (ctrl && e.shiftKey && k === "@")  { e.preventDefault(); applyNumberFormat("time"); }
+      else if (ctrl && e.shiftKey && (k === "!" || k === "1")) { e.preventDefault(); applyNumberFormat("comma"); }
+      // --- Excel: 边框 ---
+      else if (ctrl && e.shiftKey && k === "&")  { e.preventDefault(); setOuterBorder(false); }
+      else if (ctrl && e.shiftKey && k === "_")  { e.preventDefault(); setOuterBorder(true); }
+      // --- Excel: 复制值 / 公式 ---
+      else if (ctrl && e.shiftKey && k === '"')  { e.preventDefault(); copyFromAbove(true); }
+      else if (ctrl && k === "'" || ctrl && k === "`") { e.preventDefault(); copyFromAbove(false); }
+      // --- Excel: 重算 ---
+      else if (k === "F9") { e.preventDefault(); recompute(); OS.toast("已重算工作表", "ok"); }
+      else if (e.shiftKey && k === "F9") { e.preventDefault(); OS.toast("已重算活动 sheet（FE 自动重算）", "ok"); }
+      // --- Excel: 转下一格（下一列）---
+      else if (ctrl && (k === "r" || k === "R")) { e.preventDefault(); fillRight(); }
+      // --- Excel: 转到 / 新建 sheet / 创建表 / 快速填充 / 超链接 / 快速分析（toast）---
+      else if (ctrl && (k === "g" || k === "G")) { e.preventDefault(); OS.toast("Ctrl+G 转到 — 开发中", "info"); }
+      else if (e.shiftKey && k === "F11") { e.preventDefault(); OS.toast("Shift+F11 新建工作表 — 开发中", "info"); }
+      else if (ctrl && (k === "l" || k === "L")) { e.preventDefault(); OS.toast("Ctrl+L 创建表 — 开发中", "info"); }
+      else if (ctrl && (k === "t" || k === "T")) { e.preventDefault(); OS.toast("Ctrl+T 创建表 — 开发中", "info"); }
+      else if (ctrl && e.shiftKey && k === "L") { e.preventDefault(); OS.toast("Ctrl+Shift+L 切换筛选 — 开发中", "info"); }
+      else if (ctrl && (k === "e" || k === "E")) { e.preventDefault(); OS.toast("Ctrl+E 快速填充 — 开发中", "info"); }
+      else if (ctrl && (k === "q" || k === "Q")) { e.preventDefault(); OS.toast("Ctrl+Q 快速分析 — 开发中", "info"); }
+      else if (ctrl && (k === "k" || k === "K")) { e.preventDefault(); OS.toast("Ctrl+K 超链接 — 开发中", "info"); }
+      // --- Excel: 批注 / 重复 / 选择当前区域 ---
+      else if (e.shiftKey && k === "F2") { e.preventDefault(); OS.toast("Shift+F2 插入批注 — 开发中", "info"); }
+      else if (k === "F4") { e.preventDefault(); OS.toast("F4 重复上一操作 — 开发中", "info"); }
+      else if (ctrl && e.shiftKey && k === "*") { e.preventDefault(); OS.toast("Ctrl+Shift+* 选择当前区域 — 开发中", "info"); }
+      else if (k === "F8") { e.preventDefault(); OS.toast("F8 扩展选区模式 — 开发中", "info"); }
+      else if (ctrl && e.shiftKey && k === "O") { e.preventDefault(); OS.toast("Ctrl+Shift+O 选有批注单元格 — 开发中", "info"); }
+      // --- Excel: Ctrl+A 选全表 ---
+      else if (ctrl && k === "a") { e.preventDefault(); selectCol(1); selectRow(ROWS); }
+
+      // ===== 原有快捷键（修复 Ctrl+B/I/U/1 改为选区批量）=====
       else if (k === "F2") { e.preventDefault(); td.setAttribute("contenteditable", "true"); td.focus(); const s = window.getSelection(), r = document.createRange(); r.selectNodeContents(td); r.collapse(false); s.removeAllRanges(); s.addRange(r); }
       else if (k === "Enter") { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
       else if (k === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
@@ -3101,14 +3233,16 @@
       else if (k === "PageUp") { e.preventDefault(); commitCell(td); move(Math.max(1, pr.row - 20), pr.col); }
       else if (ctrl && k === " ") { e.preventDefault(); selectCol(pr.col); }
       else if (e.shiftKey && k === " ") { e.preventDefault(); selectRow(pr.row); }
-      else if (ctrl && (k === "b" || k === "B")) { e.preventDefault(); setStyle({ bold: !(data.styles[selected] && data.styles[selected].bold) }); }
-      else if (ctrl && (k === "i" || k === "I")) { e.preventDefault(); setStyle({ italic: !(data.styles[selected] && data.styles[selected].italic) }); }
-      else if (ctrl && (k === "u" || k === "U")) { e.preventDefault(); setStyle({ underline: !(data.styles[selected] && data.styles[selected].underline) }); }
-      else if (ctrl && (k === "d" || k === "D")) { e.preventDefault(); fillDown(); }
+      // --- 样式：走选区批量（Excel 语义）---
+      else if (ctrl && (k === "b" || k === "B")) { e.preventDefault(); applyRangeStyle({ bold: !(data.styles[selected] && data.styles[selected].bold) }); }
+      else if (ctrl && (k === "i" || k === "I")) { e.preventDefault(); applyRangeStyle({ italic: !(data.styles[selected] && data.styles[selected].italic) }); }
+      else if (ctrl && (k === "u" || k === "U")) { e.preventDefault(); applyRangeStyle({ underline: !(data.styles[selected] && data.styles[selected].underline) }); }
+      else if (ctrl && k === "5") { e.preventDefault(); applyRangeStyle({ strikethrough: !(data.styles[selected] && data.styles[selected].strikethrough) }); }
+      else if (ctrl && k === "d") { e.preventDefault(); fillDown(); }
       else if (ctrl && k === "Enter") { e.preventDefault(); fillRangeWithCurrent(); }
       else if (ctrl && k === ";") { e.preventDefault(); commit(ref, new Date().toLocaleDateString()); recompute(); }
       else if (ctrl && e.shiftKey && (k === ";" || k === ":")) { e.preventDefault(); commit(ref, new Date().toLocaleTimeString()); recompute(); }
-      else if (ctrl && k === "1") { e.preventDefault(); OS.toast("单元格格式面板开发中", "info"); }
+      else if (ctrl && k === "1") { e.preventDefault(); OS.toast("Ctrl+1 单元格格式面板 — 开发中", "info"); }
       else if (k === "Escape") { td.removeAttribute("contenteditable"); recompute(); }
       else if (k.length === 1 && !ctrl && !e.metaKey && !e.altKey) {
         if (td.getAttribute("contenteditable") !== "true") { td.setAttribute("contenteditable", "true"); td.textContent = ""; td.focus(); }
@@ -5225,6 +5359,23 @@
     }
     function applyFmt() {
       const bCss = st => ({ hair: "1px solid", thin: "1px solid", medium: "2px solid", thick: "3px solid", dashed: "1px dashed", mediumDashed: "2px dashed", dotted: "1px dotted", double: "3px double", dashDot: "1px dashed", mediumDashDot: "2px dashed", dashDotDot: "1px dashed", slantDashDot: "1px dashed" }[st] || "1px solid");
+      // 数字格式渲染（简单 JS toLocaleString 转换）
+      function renderNumber(v, fmt) {
+        if (v == null || v === "") return v;
+        if (typeof v !== "number") return v;
+        try {
+          switch (fmt) {
+            case "0%": return (v * 100).toFixed(0) + "%";
+            case "$#,##0.00": return "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            case "0.00E+00": return v.toExponential(2);
+            case "#,##0.00": return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            case "yyyy-mm-dd": { const d = new Date(v); return d.toISOString().slice(0, 10); }
+            case "h:mm:ss": { const d = new Date(v); return d.toTimeString().slice(0, 8); }
+            case "General": case undefined: return v;
+            default: return v;
+          }
+        } catch (e) { return v; }
+      }
       for (const ref in data.styles) {
         const td = table.querySelector(`td[data-ref="${ref}"]`); if (!td) continue;
         const s = data.styles[ref];
@@ -5233,6 +5384,7 @@
         if (s.bold) td.style.fontWeight = "700"; else if (s.bold === false) td.style.fontWeight = "400";
         if (s.italic) td.style.fontStyle = "italic"; else if (s.italic === false) td.style.fontStyle = "normal";
         if (s.underline) td.style.textDecoration = "underline"; else if (s.underline === false) td.style.textDecoration = "none";
+        if (s.strikethrough) td.style.textDecorationLine = "line-through"; else if (s.strikethrough === false) td.style.textDecorationLine = "";
         if (s.align) td.style.textAlign = s.align;
         if (s.border) {
           ["left", "right", "top", "bottom"].forEach(side => {
@@ -5240,6 +5392,15 @@
             const b = s.border[side];
             td.style["border" + side2] = b ? `${bCss(b.style)} ${b.color || "#333"}` : "";
           });
+        }
+        // 数字格式渲染（不覆盖原始值，只改变显示）
+        if (s.numberFormat) {
+          const cell = data.cells[ref];
+          const rawVal = cell ? (cell.v != null ? cell.v : (typeof cell.f === "string" ? cell.f : "")) : "";
+          if (typeof rawVal === "number" || (typeof rawVal === "string" && rawVal !== "" && !isNaN(Number(rawVal)))) {
+            const rendered = renderNumber(typeof rawVal === "number" ? rawVal : Number(rawVal), s.numberFormat);
+            if (rendered !== rawVal && rendered !== undefined) td.textContent = rendered;
+          }
         }
       }
     }
