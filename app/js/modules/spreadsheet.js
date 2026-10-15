@@ -3011,6 +3011,9 @@
       if (!td || td.getAttribute("contenteditable") === "true") return;
       if (dragMoved) { dragMoved = false; return; } // 拖拽已设置选区
       const ref = td.dataset.ref;
+      const cell = data.cells[ref];
+      // Ctrl+Click = 超链接跳转
+      if (e.ctrlKey && cell && cell.hyperlink) { e.preventDefault(); jumpHyperlink(cell.hyperlink); return; }
       if (e.shiftKey) { selected = ref; paint(); updateStatus(); }
       else selectCell(ref);
     });
@@ -3586,7 +3589,7 @@
       else if (ctrl && (k === "t" || k === "T")) { e.preventDefault(); OS.toast("Ctrl+T 创建表 — 开发中", "info"); }
       else if (ctrl && (k === "e" || k === "E")) { e.preventDefault(); doFlashFill(); }
       else if (ctrl && (k === "q" || k === "Q")) { e.preventDefault(); OS.toast("Ctrl+Q 快速分析 — 开发中", "info"); }
-      else if (ctrl && (k === "k" || k === "K")) { e.preventDefault(); OS.toast("Ctrl+K 超链接 — 开发中", "info"); }
+      else if (ctrl && (k === "k" || k === "K")) { e.preventDefault(); openHyperlinkModal(anchor); }
       // --- Excel: 批注 / 重复 / 选择当前区域 / 公式切换 ---
       else if (e.shiftKey && k === "F2") { e.preventDefault(); addComment(); }
       else if (ctrl && e.shiftKey && k === "F2") { e.preventDefault(); addComment(); OS.toast("已创建线程批注（同单格）", "ok"); }
@@ -5470,6 +5473,56 @@
       OS.toast("Ctrl+E 填充完成：" + filled + " 行（规则：" + pattern.type + "）", "ok");
     }
 
+    /* ---------------- Ctrl+K 超链接 ---------------- */
+    function openHyperlinkModal(ref) {
+      snapshot();
+      const cell = data.cells[ref];
+      const existing = cell && cell.hyperlink ? cell.hyperlink : null;
+      const url = prompt("输入超链接地址（http:// / https:// / mailto:）\n留空=删除超链接", existing ? existing.url : "https://");
+      if (url === null) return; // 用户取消
+      if (!url || url.trim() === "") {
+        removeHyperlink(ref);
+        setLastAction(() => removeHyperlink(ref), { label: "删除超链接" });
+        recompute(); applyFmt(); ctx.markDirty(); OS.toast("已删除超链接", "ok"); return;
+      }
+      const friendly = prompt("显示文本（留空=直接显示URL）", existing && existing.friendly ? existing.friendly : "");
+      if (!data.cells[ref]) data.cells[ref] = {};
+      data.cells[ref].hyperlink = { url: url.trim(), friendly: friendly ? friendly.trim() : undefined };
+      // 如果 cell 没值，用 friendly 或 url 当显示值
+      const c = data.cells[ref];
+      if (c.v == null && !c.f) c.v = (c.hyperlink.friendly || c.hyperlink.url);
+      setLastAction(a => {
+        if (!data.cells[a.ref]) data.cells[a.ref] = {};
+        data.cells[a.ref].hyperlink = { url: a.url, friendly: a.friendly };
+        if (data.cells[a.ref].v == null && !data.cells[a.ref].f) data.cells[a.ref].v = (a.friendly || a.url);
+        applyFmt();
+      }, { ref, url: url.trim(), friendly: friendly ? friendly.trim() : undefined, label: "添加超链接" });
+      recompute(); applyFmt(); ctx.markDirty();
+      OS.toast("已设置超链接（Ctrl+Click 跳转）", "ok");
+    }
+    function removeHyperlink(ref) { if (data.cells[ref] && data.cells[ref].hyperlink) { delete data.cells[ref].hyperlink; } }
+    function jumpHyperlink(h) {
+      try {
+        if (!h || !h.url) return;
+        // 内部 anchor：#A1 / Sheet2!B5
+        if (h.url.startsWith("#")) {
+          const target = h.url.slice(1);
+          if (FE.parseRef(target)) { selected = target; paint(); updateStatus(); OS.toast("已跳转：" + target, "ok"); return; }
+          // Sheet 跳转：Sheet2!B5
+          const sheetMatch = target.match(/^(.+?)!(.+)$/);
+          if (sheetMatch) {
+            const sheetIdx = data.sheets.findIndex(s => s.name === sheetMatch[1]);
+            if (sheetIdx >= 0) { switchSheet(sheetIdx); selected = sheetMatch[2]; paint(); updateStatus(); return; }
+          }
+          OS.toast("无效的内部链接：" + h.url, "warn"); return;
+        }
+        // 外部 URL
+        OS.toast("打开：" + h.url, "info");
+        if (window.open) window.open(h.url, "_blank", "noopener");
+        else location.href = h.url;
+      } catch (e) { OS.toast("打开超链接失败：" + e.message, "warn"); }
+    }
+
     function openFlashFillModal() {
       const rg = rangeRect(); if (!rg) { OS.toast("请先选中样例区域", "warn"); return; }
       const m = openModal("快速填充 Flash Fill");
@@ -5997,6 +6050,14 @@
             const b = s.border[side];
             td.style["border" + side2] = b ? `${bCss(b.style)} ${b.color || "#333"}` : "";
           });
+        }
+        // 超链接样式（蓝色下划线 + Ctrl 光标）
+        const hCell = data.cells[ref];
+        if (hCell && hCell.hyperlink) {
+          td.style.color = "#0563C1";
+          td.style.textDecoration = "underline";
+          td.style.cursor = "pointer";
+          td.title = hCell.hyperlink.url;
         }
         // 数字格式渲染 + 公式/值切换
         if (s.numberFormat) {

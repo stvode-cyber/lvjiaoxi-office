@@ -711,6 +711,22 @@
       const sheetName = sh.name || ("Sheet" + idx);
       const cells = sh.cells || {};
 
+      // 收集 cell.hyperlink → sh.hyperlinks（OOXML 独立结构）
+      const cellHls = [];
+      Object.keys(cells).forEach(ref => {
+        const c = cells[ref];
+        if (c && c.hyperlink && c.hyperlink.url) {
+          if (c.hyperlink.url.startsWith("#")) {
+            // 内部跳转：#A1 或 #Sheet2!B5 → anchor 属性，无 rel
+            cellHls.push({ ref, anchor: c.hyperlink.url.slice(1), friendly: c.hyperlink.friendly });
+          } else {
+            // 外部 URL → r:id + rels
+            cellHls.push({ ref, target: c.hyperlink.url, friendly: c.hyperlink.friendly });
+          }
+        }
+      });
+      if (cellHls.length) sh.hyperlinks = cellHls;
+
       const byRow = {};
       Object.keys(cells).forEach(ref => {
         const m = /^([A-Z]+)(\d+)$/.exec(ref); if (!m) return;
@@ -868,13 +884,20 @@
       // hyperlinks 超链接（区域式，ref→rId）
       let hlXml = "";
       const hls = (sh.hyperlinks && sh.hyperlinks.length) ? sh.hyperlinks : [];
-      const hlRels = []; // 每个 rId 对应 target
+      const hlRels = []; // 每个 rId 对应 target（仅外部 hyperlink）
       if (hls.length) {
         let items = [];
         hls.forEach((h, hi) => {
-          const rid = "rIdH" + (hi + 1);
-          items.push('<hyperlink ref="' + (h.ref || "").toUpperCase() + '" r:id="' + rid + '"/>');
-          hlRels.push({ rid, target: h.target || "", external: !!(h.target && /^https?:|^ftps?:|^mailto:|^file:/i.test(h.target)) });
+          const refAttr = 'ref="' + (h.ref || "").toUpperCase() + '"';
+          if (h.anchor) {
+            // 内部跳转：anchor 属性，不需要 rel
+            items.push('<hyperlink ' + refAttr + ' anchor="' + esc(h.anchor) + '"/>');
+          } else if (h.target) {
+            // 外部 URL：r:id + rels
+            const rid = "rIdH" + (hi + 1);
+            items.push('<hyperlink ' + refAttr + ' r:id="' + rid + '"/>');
+            hlRels.push({ rid, target: h.target, external: !!(h.target && /^https?:|^ftps?:|^mailto:|^file:/i.test(h.target)) });
+          }
         });
         hlXml = '<hyperlinks>' + items.join("") + '</hyperlinks>';
       }
