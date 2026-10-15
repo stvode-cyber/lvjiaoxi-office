@@ -3,7 +3,7 @@
    tesseract lang-data ~65MB 走独立 LANGDATA cache + 手动手动手动
    注意：Service Worker 仅在 https 或 localhost 下生效，file:// 不受影响。 */
 
-const CACHE = "lvjiaoxi-office-v43";
+const CACHE = "lvjiaoxi-office-v44";
 const LANGDATA_CACHE = "lvjiaoxi-langdata-v1";
 
 // —— 预缓存（install 阶段一次性）——
