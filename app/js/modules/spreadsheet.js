@@ -3207,6 +3207,172 @@
       OS.toast("已取消隐藏全部 " + n + " 列", "ok");
     }
 
+    // ===== 插入/删除行列：ref 移位核心 =====
+    // shiftFormulaRefs: 公式字符串里所有单元格引用移位
+    function shiftFormulaRefs(formula, mode, idx, count) {
+      // mode: "row" 或 "col", idx: 起始行/列号, count: 移位量（插入=+count, 删除=-count）
+      // 解析 "A1" 型引用：如果 row>=idx 就 +count（插入后移）；如果 row>=idx+|count|（删除前移）
+      return formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)/g, (m, ab, col, ar, row) => {
+        const rowN = +row;
+        if (mode === "row") {
+          if (rowN >= idx && !ar) return col + (rowN + count);
+        } else {
+          const colN = FE.colToIdx ? FE.colToIdx(col) : col.split("").reduce((a,c)=>a*26+(c.charCodeAt(0)-64),0);
+          if (colN >= idx && !ab) return FE.idxToCol(colN + count) + rowN;
+        }
+        return m;
+      });
+    }
+    // shiftRangeStr: "A1:B3" 型 range 移位
+    function shiftRangeStr(rangeStr, mode, idx, count) {
+      if (!rangeStr) return rangeStr;
+      return rangeStr.split(":").map(ref => {
+        const p = FE.parseRef(ref); if (!p) return ref;
+        let newCol = p.col, newRow = p.row;
+        if (mode === "row" && newRow >= idx) newRow += count;
+        if (mode === "col" && newCol >= idx) newCol += count;
+        if (newRow < 1 || newRow > ROWS || newCol < 1 || newCol > COLS) return null;
+        return FE.idxToCol(newCol) + newRow;
+      }).filter(Boolean).join(":");
+    }
+    // 批量 refs 移位：data.cells / data.styles / data.hideRows / data.hideCols
+    function shiftObjRefs(obj, mode, idx, count, removeInRange) {
+      // removeInRange: 插入时=true 表示删除 idx~idx+count-1 范围（后移的是 idx+count 之后的）
+      // 删除时=false，删除 idx~idx-count+1 范围，前移的是 idx 之后的
+      const newObj = {};
+      const minKeep = count > 0 ? (removeInRange ? idx + count : idx) : (removeInRange ? idx + count : idx);
+      for (const ref in obj) {
+        const p = FE.parseRef(ref); if (!p) continue;
+        let keep = true;
+        if (count > 0) {
+          // 插入：如果在插入区域内（idx <= row < idx+count）且 removeInRange=true → 丢弃（被挤到下面/右边，但我们是先移后清，这里处理的是"移位后的目的地不会和新插入位置重叠"）
+          // 简化：只移位 >= idx 的
+          if (mode === "row" && p.row >= idx) p.row += count;
+          if (mode === "col" && p.col >= idx) p.col += count;
+        } else {
+          // 删除：如果在删除区域内 → 丢弃；如果在之后 → 前移
+          const absCount = -count;
+          if (mode === "row" && p.row >= idx && p.row < idx + absCount) keep = false;
+          if (mode === "col" && p.col >= idx && p.col < idx + absCount) keep = false;
+          if (keep) {
+            if (mode === "row" && p.row >= idx) p.row -= absCount;
+            if (mode === "col" && p.col >= idx) p.col -= absCount;
+          }
+        }
+        if (!keep) continue;
+        if (p.row < 1 || p.row > ROWS || p.col < 1 || p.col > COLS) continue;
+        const newRef = FE.idxToCol(p.col) + p.row;
+        newObj[newRef] = obj[ref];
+        // 如果有 .f 公式，也移位
+        if (newObj[newRef] && typeof newObj[newRef].f === "string") {
+          newObj[newRef].f = shiftFormulaRefs(newObj[newRef].f, mode, idx, count);
+        }
+      }
+      return newObj;
+    }
+
+    // ===== 插入/删除行列 公开入口 =====
+    function insertRowsAt(startRow, n) {
+      snapshot();
+      const sh = data.sheets[data.activeSheet];
+      const count = n || 1;
+      // 1. 移位 cells / styles
+      data.cells = shiftObjRefs(data.cells, "row", startRow, count);
+      data.styles = shiftObjRefs(data.styles, "row", startRow, count);
+      // 2. hideRows/hideCols 移位
+      if (sh.hideRows) { sh.hideRows = new Set([...sh.hideRows].map(r => r >= startRow ? r + count : r)); }
+      // 3. merge / validations / condFormats / filters / charts — range 字符串移位
+      if (data.merge) data.merge = data.merge.map(m => ({ ...m, range: shiftRangeStr(m.range, "row", startRow, count) })).filter(m => m.range && m.range.includes(":"));
+      if (data.validations) data.validations = data.validations.map(v => ({ ...v, range: shiftRangeStr(v.range, "row", startRow, count) })).filter(v => v.range);
+      if (data.condFormats) data.condFormats = data.condFormats.map(c => ({ ...c, range: shiftRangeStr(c.range, "row", startRow, count) })).filter(c => c.range);
+      if (data.filters) data.filters = data.filters.map(f => ({ ...f, range: shiftRangeStr(f.range, "row", startRow, count) })).filter(f => f.range);
+      // 4. comments — 按 ref 移位
+      if (data.comments) data.comments = data.comments.map(c => {
+        const p = FE.parseRef(c.ref); if (!p) return c;
+        if (p.row >= startRow) p.row += count;
+        return { ...c, ref: FE.idxToCol(p.col) + p.row };
+      }).filter(c => { const p = FE.parseRef(c.ref); return p && p.row >= 1 && p.row <= ROWS; });
+      // 5. 重建表格 DOM
+      buildGrid(); recompute(); applyMerges(); applyFreeze(); applyFmt(); applyCondFormat(); renderSheetTabs(); renderComments();
+      // 6. 重设选区到原位置锚点（新插入的第一格）
+      anchor = FE.idxToCol(FE.parseRef(anchor).col) + startRow;
+      selected = anchor;
+      paint(); updateStatus(); ctx.markDirty();
+      OS.toast("已在第 " + startRow + " 行上方插入 " + count + " 行", "ok");
+    }
+    function insertColsAt(startCol, n) {
+      snapshot();
+      const sh = data.sheets[data.activeSheet];
+      const count = n || 1;
+      data.cells = shiftObjRefs(data.cells, "col", startCol, count);
+      data.styles = shiftObjRefs(data.styles, "col", startCol, count);
+      if (sh.hideCols) { sh.hideCols = new Set([...sh.hideCols].map(c => c >= startCol ? c + count : c)); }
+      if (data.merge) data.merge = data.merge.map(m => ({ ...m, range: shiftRangeStr(m.range, "col", startCol, count) })).filter(m => m.range);
+      if (data.validations) data.validations = data.validations.map(v => ({ ...v, range: shiftRangeStr(v.range, "col", startCol, count) })).filter(v => v.range);
+      if (data.condFormats) data.condFormats = data.condFormats.map(c => ({ ...c, range: shiftRangeStr(c.range, "col", startCol, count) })).filter(c => c.range);
+      if (data.filters) data.filters = data.filters.map(f => ({ ...f, range: shiftRangeStr(f.range, "col", startCol, count), col: f.col >= startCol ? f.col + count : f.col })).filter(f => f.range);
+      if (data.comments) data.comments = data.comments.map(c => {
+        const p = FE.parseRef(c.ref); if (!p) return c;
+        if (p.col >= startCol) p.col += count;
+        return { ...c, ref: FE.idxToCol(p.col) + p.row };
+      }).filter(c => { const p = FE.parseRef(c.ref); return p && p.col >= 1 && p.col <= COLS; });
+      buildGrid(); recompute(); applyMerges(); applyFreeze(); applyFmt(); applyCondFormat(); renderSheetTabs(); renderComments();
+      const ap = FE.parseRef(anchor);
+      anchor = FE.idxToCol(ap.col >= startCol ? ap.col + count : ap.col) + ap.row;
+      selected = anchor;
+      paint(); updateStatus(); ctx.markDirty();
+      OS.toast("已在第 " + FE.idxToCol(startCol) + " 列左侧插入 " + count + " 列", "ok");
+    }
+    function deleteRowsAt(startRow, n) {
+      snapshot();
+      const sh = data.sheets[data.activeSheet];
+      const count = -(n || 1);
+      data.cells = shiftObjRefs(data.cells, "row", startRow, count);
+      data.styles = shiftObjRefs(data.styles, "row", startRow, count);
+      const absCount = -count;
+      if (sh.hideRows) { sh.hideRows = new Set([...sh.hideRows].filter(r => r < startRow || r >= startRow + absCount).map(r => r >= startRow + absCount ? r - absCount : r)); }
+      if (data.merge) data.merge = data.merge.map(m => ({ ...m, range: shiftRangeStr(m.range, "row", startRow, count) })).filter(m => m.range);
+      if (data.validations) data.validations = data.validations.map(v => ({ ...v, range: shiftRangeStr(v.range, "row", startRow, count) })).filter(v => v.range);
+      if (data.condFormats) data.condFormats = data.condFormats.map(c => ({ ...c, range: shiftRangeStr(c.range, "row", startRow, count) })).filter(c => c.range);
+      if (data.filters) data.filters = data.filters.map(f => ({ ...f, range: shiftRangeStr(f.range, "row", startRow, count) })).filter(f => f.range);
+      if (data.comments) data.comments = data.comments.map(c => {
+        const p = FE.parseRef(c.ref); if (!p) return c;
+        if (p.row >= startRow && p.row < startRow + absCount) return null; // 删掉区域内的
+        if (p.row >= startRow + absCount) p.row -= absCount;
+        return { ...c, ref: FE.idxToCol(p.col) + p.row };
+      }).filter(Boolean);
+      buildGrid(); recompute(); applyMerges(); applyFreeze(); applyFmt(); applyCondFormat(); renderSheetTabs(); renderComments();
+      anchor = FE.idxToCol(FE.parseRef(anchor).col) + Math.max(1, startRow);
+      selected = anchor;
+      paint(); updateStatus(); ctx.markDirty();
+      OS.toast("已删除 " + absCount + " 行", "ok");
+    }
+    function deleteColsAt(startCol, n) {
+      snapshot();
+      const sh = data.sheets[data.activeSheet];
+      const count = -(n || 1);
+      data.cells = shiftObjRefs(data.cells, "col", startCol, count);
+      data.styles = shiftObjRefs(data.styles, "col", startCol, count);
+      const absCount = -count;
+      if (sh.hideCols) { sh.hideCols = new Set([...sh.hideCols].filter(c => c < startCol || c >= startCol + absCount).map(c => c >= startCol + absCount ? c - absCount : c)); }
+      if (data.merge) data.merge = data.merge.map(m => ({ ...m, range: shiftRangeStr(m.range, "col", startCol, count) })).filter(m => m.range);
+      if (data.validations) data.validations = data.validations.map(v => ({ ...v, range: shiftRangeStr(v.range, "col", startCol, count) })).filter(v => v.range);
+      if (data.condFormats) data.condFormats = data.condFormats.map(c => ({ ...c, range: shiftRangeStr(c.range, "col", startCol, count) })).filter(c => c.range);
+      if (data.filters) data.filters = data.filters.map(f => ({ ...f, range: shiftRangeStr(f.range, "col", startCol, count), col: f.col >= startCol + absCount ? f.col - absCount : (f.col >= startCol ? null : f.col) })).filter(f => f.range && f.col != null);
+      if (data.comments) data.comments = data.comments.map(c => {
+        const p = FE.parseRef(c.ref); if (!p) return c;
+        if (p.col >= startCol && p.col < startCol + absCount) return null;
+        if (p.col >= startCol + absCount) p.col -= absCount;
+        return { ...c, ref: FE.idxToCol(p.col) + p.row };
+      }).filter(Boolean);
+      buildGrid(); recompute(); applyMerges(); applyFreeze(); applyFmt(); applyCondFormat(); renderSheetTabs(); renderComments();
+      const ap = FE.parseRef(anchor);
+      anchor = FE.idxToCol(Math.max(1, ap.col >= startCol + absCount ? ap.col - absCount : (ap.col >= startCol ? startCol : ap.col))) + ap.row;
+      selected = anchor;
+      paint(); updateStatus(); ctx.markDirty();
+      OS.toast("已删除 " + absCount + " 列", "ok");
+    }
+
     // ===== Ctrl+Shift+* 选当前区域（从 anchor 向外扩展，遇空停）=====
     function selectCurrentRegion() {
       const ap = FE.parseRef(anchor);
@@ -3368,6 +3534,19 @@
       else if (ctrl && e.altKey && !e.shiftKey && (k === "r" || k === "R")) { e.preventDefault(); applyRangeStyle({ align: "right" }); OS.toast("右对齐", "ok"); }
       // --- F8 扩展选区模式（Excel 语义：开启后每次按方向键=Shift+方向键扩展）---
       else if (k === "F8") { e.preventDefault(); extendMode = !extendMode; OS.toast("扩展选区模式：" + (extendMode ? "开" : "关"), extendMode ? "ok" : "info"); }
+      // --- Ctrl++ / Ctrl+Shift++ / Ctrl+- 插入/删除 行列 ---
+      else if (ctrl && e.shiftKey && (k === "=" || k === "+")) { const rg = rangeRect(); if (rg) { e.preventDefault(); insertRowsAt(rg.r1, rg.r2 - rg.r1 + 1); } }
+      else if (ctrl && !e.shiftKey && (k === "=" || k === "+")) { const rg = rangeRect(); if (rg) { e.preventDefault(); insertColsAt(rg.c1, rg.c2 - rg.c1 + 1); } }
+      else if (ctrl && !e.shiftKey && k === "-") {
+        const rg = rangeRect(); if (!rg) return;
+        e.preventDefault();
+        // Excel 语义：Shift 全选中 → 删行；A 列选中 → 删列；否则默认删行
+        const ap = FE.parseRef(anchor); const sp = FE.parseRef(selected);
+        if (rg.c1 === 1 && rg.c2 >= COLS) deleteRowsAt(rg.r1, rg.r2 - rg.r1 + 1);
+        else if (rg.r1 === 1 && rg.r2 >= ROWS) deleteColsAt(rg.c1, rg.c2 - rg.c1 + 1);
+        else if ((k === "-" && e.altKey) || rg.r2 - rg.r1 >= rg.c2 - rg.c1) deleteRowsAt(rg.r1, rg.r2 - rg.r1 + 1);
+        else deleteColsAt(rg.c1, rg.c2 - rg.c1 + 1);
+      }
       else if (e.shiftKey && k === "F11") { e.preventDefault(); newWorksheet(); }
       else if (ctrl && (k === "l" || k === "L")) { e.preventDefault(); OS.toast("Ctrl+L 创建表 — 开发中", "info"); }
       else if (ctrl && (k === "t" || k === "T")) { e.preventDefault(); OS.toast("Ctrl+T 创建表 — 开发中", "info"); }
@@ -3379,7 +3558,6 @@
       else if (ctrl && e.shiftKey && k === "F2") { e.preventDefault(); addComment(); OS.toast("已创建线程批注（同单格）", "ok"); }
       else if (k === "F4") { e.preventDefault(); OS.toast("F4 重复上一操作 — 开发中", "info"); }
       else if (ctrl && e.shiftKey && k === "*") { e.preventDefault(); selectCurrentRegion(); }
-      else if (k === "F8") { e.preventDefault(); OS.toast("F8 扩展选区模式 — 开发中", "info"); }
       else if (ctrl && e.shiftKey && k === "O") { e.preventDefault(); selectAllComments(); }
       else if (ctrl && k === "`" || ctrl && k === "Dead") { e.preventDefault(); toggleFormulas(); }
       // --- Excel: Ctrl+A 选全表 ---
