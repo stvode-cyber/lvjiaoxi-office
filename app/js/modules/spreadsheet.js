@@ -2193,18 +2193,28 @@
     const DEFAULT_COL_WIDTH = 64;
     const DEFAULT_ROW_HEIGHT = 18;
     function buildGrid() {
+      // 确保每个 sheet 都有 hideRows/hideCols Set
+      if (!sh0.hideRows) sh0.hideRows = new Set();
+      if (!sh0.hideCols) sh0.hideCols = new Set();
+      const hiddenRows = sh0.hideRows;
+      const hiddenCols = sh0.hideCols;
       const cw = sh0.colWidths || [];
       const rh = sh0.customRowHeights || {};
       let html = "<tr><th class='corner'></th>";
       for (let c = 1; c <= COLS; c++) {
         const w = cw[c] || DEFAULT_COL_WIDTH;
-        html += `<th class="colhead" data-col="${c}" style="width:${w}px;min-width:${w}px">${FE.idxToCol(c)}</th>`;
+        const hidden = hiddenCols.has(c) ? " hidden" : "";
+        html += `<th class="colhead${hidden}" data-col="${c}" style="width:${w}px;min-width:${w}px">${FE.idxToCol(c)}</th>`;
       }
       html += "</tr>";
       for (let r = 1; r <= ROWS; r++) {
         const rowH = rh[r] || DEFAULT_ROW_HEIGHT;
-        html += `<tr style="height:${rowH}px"><th class="rowhead" data-row="${r}" style="height:${rowH}px">${r}</th>`;
-        for (let c = 1; c <= COLS; c++) html += `<td data-ref="${FE.idxToCol(c)}${r}"></td>`;
+        const rhidden = hiddenRows.has(r) ? " hidden" : "";
+        html += `<tr class="${rhidden.trim()}" style="height:${rowH}px"><th class="rowhead${rhidden}" data-row="${r}" style="height:${rowH}px">${r}</th>`;
+        for (let c = 1; c <= COLS; c++) {
+          const chidden = hiddenCols.has(c) ? " hidden" : "";
+          html += `<td class="${chidden.trim()}" data-ref="${FE.idxToCol(c)}${r}"></td>`;
+        }
         html += "</tr>";
       }
       table.innerHTML = html;
@@ -3145,6 +3155,57 @@
       OS.toast("公式显示：" + (showFormulasFlag ? "开" : "关"), "ok");
     }
 
+    // ===== 隐藏 / 取消隐藏行 & 列 =====
+    function syncHiddenClasses() {
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideRows) sh.hideRows = new Set();
+      if (!sh.hideCols) sh.hideCols = new Set();
+      // tr：通过内部 rowhead th.data-row 判断
+      table.querySelectorAll("tr").forEach(tr => {
+        const rh = tr.querySelector(".rowhead");
+        if (rh) tr.classList.toggle("hidden", sh.hideRows.has(Number(rh.dataset.row)));
+      });
+      // th.colhead
+      table.querySelectorAll("th.colhead").forEach(th => th.classList.toggle("hidden", sh.hideCols.has(Number(th.dataset.col))));
+      // td
+      table.querySelectorAll("td[data-ref]").forEach(td => {
+        const p = FE.parseRef(td.dataset.ref);
+        td.classList.toggle("hidden", sh.hideRows.has(p.row) || sh.hideCols.has(p.col));
+      });
+    }
+    function hideSelectedRows() {
+      const rg = rangeRect(); if (!rg) return;
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideRows) sh.hideRows = new Set();
+      let n = 0;
+      for (let r = rg.r1; r <= rg.r2; r++) { if (!sh.hideRows.has(r)) { sh.hideRows.add(r); n++; } }
+      snapshot(); syncHiddenClasses(); ctx.markDirty();
+      OS.toast("已隐藏 " + n + " 行（Ctrl+Shift+9 恢复）", "ok");
+    }
+    function hideSelectedCols() {
+      const rg = rangeRect(); if (!rg) return;
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideCols) sh.hideCols = new Set();
+      let n = 0;
+      for (let c = rg.c1; c <= rg.c2; c++) { if (!sh.hideCols.has(c)) { sh.hideCols.add(c); n++; } }
+      snapshot(); syncHiddenClasses(); ctx.markDirty();
+      OS.toast("已隐藏 " + n + " 列（Ctrl+Shift+0 恢复）", "ok");
+    }
+    function unhideAllRows() {
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideRows || sh.hideRows.size === 0) { OS.toast("没有已隐藏的行", "info"); return; }
+      const n = sh.hideRows.size;
+      sh.hideRows = new Set(); snapshot(); syncHiddenClasses(); ctx.markDirty();
+      OS.toast("已取消隐藏全部 " + n + " 行", "ok");
+    }
+    function unhideAllCols() {
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideCols || sh.hideCols.size === 0) { OS.toast("没有已隐藏的列", "info"); return; }
+      const n = sh.hideCols.size;
+      sh.hideCols = new Set(); snapshot(); syncHiddenClasses(); ctx.markDirty();
+      OS.toast("已取消隐藏全部 " + n + " 列", "ok");
+    }
+
     // ===== Ctrl+Shift+* 选当前区域（从 anchor 向外扩展，遇空停）=====
     function selectCurrentRegion() {
       const ap = FE.parseRef(anchor);
@@ -3254,9 +3315,11 @@
       else if (ctrl && k === "PageUp") { e.preventDefault(); const nxt = (data.activeSheet - 1 + data.sheets.length) % data.sheets.length; switchSheet(nxt); }
       // --- P0-3: Delete/Backspace → 清除选区内容 ---
       else if (k === "Delete" || k === "Backspace") { e.preventDefault(); clearSelection(); }
-      // --- P0-4: Ctrl+9/Ctrl+0 → 隐藏行/列（toast 占位） ---
-      else if (ctrl && (k === "9" || k === "(")) { e.preventDefault(); OS.toast("隐藏行（Ctrl+9）— 后续完整实现", "info"); }
-      else if (ctrl && (k === "0" || k === ")")) { e.preventDefault(); OS.toast("隐藏列（Ctrl+0）— 后续完整实现", "info"); }
+      // --- 隐藏 / 取消隐藏行 & 列（Ctrl+9/0 隐藏，Ctrl+Shift+9/0 取消隐藏）---
+      else if (ctrl && !e.shiftKey && (k === "9" || k === "(")) { e.preventDefault(); hideSelectedRows(); }
+      else if (ctrl && !e.shiftKey && (k === "0" || k === ")")) { e.preventDefault(); hideSelectedCols(); }
+      else if (ctrl && e.shiftKey && (k === "9" || k === "(")) { e.preventDefault(); unhideAllRows(); }
+      else if (ctrl && e.shiftKey && (k === "0" || k === ")")) { e.preventDefault(); unhideAllCols(); }
       // --- P0-5: Ctrl+Shift+End/Home → 选区扩展到尾/头部 ---
       else if (ctrl && e.shiftKey && k === "End") { e.preventDefault(); expandSelectToCorner("end"); }
       else if (ctrl && e.shiftKey && k === "Home") { e.preventDefault(); expandSelectToCorner("home"); }

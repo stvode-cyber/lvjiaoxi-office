@@ -53,6 +53,7 @@ a{color:var(--accent)}
 ::-webkit-scrollbar-thumb:hover{background:var(--faint)}
 ::-webkit-scrollbar-track{background:transparent}
 [hidden]{display:none!important}
+.hidden{display:none!important}
 
 /* ============================================================
    标题栏 (Title Bar)
