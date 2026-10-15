@@ -2190,6 +2190,10 @@
     var cfAppliedRefs = [];
     let extendMode = false;  // F8 扩展选区模式
 
+    // ===== 内部剪贴板（选择性粘贴用）=====
+    let internalClipboard = null; // { r1, c1, r2, c2, cells, styles, comments, formulas }
+    let internalClipboardHasData = false;
+
     // 构建表头与单元格
     const DEFAULT_COL_WIDTH = 64;
     const DEFAULT_ROW_HEIGHT = 18;
@@ -3532,6 +3536,8 @@
       else if (ctrl && e.altKey && !e.shiftKey && (k === "l" || k === "L")) { e.preventDefault(); applyRangeStyle({ align: "left" }); OS.toast("左对齐", "ok"); }
       else if (ctrl && e.altKey && !e.shiftKey && (k === "c" || k === "C")) { e.preventDefault(); applyRangeStyle({ align: "center" }); OS.toast("居中对齐", "ok"); }
       else if (ctrl && e.altKey && !e.shiftKey && (k === "r" || k === "R")) { e.preventDefault(); applyRangeStyle({ align: "right" }); OS.toast("右对齐", "ok"); }
+      // --- Ctrl+Alt+V 选择性粘贴 ---
+      else if (ctrl && e.altKey && (k === "v" || k === "V")) { e.preventDefault(); selectPasteType(); }
       // --- F8 扩展选区模式（Excel 语义：开启后每次按方向键=Shift+方向键扩展）---
       else if (k === "F8") { e.preventDefault(); extendMode = !extendMode; OS.toast("扩展选区模式：" + (extendMode ? "开" : "关"), extendMode ? "ok" : "info"); }
       // --- Ctrl++ / Ctrl+Shift++ / Ctrl+- 插入/删除 行列 ---
@@ -3596,6 +3602,168 @@
         if (td.getAttribute("contenteditable") !== "true") { td.setAttribute("contenteditable", "true"); td.textContent = ""; td.focus(); }
       }
     });
+
+    // ===== Copy handler — 存 internal clipboard + 浏览器原生 =====
+    const copyTarget = table;
+    document.addEventListener("copy", e => {
+      // 只在 spreadsheet active 时拦截
+      if (!document.activeElement || !copyTarget.contains(document.activeElement)) return;
+      const rg = rangeRect(); if (!rg) return;
+      clipCopyInternal(rg);
+      // 同时写 TSV 到浏览器剪贴板（外部软件可粘贴进来）
+      const lines = [];
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        const rowCells = [];
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          const cell = data.cells[ref];
+          const v = cell ? (cell.v != null ? String(cell.v) : (cell.f ? "=" + cell.f : "")) : "";
+          rowCells.push(v.replace(/\t/g, " ").replace(/\n/g, " "));
+        }
+        lines.push(rowCells.join("\t"));
+      }
+      e.preventDefault();
+      if (e.clipboardData) { e.clipboardData.setData("text/plain", lines.join("\n")); }
+      else if (navigator.clipboard) { navigator.clipboard.writeText(lines.join("\n")).catch(() => {}); }
+    });
+
+    // ===== Paste handler — Ctrl+V 走 internal clipboard =====
+    document.addEventListener("paste", async e => {
+      if (!document.activeElement || !copyTarget.contains(document.activeElement)) return;
+      if (e.altKey) return; // Ctrl+Alt+V 被 keydown 拦截了，不放这里
+      e.preventDefault();
+      // 优先 internal clipboard
+      if (internalClipboardHasData) { clipPasteInternal("all"); return; }
+      // fallback: 浏览器原生 TSV
+      const text = e.clipboardData?.getData("text/plain") || "";
+      if (text) { clipPasteTSV(text); OS.toast("已从外部粘贴 " + text.split("\n").length + " 行", "ok"); }
+    });
+
+    // ===== 内部剪贴板核心函数 =====
+    function clipCopyInternal(rg) {
+      // cells: 只存选区范围内的 cells[ref] 浅拷贝
+      const cells = {};
+      const styles = {};
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          if (data.cells[ref]) cells[ref] = Object.assign({}, data.cells[ref]);
+          if (data.styles[ref]) styles[ref] = Object.assign({}, data.styles[ref]);
+        }
+      }
+      // comments: 选区范围内的批注
+      const comments = (data.comments || []).filter(c => {
+        const p = FE.parseRef(c.ref);
+        return p && p.row >= rg.r1 && p.row <= rg.r2 && p.col >= rg.c1 && p.col <= rg.c2;
+      }).map(c => ({ ...c }));
+      internalClipboard = { r1: rg.r1, c1: rg.c1, r2: rg.r2, c2: rg.c2, cells, styles, comments };
+      internalClipboardHasData = true;
+    }
+
+    function clipPasteInternal(mode) {
+      if (!internalClipboardHasData) { OS.toast("没有可粘贴的内容，请先按 Ctrl+C 复制", "info"); return; }
+      snapshot();
+      const rg = rangeRect(); if (!rg) return;
+      const src = internalClipboard;
+      const anchor_p = FE.parseRef(anchor);
+      const destR = anchor_p.row, destC = anchor_p.col;
+      const srcRows = src.r2 - src.r1 + 1;
+      const srcCols = src.c2 - src.c1 + 1;
+      // 粘贴 cells（值/公式）
+      if (mode === "all" || mode === "values" || mode === "formulas" || mode === "valuesAndNumFmt") {
+        for (const ref in src.cells) {
+          const p = FE.parseRef(ref);
+          const nr = destR + (p.row - src.r1);
+          const nc = destC + (p.col - src.c1);
+          if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) continue;
+          const destRef = FE.idxToCol(nc) + nr;
+          const srcCell = src.cells[ref];
+          const newCell = {};
+          if (mode === "values") {
+            // 仅粘贴值：算出来的值
+            if (srcCell.f) {
+              try { newCell.v = FE.evalFormula(srcCell.f, ref); } catch(e) { newCell.v = srcCell.v != null ? srcCell.v : ""; }
+            } else { newCell.v = srcCell.v; }
+          } else if (mode === "formulas") {
+            // 仅粘贴公式（ref 需要移位）
+            if (srcCell.f) {
+              newCell.f = shiftFormulaRefs(srcCell.f, "row", src.r1, destR - src.r1);
+              newCell.f = shiftFormulaRefs(newCell.f, "col", src.c1, destC - src.c1);
+            } else if (srcCell.v != null) { newCell.v = srcCell.v; }
+          } else {
+            // all: 复制原值和原公式
+            if (srcCell.f) newCell.f = srcCell.f;
+            if (srcCell.v != null) newCell.v = srcCell.v;
+          }
+          data.cells[destRef] = newCell;
+        }
+      }
+      // 粘贴 styles（格式）
+      if (mode === "all" || mode === "styles" || mode === "valuesAndNumFmt") {
+        for (const ref in src.styles) {
+          const p = FE.parseRef(ref);
+          const nr = destR + (p.row - src.r1);
+          const nc = destC + (p.col - src.c1);
+          if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) continue;
+          const destRef = FE.idxToCol(nc) + nr;
+          if (!data.styles[destRef]) data.styles[destRef] = {};
+          if (mode === "valuesAndNumFmt") {
+            // 只贴数字格式
+            if (src.styles[ref].numberFormat) data.styles[destRef].numberFormat = src.styles[ref].numberFormat;
+          } else {
+            Object.assign(data.styles[destRef], src.styles[ref]);
+          }
+        }
+      }
+      // 粘贴 comments
+      if (mode === "all" || mode === "comments") {
+        for (const c of src.comments) {
+          const p = FE.parseRef(c.ref);
+          const nr = destR + (p.row - src.r1);
+          const nc = destC + (p.col - src.c1);
+          if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) continue;
+          const newComment = { ...c, ref: FE.idxToCol(nc) + nr, id: undefined };
+          if (!data.comments) data.comments = [];
+          data.comments.push(newComment);
+        }
+      }
+      recompute(); applyFmt(); applyCondFormat(); renderComments(); paint(); ctx.markDirty();
+      // 切选区到粘贴区域（不超界）
+      const maxDestR = Math.min(ROWS, destR + srcRows - 1);
+      const maxDestC = Math.min(COLS, destC + srcCols - 1);
+      selected = FE.idxToCol(maxDestC) + maxDestR;
+      paint(); updateStatus();
+      const modeLabels = { all: "全部", values: "仅值", formulas: "仅公式", styles: "仅格式", comments: "仅批注", valuesAndNumFmt: "仅值和数字格式" };
+      OS.toast("已粘贴：" + (modeLabels[mode] || mode) + "（" + srcRows + "×" + srcCols + "）", "ok");
+    }
+
+    function clipPasteTSV(text) {
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      if (lines.length === 0) return;
+      const anchor_p = FE.parseRef(anchor);
+      snapshot();
+      for (let r = 0; r < lines.length; r++) {
+        const cells = lines[r].split("\t");
+        for (let c = 0; c < cells.length; c++) {
+          const nr = anchor_p.row + r, nc = anchor_p.col + c;
+          if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) continue;
+          writeCell(FE.idxToCol(nc) + nr, cells[c]);
+        }
+      }
+      recompute(); applyFmt(); paint(); ctx.markDirty();
+    }
+
+    function selectPasteType() {
+      if (!internalClipboardHasData) { OS.toast("请先按 Ctrl+C 复制", "info"); return; }
+      const menu = "选择性粘贴：\n1. 全部（值+公式+样式+批注）\n2. 仅值\n3. 仅公式\n4. 仅格式\n5. 仅批注\n6. 仅值和数字格式\n\n输入数字 1-6：";
+      const choice = prompt(menu, "1");
+      if (!choice) return;
+      const modes = { "1": "all", "2": "values", "3": "formulas", "4": "styles", "5": "comments", "6": "valuesAndNumFmt" };
+      const mode = modes[choice.trim()];
+      if (!mode) { OS.toast("无效选项", "warn"); return; }
+      clipPasteInternal(mode);
+    }
+
     function commitCell(td) {
       if (td.getAttribute("contenteditable") === "true") {
         const ref = td.dataset.ref;
