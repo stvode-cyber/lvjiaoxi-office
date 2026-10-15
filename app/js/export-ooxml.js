@@ -991,15 +991,50 @@
       }).join("") + "</definedNames>";
     }
 
+    // ListObject 表（workbook.xml 级 tableParts + 独立 table XML 文件）
+    let tablePartsXml = "";
+    const listObjs = (data.listObjects && data.listObjects.length) ? data.listObjects : [];
+    const tableEntries = []; // 每个 entry 是 { name, xml, relId, colCount }
+    listObjs.forEach((lo, i) => {
+      const tidx = i + 1;
+      const relId = "rIdT" + tidx;
+      // table XML 结构（简化版，Excel 可识别）
+      const colCount = (lo.columns && lo.columns.length) ? lo.columns.length :
+        ((lo.ref || "").includes(":") ? 2 : 1);
+      const tableColsXml = lo.columns && lo.columns.length
+        ? lo.columns.map((c, ci) => '<tableColumn id="' + (ci + 1) + '" name="' + esc(c.name || "") + '"/>').join("")
+        : "";
+      const tableXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+        '<table xmlns="' + X.w + '" id="' + tidx + '" name="' + esc(lo.name || ("表" + tidx)) + '"' +
+        ' displayName="' + esc(lo.name || ("表" + tidx)) + '"' +
+        (lo.ref ? ' ref="' + esc(lo.ref) + '"' : "") +
+        (lo.showAutoFilter === false ? ' showAutoFilter="0"' : "") +
+        ' tableStyleId="2">' + // TableStyleMedium2（Excel 内置）
+        (lo.showAutoFilter !== false ? '<autoFilter ref="' + esc(lo.ref || "") + '"/>' : "") +
+        '<tableColumns count="' + (lo.columns ? lo.columns.length : colCount) + '">' + tableColsXml + '</tableColumns>' +
+        '<tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/>' +
+        "</table>";
+      tableEntries.push({ tidx, xml: tableXml, relId });
+      tablePartsXml += '<tablePart r:id="' + relId + '"/>';
+    });
+    if (tablePartsXml) tablePartsXml = '<tableParts count="' + listObjs.length + '">' + tablePartsXml + '</tableParts>';
+
     const workbookXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-      '<workbook xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheets>' + wbSheets + "</sheets>" + dnXml + "</workbook>";
+      '<workbook xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheets>' + wbSheets + "</sheets>" + dnXml + tablePartsXml + "</workbook>";
 
+    // workbook rels：加 tablePart 关系
+    let wbRelsExtra = "";
+    tableEntries.forEach(te => {
+      wbRelsExtra += '<Relationship Id="' + te.relId + '" Type="' + X.r + '/table" Target="tables/table' + te.tidx + '.xml"/>';
+    });
     const wbRelsXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
       '<Relationships xmlns="' + X.rel + '">' + wbRels +
       '<Relationship Id="rIdS" Type="' + X.r + '/styles" Target="styles.xml"/>' +
       '<Relationship Id="rIdT" Type="' + X.r + '/sharedStrings" Target="sharedStrings.xml"/>' +
+      wbRelsExtra +
       "</Relationships>";
 
     const ct =
@@ -1011,6 +1046,7 @@
       ctOverrides +
       '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
       '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>' +
+      tableEntries.map(te => '<Override PartName="/xl/tables/table' + te.tidx + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>').join("") +
       chartCT +
       cmtEntries.map(c => '<Override PartName="/xl/comments/comment' + c.sheetIdx + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/>').join("") +
       '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
@@ -1032,6 +1068,7 @@
     zip.file("_rels/.rels", rootRels);
     zip.file("xl/workbook.xml", workbookXml);
     zip.file("xl/_rels/workbook.xml.rels", wbRelsXml);
+    tableEntries.forEach(te => zip.file("xl/tables/table" + te.tidx + ".xml", te.xml));
     sheetEntries.forEach(s => zip.file(s.file, s.xml));
     // 辅助：生成 hyperlink Relationship XML 片段
     const hlRelXml = (idx) => {

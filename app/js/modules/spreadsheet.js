@@ -3585,8 +3585,7 @@
         else { r = rg.c1; n = rg.c2 - rg.c1 + 1; deleteColsAt(r, n); setLastAction(() => deleteColsAt(r, n), { label: "删除列" }); }
       }
       else if (e.shiftKey && k === "F11") { e.preventDefault(); newWorksheet(); }
-      else if (ctrl && (k === "l" || k === "L")) { e.preventDefault(); OS.toast("Ctrl+L 创建表 — 开发中", "info"); }
-      else if (ctrl && (k === "t" || k === "T")) { e.preventDefault(); OS.toast("Ctrl+T 创建表 — 开发中", "info"); }
+      else if (ctrl && (k === "l" || k === "L" || k === "t" || k === "T")) { e.preventDefault(); createTable(); }
       else if (ctrl && (k === "e" || k === "E")) { e.preventDefault(); doFlashFill(); }
       else if (ctrl && (k === "q" || k === "Q")) { e.preventDefault(); OS.toast("Ctrl+Q 快速分析 — 开发中", "info"); }
       else if (ctrl && (k === "k" || k === "K")) { e.preventDefault(); openHyperlinkModal(anchor); }
@@ -5521,6 +5520,74 @@
         if (window.open) window.open(h.url, "_blank", "noopener");
         else location.href = h.url;
       } catch (e) { OS.toast("打开超链接失败：" + e.message, "warn"); }
+    }
+
+    /* ---------------- Ctrl+L / Ctrl+T 创建表（List Object）---------------- */
+    function createTable() {
+      const rg = rangeRect(); if (!rg) { OS.toast("请先选中要创建表的区域", "warn"); return; }
+      // 默认首行为表头
+      let headerRow = rg.r1;
+      // 如果选中的区域首行看起来像表头（和其他行类型不同、或空表），自动检测
+      const hdrRowCount = rg.r2 - rg.r1 + 1;
+      // 如果只有 1 行，提示至少 2 行
+      if (hdrRowCount < 2) { OS.toast("至少选 2 行（表头 + 数据）", "warn"); return; }
+
+      snapshot();
+      // 保证 listObjects 数组存在
+      if (!data.listObjects) data.listObjects = [];
+
+      const name = "表" + (data.listObjects.length + 1);
+      const ref = FE.idxToCol(rg.c1) + rg.r1 + ":" + FE.idxToCol(rg.c2) + rg.r2;
+      const obj = {
+        name, ref, headerRow, showAutoFilter: true,
+        // Excel 标准：列名从表头行值取
+        columns: []
+      };
+      for (let c = rg.c1; c <= rg.c2; c++) {
+        const hdrRef = FE.idxToCol(c) + headerRow;
+        const cell = data.cells[hdrRef];
+        const hdrVal = cell ? (cell.v != null ? cell.v : (cell.f ? FE.evalFormula(cell.f, hdrRef) : "")) : "";
+        obj.columns.push({ name: String(hdrVal || FE.idxToCol(c) + headerRow) });
+      }
+      data.listObjects.push(obj);
+
+      // 设置 autofilter（复用现有 filters 底层，对每列加一条 filter range）
+      data.filters = data.filters || [];
+      const filterRange = FE.idxToCol(rg.c1) + headerRow + ":" + FE.idxToCol(rg.c2) + rg.r2;
+      for (let c = rg.c1; c <= rg.c2; c++) {
+        data.filters.push({ col: c, range: filterRange });
+      }
+
+      // 表头粗体样式
+      for (let c = rg.c1; c <= rg.c2; c++) {
+        const ref2 = FE.idxToCol(c) + headerRow;
+        if (!data.styles[ref2]) data.styles[ref2] = {};
+        data.styles[ref2].bold = true;
+        data.styles[ref2].background = "#E8EDF3"; // 表头灰底
+      }
+
+      // 隔行条纹（可选样式，Excel 经典 TableStyleMedium2 近似）
+      for (let r = headerRow + 1; r <= rg.r2; r++) {
+        if ((r - headerRow) % 2 === 0) {
+          for (let c = rg.c1; c <= rg.c2; c++) {
+            const ref2 = FE.idxToCol(c) + r;
+            if (!data.styles[ref2]) data.styles[ref2] = {};
+            data.styles[ref2].background = "#F3F6F9";
+          }
+        }
+      }
+
+      applyFilters();
+      applyFmt();
+      paint();
+      ctx.markDirty();
+      setLastAction(a => {
+        if (!data.listObjects) data.listObjects = [];
+        data.listObjects.push(a.obj);
+        data.filters = (data.filters || []).concat(a.filters);
+        applyFilters(); applyFmt(); paint();
+      }, { obj, filters: data.filters.slice(-(rg.c2 - rg.c1 + 1)), label: "创建表 " + name });
+      OS.toast("已创建表「" + name + "」（" + hdrRowCount + "×" + (rg.c2 - rg.c1 + 1) + "，带 autofilter）", "ok");
     }
 
     function openFlashFillModal() {
