@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.lvjiaoxi.office",
     "vendor": "lvjiaoxi",
-    "versionCode": 1001018,
-    "versionName": "1.1.18",
+    "versionCode": 1001019,
+    "versionName": "1.1.19",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
