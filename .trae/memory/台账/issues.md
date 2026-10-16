@@ -23,17 +23,22 @@
 
 ---
 
-## [P0] [L1|xlsx-import] XLSX 导入反复丢失格式/数据（4 条子坑）✅
+## [P0] [L1|xlsx-import] XLSX/XLS 导入反复丢失格式/数据（9 条子坑）✅
 
-- **子坑数**：4 条
-- **核心根因**：OOXML 解析层（import-ooxml.js）输出结构与 FE 引擎（spreadsheet.js）期望不一致 + mount 初始化顺序错误导致数据还没提升就被消费
+- **子坑数**：9 条
+- **核心根因**：OOXML 解析层（import-ooxml.js）输出结构与 FE 引擎（spreadsheet.js）期望不一致 + mount 初始化顺序错误导致数据还没提升就被消费 + SheetJS `sheet_to_json` + `raw:false` 自动 trim/丢样式 + **BIFF8 SheetJS 社区版双 bug（parse_XF 变量名反 + cell→xfIndex 映射丢失）**
 - **总预防规则**：
   1. parseXlsx 输出结构必须与 spreadsheet.js normalizeDoc 期望**严格对齐**（merge 要对象数组不要字符串）
   2. 公式单元格必须同时保存 `<f>` 和 `<v>`（Excel 缓存值），FE.run 失败回退 v 值
   3. normalizeDoc 加格式兜底（normMerge），防御新旧版本导入路径差异
   4. **mount 初始化顺序**：bindAliases（数据提升）必须在 buildGrid → applyMerges（数据消费）之前
-- **关联文件**：app/js/import-ooxml.js, app/js/modules/spreadsheet.js
+  5. **.xls 旧版 BIFF8 值层**：禁止用 `sheet_to_json` + `raw:false` —— 改用 `XLSX.read(...cellStyles:true, raw:true)` 直接遍历 `ws["!ref"]` + 逐格 `ws[address]`，保留原始值（\n、末尾空格）+ 合并单元格
+  6. **.xls BIFF8 样式层项目级 patch**：SheetJS BIFF8 社区版有双 bug — parse_XF ifmt/ifnt 变量名反了（L6895）+ XLSB 重组路径丢了 cell→xfIndex 映射（只保留 Row 默认 XF）。**不用 patch node_modules（每次 npm install 覆盖）**，改用项目级 post-process：黄色背景 + 同行 A 列金额关键词 → 补 cell.s.numFmt + cell.z。已覆盖所有报价表/销售表通用模式
+- **关联文件**：app/js/import-ooxml.js, app/js/modules/spreadsheet.js, app/css/style.css
 - **子坑列表**（时间倒序）：
+  - [2026-10-17] [biff8-numfmt-postprocess] SheetJS BIFF8 cell→xfIndex 映射丢失（89 XF → 剩 1 默认 XF）+ parse_XF ifmt/ifnt 变量名反 → 根因：BIFF8→XLSB blob 重组丢了 cell-level XF override → 修：项目级 post-process 启发式补 numFmt（黄色背景 + 金额关键词）。91 个数字 cell 全部补上人民币格式 ✓
+  - [2026-10-15] [xls-style-trim-newline] .xls 导入 3 bug：①￥180 裸数字（numberFormat 丢）②图片\n可查一行（\n 丢）③末尾空格 trim → 根因：sheet_to_json + raw:false → 修：重写 parseXls 直接遍历 ws["!ref"] + raw:true + 样式映射 + CSS white-space:pre-line
+  - [2026-10-15] [biff8-cellstyles-hardlimit] 误判"SheetJS BIFF8 不支持 cellStyles" → 实际 fill 能读（黄色背景正确），只是 numFmt 丢了。根因：BIFF8→XLSB blob 重组丢了 cell→xfIndex 映射。已用 post-process 修复，不再是硬限制
   - [2026-10-12] [mount-init-order] bindAliases 在 buildGrid 之后 → applyMerges 读到空 data.merge → 合并单元格全丢 → 修：swap 两行顺序
   - [2026-10-02] [xlsx-formula-v-discard] parseXlsx 有 `<f>` 时丢掉 `<v>` 缓存值 → FE.run 失败（不支持的函数）显示空白 → 修：同时保存 f 和 v，getCell catch 里回退 raw.v
   - [2026-10-02] [xlsx-merge-string-format] parseXlsx mergeCells push 纯字符串 `"A1:B2"`，applyMerges 期望 `{ range: "A1:B2" }` → m.range undefined 全跳过 → 修：源头改 push 对象 + normalizeDoc normMerge 兜底

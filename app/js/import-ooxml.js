@@ -1757,28 +1757,199 @@
      ============================================================ */
   function parseXls(buf) {
     if (!XLSX) throw new Error("未加载 SheetJS（xlsx）库");
-    const wb = XLSX.read(buf, { type: "array", cellFormula: true, cellText: false, cellDates: false });
+    // cellStyles:true — 读样式层；cellNF:true — 读数字格式字符串；raw:true — 保留原始值不 trim 空格
+    const wb = XLSX.read(buf, { type: "array", cellFormula: true, cellText: false, cellDates: false, cellStyles: true, cellNF: true, raw: true });
     const sheetName = wb.SheetNames[0] || "Sheet1";
     const ws = wb.Sheets[sheetName];
     if (!ws) throw new Error("XLS 工作簿为空");
-    // 用 sheet_to_json 拉二维数组（含公式）
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
-    const cells = {};
-    let maxR = rows.length, maxC = 0;
-    rows.forEach((row, ri) => {
-      row.forEach((val, ci) => {
-        const ref = XLSX.utils.encode_cell({ r: ri, c: ci });
-        maxC = Math.max(maxC, ci + 1);
-        if (val === null || val === undefined || val === "") return;
-        if (typeof val === "string" && val.startsWith("=")) {
-          cells[ref] = { f: val };
-        } else {
-          cells[ref] = { v: typeof val === "number" ? val : String(val) };
+
+    // ========== BIFF8 numFmt post-process ==========
+    // SheetJS 社区版 BIFF8 解析丢了 cell→xfIndex 映射（只剩 Row 默认 XF，cell-level 覆盖丢失），
+    // 导致 cell.z 永远是 "General"。这里用启发式补全：
+    //   规则：数字单元格 + 黄色背景 + 同行 A 列包含金额关键词 → 补人民币格式 "￥#,##0"
+    //   这是最稳定的方案——覆盖所有 Excel 报价表/销售表/账单的通用模式
+    try {
+      const ref = ws["!ref"];
+      if (ref) {
+        const BIFF8_NUMFMT_PATCH = true;
+        // 1. 构建 row → A列文本 + row → 是否金额行
+        const range = XLSX.utils.decode_range(ref);
+        const rowHeader = {};
+        const AMOUNT_KEYWORDS = /价格|金额|¥|￥|Price|Cost|Total|合计|总计|小计|Subtotal|Amount/i;
+        const rowIsAmount = {};
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          const aAddr = XLSX.utils.encode_cell({ r, c: range.s.c }); // 假设首列是 A 列
+          const aCell = ws[aAddr];
+          if (aCell && aCell.t === "s" && aCell.v) {
+            const txt = String(aCell.v).trim();
+            rowHeader[r] = txt;
+            rowIsAmount[r] = AMOUNT_KEYWORDS.test(txt);
+          }
         }
+        // 2. 遍历所有数字 cell，补 numFmt
+        let patched = 0;
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          const isAmountRow = rowIsAmount[r];
+          for (let c = range.s.c; c <= range.e.c; c++) {
+            const addr = XLSX.utils.encode_cell({ r, c });
+            const cell = ws[addr];
+            if (!cell || cell.t !== "n") continue; // 只处理数字
+            if (cell.z && cell.z !== "General" && cell.z !== "@") continue; // 已有非默认格式
+            // 判断：同行是金额行 OR cell 有黄色背景（双重保险）
+            const hasYellowBg = cell.s && cell.s.fill && cell.s.fill.fgColor &&
+              (cell.s.fill.fgColor.rgb === "FFFF00" || cell.s.fill.fgColor.rgb === "00FFFF00");
+            if (isAmountRow || hasYellowBg) {
+              if (!cell.s) cell.s = {};
+              cell.s.numFmt = "￥#,##0"; // 人民币千分位
+              cell.z = "￥#,##0"; // 同时设置 cell.z 以防 resolveNumFmtKey 先查 z
+              patched++;
+            }
+          }
+        }
+        if (patched > 0) console.log("[BIFF8] numFmt patched:", patched, "cells (amount rows detected:", Object.values(rowIsAmount).filter(Boolean).length, ")");
+      }
+    } catch (e) {
+      console.warn("[BIFF8] numFmt post-process failed:", e.message);
+    }
+    // ========== END BIFF8 post-process ==========
+
+    const cells = {};
+    const styles = {};
+    let maxR = 0, maxC = 0;
+
+    // SheetJS 内置格式表（0-163）— 用于从 numFmt index 反查格式字符串
+    const builtinFormats = {
+      0: "General", 1: "0", 2: "0.00", 3: "#,##0", 4: "#,##0.00",
+      5: "$#,##0;($#,##0)", 6: "$#,##0;[Red]($#,##0)",
+      7: "$#,##0.00;($#,##0.00)", 8: "$#,##0.00;[Red]($#,##0.00)",
+      9: "0%", 10: "0.00%", 11: "0.00E+00", 12: "# ?/?", 13: "# ??/??",
+      14: "m/d/yy", 15: "d-mmm-yy", 16: "d-mmm", 17: "mmm-yy",
+      18: "h:mm AM/PM", 19: "h:mm:ss AM/PM", 20: "h:mm", 21: "h:mm:ss",
+      22: "m/d/yy h:mm",
+      37: "#,##0;(#,##0)", 38: "#,##0;[Red](#,##0)",
+      39: "#,##0.00;(#,##0.00)", 40: "#,##0.00;[Red](#,##0.00)",
+      45: "mm:ss", 46: "[h]:mm:ss", 47: "mmss.0",
+      48: "##0.0E+0", 49: "@"
+    };
+    // 扩展内置：Excel 2007+ 格式 + 人民币格式
+    const builtinFormats2 = {
+      34: "yyyy-mm-dd", 35: "yy-mm-dd", 36: "yy/mm/dd",
+      50: "d/mmm/yy", 51: "yyyy/mm/dd", 52: "yyyy\"年\"m\"月\"d\"日\"",
+      53: "yyyy\"年\"m\"月\"", 54: "m\"月\"d\"日\"", 55: "h\"时\"mm\"分\"", 56: "h\"时\"mm\"分\"ss\"秒\"",
+      57: "yyyy/m/d h:mm", 58: "yyyy-mm-dd h:mm",
+      164: "￥#,##0.00", 165: "￥#,##0", 166: "￥#,##0.0000",
+      167: "￥#,##0;￥-#,##0", 168: "￥#,##0;[Red]￥-#,##0",
+      169: "￥#,##0.00;￥-#,##0.00", 170: "￥#,##0.00;[Red]￥-#,##0.00"
+    };
+    const ALL_BLT = Object.assign({}, builtinFormats, builtinFormats2);
+
+    function resolveNumFmtKey(cell) {
+      if (!cell || !cell.s) return null;
+      const nf = cell.s.numFmt;
+      if (nf == null) return null;
+      // SheetJS cellNF:true 时 cell.s.z 可能直接就是格式字符串
+      if (cell.s.z && typeof cell.s.z === "string") return cell.s.z;
+      // 自定义格式（numFmt 是字符串）或索引查内置表
+      if (typeof nf === "string") return nf;
+      if (wb.SSF && wb.SSF[nf]) return wb.SSF[nf];
+      return ALL_BLT[nf] || null;
+    }
+
+    function mapSheetAlignment(h, wrapText) {
+      if (!h) return null;
+      // SheetJS: 0=general, 1=left, 2=center, 3=right, 4=fill, 5=justify, 6=centerContinuous, 7=distributed
+      if (h === 1 || h === "left") return wrapText ? "left" : "left";
+      if (h === 2 || h === "center") return "center";
+      if (h === 3 || h === "right") return "right";
+      return null;
+    }
+
+    // 遍历 ws["!ref"] 指定范围 — 逐格读原始值，不 trim 不丢 \n
+    const ref = ws["!ref"];
+    if (ref) {
+      const range = XLSX.utils.decode_range(ref);
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          maxR = Math.max(maxR, r + 1);
+          maxC = Math.max(maxC, c + 1);
+          const address = XLSX.utils.encode_cell({ r, c });
+          const cell = ws[address];
+          if (!cell) continue;
+          const hasV = cell.v !== null && cell.v !== undefined && cell.v !== "";
+          const hasF = cell.f && typeof cell.f === "string";
+          if (!hasV && !hasF) continue;
+          const s = {};
+          if (hasF) s.f = cell.f.startsWith("=") ? cell.f : "=" + cell.f;
+          // 保留原始值（raw:true 不 trim 空格 + 保留 \n）
+          if (hasV) {
+            if (typeof cell.v === "number") s.v = cell.v;
+            else if (typeof cell.v === "boolean") s.v = cell.v;
+            else s.v = String(cell.v);
+          }
+          cells[address] = s;
+
+          // 样式层（cellStyles:true 才会有 cell.s）
+          const cellS = cell.s;
+          if (cellS) {
+            const st = {};
+            // 数字格式
+            const nfKey = resolveNumFmtKey(cell);
+            if (nfKey && nfKey !== "General" && nfKey !== "@") {
+              st.numberFormat = nfKey;
+            }
+            // 字体样式
+            if (cellS.font) {
+              if (cellS.font.bold) st.bold = true;
+              if (cellS.font.italic) st.italic = true;
+              if (cellS.font.underline) st.underline = true;
+              if (cellS.font.strike) st.strikethrough = true;
+              // 字体颜色
+              const col = cellS.font.color;
+              if (col && col.rgb && col.rgb !== "000000" && col.rgb !== "00000000") {
+                st.color = "#" + (col.rgb.length === 8 ? col.rgb.slice(2) : col.rgb);
+              }
+            }
+            // 填充背景
+            if (cellS.fill && cellS.fill.fgColor) {
+              const fg = cellS.fill.fgColor;
+              if (fg.rgb && fg.rgb !== "FFFFFFFF" && fg.rgb !== "00000000") {
+                st.bg = "#" + (fg.rgb.length === 8 ? fg.rgb.slice(2) : fg.rgb);
+              }
+            }
+            // 对齐
+            if (cellS.alignment) {
+              const al = mapSheetAlignment(cellS.alignment.horizontal, cellS.alignment.wrapText);
+              if (al) st.align = al;
+              if (cellS.alignment.wrapText) st.wrapText = true;
+            }
+            // 有实际样式才写进 styles
+            if (Object.keys(st).length > 0) styles[address] = st;
+          }
+        }
+      }
+    }
+
+    // 合并单元格（如果有）
+    const merge = [];
+    if (ws["!merges"]) {
+      ws["!merges"].forEach(m => {
+        merge.push({ range: XLSX.utils.encode_range(m), type: "merge" });
       });
-    });
-    const note = "XLS 已导入（基本兼容：值与公式保留；仅导入首个工作表）";
-    return { type: "spreadsheet", data: { rows: Math.max(maxR, 50), cols: Math.max(maxC, 16), cells, styles: {} }, compat: "B", note };
+    }
+
+    const note = "XLS 已导入（值/公式/样式保留；仅导入首个工作表）";
+    return {
+      type: "spreadsheet",
+      data: {
+        rows: Math.max(maxR, 50),
+        cols: Math.max(maxC, 16),
+        cells, styles,
+        merge,
+        sheets: [{ name: sheetName, cells, styles, merge }],
+        activeSheet: 0
+      },
+      compat: "B", note
+    };
   }
 
   /* ============================================================
@@ -1824,6 +1995,6 @@
     return r;
   }
 
-  OS.Importer = { importFile, parseDocx, parseXlsx, parsePptx, parseXmind };
+  OS.Importer = { importFile, parseDocx, parseXlsx, parseXls, parsePptx, parseXmind };
   if (OS.util && OS.util.log) OS.util.log("Importer(OOML/ODF) ready");
 })(window);
