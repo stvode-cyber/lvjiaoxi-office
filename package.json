@@ -1,6 +1,6 @@
 {
   "name": "lvjiaoxi-office",
-  "version": "1.1.25",
+  "version": "1.1.26",
   "description": "绿角犀 Office · 跨平台办公套件（Writer / Spreadsheet / Presentation / PDF / MindMap）桌面客户端",
   "author": "绿角犀",
   "license": "MIT",
@@ -182,11 +182,13 @@
     "jszip": "^3.10.1",
     "pdfjs-dist": "^3.11.174",
     "pdfkit": "^0.20.2",
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "xlsx-js-style": "^1.2.0"
   },
   "dependencies": {
     "jimp": "^1.6.1",
     "sharp": "^0.35.5",
+    "styled-exceljs": "^0.21.6",
     "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   }

@@ -1,0 +1,13 @@
+﻿发现 110 个测试套件，开始运行…
+
+✓ PASS                      _app_boot_test.js  (2434ms)
+✓ PASS                   _auth_backup_test.js  (1752ms)
+✓ PASS                   _auth_policy_test.js  (87ms)
+✓ PASS                  _bump_version_test.js  (115ms)
+✓ PASS                           _cdp_test.js  (17167ms)
+✓ PASS                  _chart_export_test.js  (7296ms)
+✓ PASS                   _client_sync_test.js  (519ms)
+✓ PASS                  _cloud_server_test.js  (39655ms)
+✗ FAIL         _cloudsync_integration_test.js  (60061ms)
+   ↳ 超时（>60s）
+✓ PASS                     _cloudsync_test.js  (277ms)

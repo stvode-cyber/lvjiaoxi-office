@@ -34,6 +34,308 @@
     }
     /** type 调整因子 — type=0(期末)=1, type=1(期初)=1+r */
     function _tvmAdj(t, r) { return t === 1 ? (1 + r) : 1; }
+    /** _ipmtBV — 第 period 期前的未偿本金余额
+     *  PV * (1+r)^period - PMT 累计已还本金
+     */
+    function _ipmtBV(r, period, nper, pv, fv, type) {
+      if (period <= 0) return pv;
+      const adj = _tvmAdj(type != null ? type : 0, r);
+      if (r === 0) return pv + (FUNCS.PMT(0, nper, pv, fv, type)) * period;
+      const pow = Math.pow(1 + r, period);
+      const pmt = FUNCS.PMT(r, nper, pv, fv, type);
+      // FV of PV - FV of PMT 流
+      const fvPV = pv * pow;
+      const fvPMT = pmt * adj * (pow - 1) / r;
+      return fvPV + fvPMT;
+    }
+    // ====== LOOKUP / XMATCH 辅助 ======
+    /** 二分近似匹配（找 <= lookup 的最大值位置，假设升序） */
+    function _lookupApprox(arr, lookup) {
+      let lo = 0, hi = arr.length - 1, result = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const v = typeof arr[mid] === "number" ? arr[mid] : parseFloat(arr[mid]);
+        if (v <= lookup) { result = mid; lo = mid + 1; } else hi = mid - 1;
+      }
+      return result;
+    }
+    /** XMATCH 线性查找 — mode 0/精确 1/下大 -1/下小 2/通配符 */
+    function _xmatchCore(lookup, arr, mode) {
+      if (mode === 0 || mode === 2) {
+        for (let i = 0; i < arr.length; i++) {
+          if (mode === 2) { if (_wlMatch(String(arr[i] || ""), String(lookup || ""))) return i; }
+          else if (arr[i] == lookup) return i;
+        }
+        return -1;
+      }
+      let best = -1;
+      for (let i = 0; i < arr.length; i++) {
+        const v = typeof arr[i] === "number" ? arr[i] : parseFloat(arr[i]);
+        const bv = best < 0 ? NaN : (typeof arr[best] === "number" ? arr[best] : parseFloat(arr[best]));
+        if (mode === 1) { if (v >= lookup && (best < 0 || v < bv)) best = i; }
+        else { if (v <= lookup && (best < 0 || v > bv)) best = i; }
+      }
+      return best;
+    }
+    /** XMATCH 二分查找（假设已排序） */
+    function _xmatchCoreSorted(lookup, arr, mode) {
+      let lo = 0, hi = arr.length - 1, result = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const v = typeof arr[mid] === "number" ? arr[mid] : parseFloat(arr[mid]);
+        if (mode === 0) { if (v === lookup) return mid; if (v < lookup) lo = mid + 1; else hi = mid - 1; }
+        else if (mode === 1) { if (v >= lookup) { result = mid; hi = mid - 1; } else lo = mid + 1; }
+        else { if (v <= lookup) { result = mid; lo = mid + 1; } else hi = mid - 1; }
+      }
+      return result;
+    }
+    // ====== 日期 .INTL 辅助 ======
+    /** 构建假日 Set（YYYY-MM-DD 字符串集合） */
+    function _buildHolidaySet(holidays) {
+      const set = new Set();
+      if (holidays == null) return set;
+      const arr = Array.isArray(holidays) ? holidays : [holidays];
+      for (const h of arr) {
+        if (Array.isArray(h)) { for (const hh of h) { const hd = new Date(hh); if (!isNaN(hd)) set.add(hd.toISOString().slice(0, 10)); } }
+        else { const hd = new Date(h); if (!isNaN(hd)) set.add(hd.toISOString().slice(0, 10)); }
+      }
+      return set;
+    }
+    /** 解析 weekend 参数 → Set<dow>，dow: 0=Sun, 1=Mon, ..., 6=Sat
+     *  数字 1-7: 两天周末; 11-17: 单天周末
+     *  字符串: 7 字符 "0/1"，Mon→Sun（左→右）
+     */
+    function _parseWeekend(weekend) {
+      const def = new Set([0, 6]); // 默认 Sat,Sun
+      if (weekend == null) return def;
+      if (typeof weekend === "number") {
+        const w = Math.trunc(weekend);
+        if (w >= 1 && w <= 7) {
+          // 两天周末: w=1→Sat,Sun(6,0); w=7→Fri,Sat(5,6)
+          const first = (w - 2 + 7) % 7; // w=1 → ( -1 + 7 )%7 = 6 → Sat
+          const second = (w - 1 + 7) % 7; // w=1 → 0 → Sun
+          return new Set([first, second]);
+        }
+        if (w >= 11 && w <= 17) {
+          // 单天周末: 11=Sun(0), 12=Mon(1), ..., 17=Sat(6)
+          return new Set([(w - 11) % 7]);
+        }
+        return def;
+      }
+      if (typeof weekend === "string" && weekend.length === 7) {
+        // 字符串: "0000011" → Mon→Sun，1=周末
+        const set = new Set();
+        for (let i = 0; i < 7; i++) {
+          if (weekend[i] === "1") {
+            const dow = (i + 1) % 7; // i=0(Mon)→1, i=6(Sun)→0
+            set.add(dow);
+          }
+        }
+        return set;
+      }
+      return def;
+    }
+
+    // ====== 统计分布辅助函数（function 声明 hoisting，FUNCS 对象里任何位置都能引用）======
+    /** _gammaln — 对数伽马 Γ(x)，Lanczos 近似（精度 ~1e-15） */
+    function _gammaln(x) {
+      if (x <= 0) return 0;
+      const g = 7;
+      const coefs = [0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+        771.32342877765313, -176.61502916214059, 12.507343278686905,
+        -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+      if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - _gammaln(1 - x);
+      x -= 1; let a = coefs[0]; const t = x + g + 0.5;
+      for (let i = 1; i < g + 2; i++) a += coefs[i] / (x + i);
+      return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+    }
+
+    /** _gammainc — 正则化不完全 Gamma 函数 P(a,x) = γ(a,x)/Γ(a)
+     *  用连分数展开 / 级数展开自适应
+     */
+    function _gammainc(a, x, cum) {
+      if (x <= 0) return cum ? 0 : 0;
+      if (x === 0) return cum ? 0 : 1;
+      const gl = _gammaln(a);
+      // 级数展开（适合 x < a+1）
+      if (x < a + 1) {
+        let ap = a, sum = 1 / a, del = sum;
+        for (let n = 1; n < 200; n++) {
+          ap++; del *= x / ap; sum += del;
+          if (Math.abs(del) < Math.abs(sum) * 1e-15) break;
+        }
+        const result = sum * Math.exp(-x + a * Math.log(x) - gl);
+        return cum ? result : 1 - result;
+      }
+      // 连分数展开（适合 x >= a+1）
+      let b = x + 1 - a, c = 1 / 1e-30, d = 1 / b, h = d;
+      for (let i = 1; i < 200; i++) {
+        const an = -i * (i - a);
+        b += 2; d = an * d + b; if (Math.abs(d) < 1e-30) d = 1e-30;
+        c = b + an / c; if (Math.abs(c) < 1e-30) c = 1e-30;
+        d = 1 / d; const del = d * c; h *= del;
+        if (Math.abs(del - 1) < 1e-15) break;
+      }
+      const result = Math.exp(-x + a * Math.log(x) - gl) * h;
+      return cum ? 1 - result : result;
+    }
+
+    /** _betainc — 正则化不完全 Beta 函数 I_x(a,b)
+     *  Lentz 连分数 + 自适应
+     */
+    function _betainc(a, b, x, cum) {
+      if (x <= 0) return cum ? 0 : 0;
+      if (x >= 1) return cum ? 1 : 0;
+      const lbeta = _gammaln(a) + _gammaln(b) - _gammaln(a + b);
+      const front = Math.exp(a * Math.log(x) + b * Math.log(1 - x) - lbeta) / a;
+      // 对称性处理：x > (a+1)/(a+b+2) 用 I_x = 1 - I_{1-x}(b,a)
+      if (x > (a + 1) / (a + b + 2)) {
+        const val = _betaincCore(b, a, 1 - x);
+        return cum ? 1 - val * front * a : val * front * a;
+      }
+      const val = _betaincCore(a, b, x);
+      return cum ? val * front : 1 - val * front;
+    }
+    function _betaincCore(a, b, x) {
+      // Lentz 连分数
+      let f = 1, c = 1, d = 0;
+      for (let m = 0; m < 200; m++) {
+        const m2 = 2 * m;
+        // even step
+        let aa = m2 * (b - m) * x / ((m2 + a) * (m2 + a + 1));
+        d = 1 + aa * d; if (Math.abs(d) < 1e-30) d = 1e-30;
+        c = 1 + aa / c; if (Math.abs(c) < 1e-30) c = 1e-30;
+        d = 1 / d; f *= d * c;
+        // odd step
+        aa = -(a + m) * (a + b + m) * x / ((m2 + a + 1) * (m2 + a + 2));
+        d = 1 + aa * d; if (Math.abs(d) < 1e-30) d = 1e-30;
+        c = 1 + aa / c; if (Math.abs(c) < 1e-30) c = 1e-30;
+        d = 1 / d; const del = d * c; f *= del;
+        if (Math.abs(del - 1) < 1e-15) break;
+      }
+      return f;
+    }
+
+    /** _chisinv — χ² 反函数（Newton-Raphson 迭代） */
+    function _chisinv(p, df) {
+      // 初值： Wilson-Hilferty 近似
+      const z = (p < 0.5 ? -1 : 1) * Math.sqrt(-2 * Math.log(Math.min(p, 1 - p)));
+      let x = df + z * Math.sqrt(2 * df);
+      for (let i = 0; i < 20; i++) {
+        const c = _gammainc(df / 2, x / 2, true);
+        const pdf = c === 0 ? 1e-100 : Math.exp((df / 2 - 1) * Math.log(x / 2) - x / 2 - _gammaln(df / 2)) / 2;
+        const diff = c - p;
+        if (Math.abs(diff) < 1e-14) break;
+        x -= diff / (pdf || 1e-100);
+        if (x < 0) x = 1e-10;
+      }
+      return x;
+    }
+
+    /** _finv — F 反函数（binary search + betaincinv 关系） */
+    function _finv(p, d1, d2) {
+      // I_{b}(d1/2, d2/2) = p  =>  b = d1*x/(d1*x+d2)
+      const betaInv = _betaincinv(d1 / 2, d2 / 2, p);
+      return betaInv * d2 / (d1 * (1 - betaInv));
+    }
+
+    /** _betaincinv — Beta 反函数（binary search） */
+    function _betaincinv(a, b, p) {
+      let lo = 0, hi = 1, mid;
+      for (let i = 0; i < 200; i++) {
+        mid = (lo + hi) / 2;
+        const v = _betainc(a, b, mid, true);
+        if (Math.abs(v - p) < 1e-15) break;
+        if (v < p) lo = mid; else hi = mid;
+      }
+      return mid;
+    }
+
+    /** _gammaincinv — Gamma 反函数（binary search） */
+    function _gammaincinv(a, p) {
+      let lo = 0, hi = Math.max(a + 5 * Math.sqrt(a), 50);
+      for (let i = 0; i < 200; i++) {
+        const mid = (lo + hi) / 2;
+        const v = _gammainc(a, mid, true);
+        if (Math.abs(v - p) < 1e-15) break;
+        if (v < p) lo = mid; else hi = mid;
+      }
+      return (lo + hi) / 2;
+    }
+
+    /** _tinv — t 反函数（binary search 调 betainc） */
+    function _tinv(p, df) {
+      // P(T ≤ t | df) = 0.5 * I_{z}(df/2, 0.5), z = df/(df + t²)
+      // binary search on t
+      let lo = -1e6, hi = 1e6;
+      for (let i = 0; i < 200; i++) {
+        const t = (lo + hi) / 2;
+        const z = df / (df + t * t);
+        const betaVal = _betainc(df / 2, 0.5, z, true);
+        const cdf = 0.5 * (1 - betaVal);
+        const val = t >= 0 ? 1 - cdf : cdf;
+        if (Math.abs(val - p) < 1e-14) break;
+        if (val < p) lo = t; else hi = t;
+      }
+      return (lo + hi) / 2;
+    }
+
+    // ============ LINEST 矩阵辅助（Gauss-Jordan 消元 + 行列式 + 逆矩阵）============
+    /** _gjInverseDet — Gauss-Jordan 消元同时算逆矩阵和行列式
+     *  输入 n×n 矩阵 A（纯二维数组），返回 { inv: n×n, det: number }
+     *  若矩阵奇异（不可逆），返回 null
+     */
+    function _gjInverseDet(A) {
+      const n = A.length;
+      // 增广矩阵 [A | I]
+      const aug = A.map((row, i) => {
+        const r = row.slice();
+        for (let j = 0; j < n; j++) r.push(i === j ? 1 : 0);
+        return r;
+      });
+      let detSign = 1;
+      const detScale = [];
+      for (let col = 0; col < n; col++) {
+        // 找主元（最大绝对值）
+        let pivot = col; let maxVal = Math.abs(aug[col][col]);
+        for (let row = col + 1; row < n; row++) {
+          if (Math.abs(aug[row][col]) > maxVal) { maxVal = Math.abs(aug[row][col]); pivot = row; }
+        }
+        if (maxVal < 1e-15) return null; // 奇异矩阵
+        if (pivot !== col) { [aug[col], aug[pivot]] = [aug[pivot], aug[col]]; detSign *= -1; }
+        const pv = aug[col][col];
+        detScale.push(pv);
+        // 主元行归一化
+        for (let j = 0; j < 2 * n; j++) aug[col][j] /= pv;
+        // 消去其他行
+        for (let row = 0; row < n; row++) {
+          if (row === col) continue;
+          const factor = aug[row][col];
+          if (factor === 0) continue;
+          for (let j = 0; j < 2 * n; j++) aug[row][j] -= factor * aug[col][j];
+        }
+      }
+      const det = detSign * detScale.reduce((a, b) => a * b, 1);
+      const inv = aug.map(row => row.slice(n));
+      return { inv, det };
+    }
+
+    /** _toMatrix — 把 FE range 输出（可能是 1D/2D）转成标准二维矩阵
+     *  单列向量 [[1],[2],[3]] → 3×1；单行 [[1,2,3]] → 1×3；纯数字 → 1×1
+     *  [1,2,3] → 3×1（当有 known_y 的时候）
+     */
+    function _toMatrix(x, preferCol) {
+      if (x == null || x === "") return [[0]];
+      if (!Array.isArray(x)) return [[+x || 0]];
+      // 二维数组
+      if (Array.isArray(x[0])) return x.map(r => r.map(v => +v || 0));
+      // 一维数组
+      if (preferCol) return x.map(v => [+v || 0]); // 列向量
+      return [x.map(v => +v || 0)]; // 行向量
+    }
+
+    /** _is1D — 判断数组是否一维（无嵌套） */
+    function _is1D(a) { return Array.isArray(a) && (a.length === 0 || !Array.isArray(a[0])); }
 
     const FUNCS = {
       SUM: (...a) => sum(numList(a)),
@@ -45,16 +347,238 @@
       PRODUCT: (...a) => numList(a).reduce((p, x) => p * x, 1),
       ROUND: (a, b) => Math.round(a * Math.pow(10, b || 0)) / Math.pow(10, b || 0),
       ABS: a => Math.abs(a), SQRT: a => Math.sqrt(a), POWER: (a, b) => Math.pow(a, b),
+      /** LN — 自然对数 ln(x)，底数 e */
+      LN: x => { x = +x; if (!Number.isFinite(x) || x <= 0) return "#NUM!"; return Math.log(x); },
+      /** LOG — 对数，可选基数（默认 10）。LOG(x, [base]) */
+      LOG: (x, base) => {
+        x = +x; if (!Number.isFinite(x) || x <= 0) return "#NUM!";
+        const b = base == null ? 10 : +base;
+        if (!Number.isFinite(b) || b <= 0 || b === 1) return "#NUM!";
+        return Math.log(x) / Math.log(b);
+      },
+      /** LOG10 — 以 10 为底的对数 */
+      LOG10: x => { x = +x; if (!Number.isFinite(x) || x <= 0) return "#NUM!"; return Math.log10(x); },
+      /** EXP — 指数函数 e^x */
+      EXP: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; return Math.exp(x); },
+      /** QUOTIENT — 整数除法商，向下截断 */
+      QUOTIENT: (n, d) => {
+        n = +n; d = +d;
+        if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return "#DIV/0!";
+        return Math.trunc(n / d);
+      },
+      /** GCD — 最大公约数（多个数，辗转相除法迭代） */
+      GCD: (...args) => {
+        const nums = [];
+        for (const a of args) {
+          const arr = Array.isArray(a) ? a : [a];
+          for (const v of arr) {
+            const n = Math.abs(+v);
+            if (!Number.isFinite(n) || !Number.isInteger(n)) return "#NUM!";
+            nums.push(n);
+          }
+        }
+        if (nums.length === 0) return 0;
+        const gcd2 = (a, b) => { while (b) { [a, b] = [b, a % b]; } return a; };
+        return nums.reduce((acc, v) => gcd2(acc, v));
+      },
+      /** LCM — 最小公倍数：LCM(a,b) = a*b/GCD(a,b)，多值迭代 */
+      LCM: (...args) => {
+        const nums = [];
+        for (const a of args) {
+          const arr = Array.isArray(a) ? a : [a];
+          for (const v of arr) {
+            const n = Math.abs(+v);
+            if (!Number.isFinite(n) || !Number.isInteger(n)) return "#NUM!";
+            if (n === 0) return 0;
+            nums.push(n);
+          }
+        }
+        if (nums.length === 0) return 1;
+        const gcd2 = (a, b) => { while (b) { [a, b] = [b, a % b]; } return a; };
+        return nums.reduce((acc, v) => acc * v / gcd2(acc, v));
+      },
+      /** FACTDOUBLE — 双阶乘 n!!：n*(n-2)*(n-4)*... 递减到 1 或 2 */
+      FACTDOUBLE: n => {
+        n = Math.trunc(+n);
+        if (!Number.isFinite(n) || n < 0 || n > 170) return "#NUM!";
+        if (n <= 1) return 1;
+        let r = 1;
+        for (let i = n; i > 0; i -= 2) r *= i;
+        return r;
+      },
+      /** BASE — 十进制数转指定进制字符串
+       *  BASE(num, radix, [min_length]) — radix 2-36，min_length 左补 0
+       */
+      BASE: (num, radix, minLen) => {
+        num = Math.trunc(+num);
+        radix = Math.trunc(+radix);
+        if (!Number.isFinite(num) || !Number.isFinite(radix)) return "#NUM!";
+        if (radix < 2 || radix > 36 || num < 0 || num >= Math.pow(radix, 253)) return "#NUM!";
+        const str = num.toString(radix).toUpperCase();
+        if (minLen != null && minLen > str.length) return str.padStart(minLen, "0");
+        return str;
+      },
+      /** DECIMAL — 其他进制字符串转十进制
+       *  DECIMAL(text, radix) — text 2-36 进制
+       */
+      DECIMAL: (text, radix) => {
+        radix = Math.trunc(+radix);
+        if (!Number.isFinite(radix) || radix < 2 || radix > 36) return "#NUM!";
+        const t = String(text == null ? "" : text).trim().toUpperCase();
+        if (!t) return "#NUM!";
+        const val = parseInt(t, radix);
+        if (isNaN(val)) return "#NUM!";
+        return val;
+      },
+      /** SUBTOTAL — 对列表或数据库中的数据执行分类汇总
+       *  SUBTOTAL(function_num, ref1, [ref2], ...)
+       *  function_num 1-11（含隐藏行）/ 101-111（忽略隐藏行）
+       *  简化版：忽略隐藏行标记（UI 层传入），直接调对应函数
+       */
+      SUBTOTAL: (funcNum, ...refs) => {
+        const f = Math.trunc(+funcNum);
+        const ignoreHidden = f > 100;
+        const fn = ignoreHidden ? f - 100 : f;
+        // 收集所有数值（当前实现不做隐藏行过滤——那是 UI 层事）
+        const all = [];
+        const flat = r => Array.isArray(r) ? r.flat(Infinity) : [r];
+        refs.forEach(r => flat(r).forEach(v => { if (typeof v === "number" || (!isNaN(parseFloat(v)) && isFinite(v))) all.push(+v); }));
+        if (all.length === 0 && [1,2,3,4,5,6,7,8,9,10,11].includes(fn)) return "#DIV/0!";
+        switch (fn) {
+          case 1:  return all.reduce((a, b) => a + b, 0) / all.length;                 // AVERAGE
+          case 2:  return all.filter(v => Number.isFinite(v)).length;                  // COUNT
+          case 3:  return refs.reduce((sum, r) => sum + (Array.isArray(r) ? r.flat(Infinity).filter(x => x !== "" && x != null).length : 1), 0); // COUNTA
+          case 4:  return Math.max(...all);                                            // MAX
+          case 5:  return Math.min(...all);                                            // MIN
+          case 6:  return all.reduce((a, b) => a * b, 1);                              // PRODUCT
+          case 7:  { const m = all.reduce((a, b) => a + b, 0) / all.length; return Math.sqrt(all.reduce((s, v) => s + (v - m) ** 2, 0) / (all.length - 1)); } // STDEV.S
+          case 8:  { const m = all.reduce((a, b) => a + b, 0) / all.length; return Math.sqrt(all.reduce((s, v) => s + (v - m) ** 2, 0) / all.length); }     // STDEV.P
+          case 9:  return all.reduce((a, b) => a + b, 0);                              // SUM
+          case 10: { const m = all.reduce((a, b) => a + b, 0) / all.length; return all.reduce((s, v) => s + (v - m) ** 2, 0) / (all.length - 1); }         // VAR.S
+          case 11: { const m = all.reduce((a, b) => a + b, 0) / all.length; return all.reduce((s, v) => s + (v - m) ** 2, 0) / all.length; }             // VAR.P
+          default: return "#VALUE!";
+        }
+      },
       MOD: (a, b) => a - b * Math.floor(a / b), INT: a => Math.floor(a),
       CEILING: (a, b) => Math.ceil(a / (b || 1)) * (b || 1), FLOOR: (a, b) => Math.floor(a / (b || 1)) * (b || 1),
+      /** CEILING.MATH — 向上取整到 significance 倍数
+       *  正数：远离 0；负数：mode=0 默认远离 0(-2.5→-3)，mode=1 向 0(-2.5→-2)
+       */
+      "CEILING.MATH": (num, sig, mode) => {
+        const s = sig == null ? 1 : Math.abs(+sig) || 1;
+        const q = num / s;
+        if (num >= 0) return Math.ceil(q) * s;
+        // 负数
+        if (mode === 1) return Math.floor(q) * s;      // 向 0（向下取整）
+        return Math.ceil(q) * s;                       // 默认 mode=0 远离 0（向上取整）
+      },
+      /** CEILING.PRECISE — IEEE 754 兼容，总是远离 0 */
+      "CEILING.PRECISE": (num, sig) => {
+        const s = Math.abs(sig == null ? 1 : +sig) || 1;
+        return num >= 0 ? Math.ceil(num / s) * s : -Math.ceil(-num / s) * s;
+      },
+      /** FLOOR.MATH — 向下取整到 significance 倍数
+       *  正数：向 0；负数：mode=0 默认远离 0(-2.5→-3)，mode=1 向 0(-2.5→-2)
+       */
+      "FLOOR.MATH": (num, sig, mode) => {
+        const s = sig == null ? 1 : Math.abs(+sig) || 1;
+        if (num >= 0) return Math.floor(num / s) * s;
+        // 负数
+        const q = num / s;
+        if (mode === 1) return Math.ceil(q) * s;      // 向 0
+        return Math.floor(q) * s;                     // 默认 mode=0 远离 0
+      },
+      /** FLOOR.PRECISE — IEEE 754 兼容，总是向 0 */
+      "FLOOR.PRECISE": (num, sig) => {
+        const s = Math.abs(sig == null ? 1 : +sig) || 1;
+        return num >= 0 ? Math.floor(num / s) * s : -Math.floor(-num / s) * s;
+      },
       IF: (c, t, f) => (c ? t : f),
       AND: (...a) => flat(a).every(Boolean), OR: (...a) => flat(a).some(Boolean), NOT: a => !a,
       CONCAT: (...a) => flat(a).map(x => x == null ? "" : String(x)).join(""),
       CONCATENATE: (...a) => flat(a).map(x => x == null ? "" : String(x)).join(""),
+      CHAR: n => { n = Math.trunc(+n); if (n < 1 || n > 255 || isNaN(n)) return "#VALUE!"; return String.fromCharCode(n); },
+      /** UNICHAR — Unicode 码点转字符
+       *  Excel 支持 1-1114111（Unicode 全范围），JS String.fromCodePoint 原生支持
+       */
+      UNICHAR: n => {
+        n = Math.trunc(+n);
+        if (isNaN(n) || n < 1 || n > 1114111) return "#VALUE!";
+        return String.fromCodePoint(n);
+      },
+      /** UNICODE — 字符转 Unicode 码点（取第一个码点）
+       *  Excel 只返回第一个码点（兼容代理对）
+       */
+      UNICODE: s => {
+        const str = String(s == null ? "" : s);
+        if (str.length === 0) return "#VALUE!";
+        const cp = str.codePointAt(0);
+        return cp == null ? "#VALUE!" : cp;
+      },
       LEFT: (s, n) => String(s).slice(0, n), RIGHT: (s, n) => String(s).slice(-n),
       MID: (s, a, b) => String(s).slice(a - 1, a - 1 + b), LEN: s => String(s).length,
       UPPER: s => String(s).toUpperCase(), LOWER: s => String(s).toLowerCase(), TRIM: s => String(s).trim().replace(/\s+/g, " "),
       VALUE: s => parseFloat(s), TEXT: (v, f) => formatNum(v, f),
+      /** FIXED — 数字四舍五入后加千分位逗号转文本
+       *  FIXED(number, decimals=2, noCommas=false)
+       */
+      FIXED: (num, decimals, noCommas) => {
+        const n = +num; const d = decimals == null ? 2 : +decimals;
+        if (isNaN(n) || isNaN(d)) return "#VALUE!";
+        if (d < 0) return "#VALUE!";
+        const mult = Math.pow(10, d);
+        const rounded = Math.round(n * mult) / mult;
+        const intPart = Math.trunc(rounded);
+        const decPart = rounded - intPart;
+        let intStr = String(Math.abs(intPart));
+        if (!noCommas) intStr = intStr.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        let result = (intPart < 0 ? "-" : "") + intStr;
+        if (d > 0) {
+          let decStr = String(Math.abs(decPart)).replace(/^0\./, "");
+          while (decStr.length < d) decStr += "0";
+          decStr = decStr.substring(0, d);
+          result += "." + decStr;
+        }
+        return result;
+      },
+      /** DOLLAR — 货币格式（$ 前缀 + FIXED 逻辑）
+       *  DOLLAR(number, decimals=2)
+       */
+      DOLLAR: (num, decimals) => {
+        const n = +num; const d = decimals == null ? 2 : +decimals;
+        if (isNaN(n) || isNaN(d)) return "#VALUE!";
+        if (d < 0) return "#VALUE!";
+        const mult = Math.pow(10, d);
+        const rounded = Math.round(n * mult) / mult;
+        const intPart = Math.trunc(rounded);
+        const decPart = rounded - intPart;
+        let intStr = String(Math.abs(intPart));
+        intStr = intStr.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        let result = (intPart < 0 ? "-" : "") + "$" + intStr;
+        if (d > 0) {
+          let decStr = String(Math.abs(decPart)).replace(/^0\./, "");
+          while (decStr.length < d) decStr += "0";
+          decStr = decStr.substring(0, d);
+          result += "." + decStr;
+        }
+        return result;
+      },
+      /** ROMAN — 阿拉伯数字转罗马数字
+       *  ROMAN(number, [form=0]) — form 0=经典(最大3999), 1-4=简化(最小化)
+       *  简化版：只实现 form=0 经典
+       */
+      ROMAN: (num, form) => {
+        const n = +num;
+        if (isNaN(n) || n < 0 || n > 3999) return "#VALUE!";
+        if (n === 0) return "";
+        const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
+        const syms = ["M","CM","D","CD","C","XC","L","XL","X","IX","V","IV","I"];
+        let result = "", v = n;
+        for (let i = 0; i < vals.length; i++) {
+          while (v >= vals[i]) { result += syms[i]; v -= vals[i]; }
+        }
+        return result;
+      },
       TODAY: () => { const d = new Date(); return Date.parse(`${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`); },
       NOW: () => Date.now(),
       DATE: (y, m, d) => Date.parse(`${y}/${m}/${d}`),
@@ -205,6 +729,50 @@
       ISNA: v => v === "#N/A",
       ISLOGICAL: v => typeof v === "boolean",
       NA: () => "#N/A",
+      /** CELL — 返回单元格格式/位置信息（简化版，只部分实现）
+       *  CELL(info_type, [ref])
+       *  支持：address/row/col/sheet/file/contents（单格值）
+       */
+      CELL: (infoType, ref) => {
+        const type = String(infoType).toLowerCase();
+        const sheetName = ref && ref.sheetName ? ref.sheetName : "Sheet1";
+        switch (type) {
+          case "address": {
+            if (ref && typeof ref.col === "number" && typeof ref.row === "number") {
+              return `$${idxToCol(ref.col)}$${ref.row}`;
+            }
+            return "";
+          }
+          case "row": return ref && typeof ref.row === "number" ? ref.row : 0;
+          case "col": return ref && typeof ref.col === "number" ? ref.col : 0;
+          case "sheet": return 1;
+          case "file": return sheetName ? `[workbook.xlsx]${sheetName}` : "";
+          case "contents": {
+            if (ref && typeof ref.value !== "undefined") return ref.value;
+            return "";
+          }
+          case "format": return "G";
+          case "type": return "v";
+          case "protect": return 0;
+          default: return "";
+        }
+      },
+      /** INFO — 返回系统环境信息（简化版）
+       *  INFO(type_text)
+       *  支持：numfilelist/numfiles/system/osversion/release
+       */
+      INFO: (type) => {
+        const t = String(type).toLowerCase();
+        switch (t) {
+          case "numfilelist": return 1;
+          case "numfiles": return 1;
+          case "system": return 1; // 1=Mac, 2=Windows
+          case "osversion": return "Windows 11";
+          case "release": return "16.0";
+          case "recalc": return true;
+          default: return "";
+        }
+      },
       RAND: () => Math.random(),
       RANDBETWEEN: (a, b) => { const lo = Math.ceil(+a), hi = Math.floor(+b); return lo > hi ? "#NUM!" : Math.floor(Math.random() * (hi - lo + 1)) + lo; },
       // ========== 新增 2026-09-19 ==========
@@ -272,6 +840,201 @@
         }
       },
       DATEDIF: (s, e, u) => FUNCS.DATEIF(s, e, u),
+
+      /** NETWORKDAYS — 两日期间工作日数（排除 Sat/Sun + 可选假日）
+       *  NETWORKDAYS(start_date, end_date, [holidays])
+       */
+      NETWORKDAYS: (start, end, holidays) => {
+        const s = new Date(start); const e = new Date(end);
+        if (isNaN(s) || isNaN(e)) return "#VALUE!";
+        let count = 0;
+        const [a, b] = s <= e ? [s, e] : [e, s];
+        // 假期集合（YYYY-MM-DD 字符串）
+        const holidaySet = new Set();
+        if (holidays != null) {
+          const arr = Array.isArray(holidays) ? holidays : [holidays];
+          for (const h of arr) {
+            const hd = new Date(h);
+            if (!isNaN(hd)) holidaySet.add(hd.toISOString().slice(0, 10));
+          }
+        }
+        for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
+          const dow = d.getDay(); // 0=Sun, 6=Sat
+          if (dow === 0 || dow === 6) continue;
+          if (holidaySet.has(d.toISOString().slice(0, 10))) continue;
+          count++;
+        }
+        return count;
+      },
+
+      /** WORKDAY — 起始日期加 N 工作日（跳过周末 + 可选假日）
+       *  WORKDAY(start_date, days, [holidays])
+       *  days 可以是负数（向前算）
+       */
+      WORKDAY: (start, days, holidays) => {
+        const s = new Date(start);
+        if (isNaN(s)) return "#VALUE!";
+        const n = Math.trunc(+days || 0);
+        const holidaySet = new Set();
+        if (holidays != null) {
+          const arr = Array.isArray(holidays) ? holidays : [holidays];
+          for (const h of arr) {
+            const hd = new Date(h);
+            if (!isNaN(hd)) holidaySet.add(hd.toISOString().slice(0, 10));
+          }
+        }
+        let d = new Date(s);
+        let moved = 0;
+        const step = n >= 0 ? 1 : -1;
+        const target = Math.abs(n);
+        while (moved < target) {
+          d.setDate(d.getDate() + step);
+          const dow = d.getDay();
+          if (dow === 0 || dow === 6) continue; // 周末跳过
+          if (holidaySet.has(d.toISOString().slice(0, 10))) continue;
+          moved++;
+        }
+        // 返回 Excel 兼容：日期序列号（1900 基准）
+        const ms = d.getTime();
+        const excelSeq = Math.round(ms / 86400000) + 25569;
+        return excelSeq;
+      },
+
+      /** NETWORKDAYS.INTL — 自定义周末版工作日计数
+       *  NETWORKDAYS.INTL(start, end, [weekend=1], [holidays])
+       *  weekend: 1-7=两天周末 / 11-17=单天周末 / "0000011"=Mon-Sun 自定义（1=周末）
+       */
+      "NETWORKDAYS.INTL": (start, end, weekend, holidays) => {
+        const s = new Date(start); const e = new Date(end);
+        if (isNaN(s) || isNaN(e)) return "#VALUE!";
+        const [a, b] = s <= e ? [s, e] : [e, s];
+        const holidaySet = _buildHolidaySet(holidays);
+        const weekendSet = _parseWeekend(weekend);
+        let count = 0;
+        for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
+          const dow = d.getDay();
+          if (weekendSet.has(dow)) continue;
+          if (holidaySet.has(d.toISOString().slice(0, 10))) continue;
+          count++;
+        }
+        return count;
+      },
+
+      /** WORKDAY.INTL — 自定义周末版工作日偏移
+       *  WORKDAY.INTL(start, days, [weekend=1], [holidays])
+       */
+      "WORKDAY.INTL": (start, days, weekend, holidays) => {
+        const s = new Date(start);
+        if (isNaN(s)) return "#VALUE!";
+        const n = Math.trunc(+days || 0);
+        if (n === 0) return Math.round(s.getTime() / 86400000) + 25569;
+        const holidaySet = _buildHolidaySet(holidays);
+        const weekendSet = _parseWeekend(weekend);
+        let d = new Date(s);
+        let moved = 0;
+        const step = n >= 0 ? 1 : -1;
+        const target = Math.abs(n);
+        while (moved < target) {
+          d.setDate(d.getDate() + step);
+          const dow = d.getDay();
+          if (weekendSet.has(dow)) continue;
+          if (holidaySet.has(d.toISOString().slice(0, 10))) continue;
+          moved++;
+        }
+        const ms = d.getTime();
+        return Math.round(ms / 86400000) + 25569;
+      },
+
+      /** EDATE — 起始日期加 N 个月（日号自动调整到当月最后一天）
+       *  EDATE(start_date, months)
+       */
+      EDATE: (start, months) => {
+        const d = new Date(start); const m = Math.trunc(+months);
+        if (isNaN(d) || !Number.isFinite(m)) return "#NUM!";
+        const nd = new Date(d.getFullYear(), d.getMonth() + m, d.getDate());
+        // Excel 日期序列号
+        return Math.round(nd.getTime() / 86400000) + 25569;
+      },
+      /** EOMONTH — 起始日期所在月的最后一天（加 N 个月后再取月末）
+       *  EOMONTH(start_date, months)
+       */
+      EOMONTH: (start, months) => {
+        const d = new Date(start); const m = Math.trunc(+months);
+        if (isNaN(d) || !Number.isFinite(m)) return "#NUM!";
+        const nd = new Date(d.getFullYear(), d.getMonth() + m + 1, 0); // day=0 → 上月最后一天
+        return Math.round(nd.getTime() / 86400000) + 25569;
+      },
+      /** ISOWEEKNUM — ISO 8601 周数（周一为每周第一天，第一周必须含 1 月 4 日）
+       *  公式：周数 = ceil((dayOfYear - dayOfWeek + 10) / 7)
+       */
+      ISOWEEKNUM: date => {
+        const d = new Date(date); if (isNaN(d)) return "#NUM!";
+        const dayOfYear = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+        const dayOfWeek = (d.getDay() + 6) % 7; // 周一=0, 周日=6
+        return Math.ceil((dayOfYear - dayOfWeek + 10) / 7);
+      },
+      /** DAYS — end_date - start_date 天数差 */
+      DAYS: (end, start) => {
+        const e = new Date(end); const s = new Date(start);
+        if (isNaN(e) || isNaN(s)) return "#NUM!";
+        return Math.round((e - s) / 86400000);
+      },
+      /** DATEVALUE — 日期字符串转 Excel 序列号 */
+      DATEVALUE: text => {
+        const d = new Date(String(text == null ? "" : text));
+        if (isNaN(d)) return "#VALUE!";
+        return Math.round(d.getTime() / 86400000) + 25569;
+      },
+      /** YEARFRAC — 两日期间的年分数
+       *  YEARFRAC(start_date, end_date, [basis=0])
+       *  basis: 0=US 30/360 1=actual/actual 2=actual/360 3=actual/365 4=EU 30/360
+       */
+      YEARFRAC: (start, end, basis) => {
+        const s = new Date(start); const e = new Date(end);
+        if (isNaN(s) || isNaN(e)) return "#VALUE!";
+        let b = basis == null ? 0 : Math.trunc(+basis);
+        if (b < 0 || b > 4) return "#NUM!";
+        const days = Math.round((e - s) / 86400000);
+        if (days === 0) return 0;
+
+        const sy = s.getFullYear(), sm = s.getMonth() + 1, sd = s.getDate();
+        const ey = e.getFullYear(), em = e.getMonth() + 1, ed = e.getDate();
+
+        // 2/29 处理：basis 0/4 里把 2/29→2/28
+        const fixDay = (y, m, d) => {
+          if ((b === 0 || b === 4) && m === 2 && d === 29) return 28;
+          return d;
+        };
+        const sd2 = fixDay(sy, sm, sd);
+        const ed2 = fixDay(ey, em, ed);
+
+        if (b === 0) {
+          // US NASD 30/360
+          const d1 = 360 * (ey - sy) + 30 * (em - sm) + (ed2 - sd2);
+          return d1 / 360;
+        } else if (b === 4) {
+          // EU 30/360
+          const d1 = 360 * (ey - sy) + 30 * (em - sm) + (ed2 - sd2);
+          return d1 / 360;
+        } else if (b === 1) {
+          // actual/actual
+          let denom = 365;
+          // 如果两个日期跨越闰年，分母用 366
+          if (days > 0) {
+            // 简单处理：检查开始和结束年之间是否有闰年
+            for (let y = sy; y <= ey; y++) {
+              if ((y % 4 === 0 && y % 100 !== 0) || y % 400 === 0) { denom = 366; break; }
+            }
+          }
+          return days / denom;
+        } else if (b === 2) {
+          // actual/360
+          return days / 360;
+        } else {
+          // basis 3: actual/365
+          return days / 365;
+        }
+      },
       /** WEEKDAY / WEEKNUM — 星期几 / 第几周 */
       WEEKDAY: (d, firstDay) => {
         const date = new Date(d);
@@ -321,6 +1084,46 @@
       SIN: a => Math.sin(+a),
       COS: a => Math.cos(+a),
       TAN: a => Math.tan(+a),
+      /** ACOS — 反余弦 arccos(x)，结果 [0, π] */
+      ACOS: x => { x = +x; if (!Number.isFinite(x) || x < -1 || x > 1) return "#NUM!"; return Math.acos(x); },
+      /** ASIN — 反正弦 arcsin(x)，结果 [-π/2, π/2] */
+      ASIN: x => { x = +x; if (!Number.isFinite(x) || x < -1 || x > 1) return "#NUM!"; return Math.asin(x); },
+      /** ATAN — 反正切 arctan(x)，结果 [-π/2, π/2] */
+      ATAN: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; return Math.atan(x); },
+      /** COSH — 双曲余弦 cosh(x) = (e^x + e^(-x))/2 */
+      COSH: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; return Math.cosh(x); },
+      /** SINH — 双曲正弦 sinh(x) = (e^x - e^(-x))/2 */
+      SINH: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; return Math.sinh(x); },
+      /** TANH — 双曲正切 tanh(x) = sinh(x)/cosh(x) */
+      TANH: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; return Math.tanh(x); },
+      /** ACOSH — 反双曲余弦 arccosh(x) = ln(x + √(x²-1)) */
+      ACOSH: x => { x = +x; if (!Number.isFinite(x) || x < 1) return "#NUM!"; return Math.acosh(x); },
+      /** ASINH — 反双曲正弦 arcsinh(x) */
+      ASINH: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; return Math.asinh(x); },
+      /** ATANH — 反双曲正切 arctanh(x)，|x|<1 */
+      ATANH: x => { x = +x; if (!Number.isFinite(x) || Math.abs(x) >= 1) return "#NUM!"; return Math.atanh(x); },
+      /** ATAN2 — 二象限反正切 arctan2(y, x)，[-π, π] */
+      ATAN2: (y, x) => { y = +y; x = +x; if (!Number.isFinite(y) || !Number.isFinite(x)) return "#NUM!"; return Math.atan2(y, x); },
+      /** ACOT — 反余切 arccot(x) = π/2 - arctan(x) */
+      ACOT: x => { x = +x; if (!Number.isFinite(x) || x === 0) return "#NUM!"; return Math.PI / 2 - Math.atan(x); },
+      /** ACOTH — 反双曲余切 arccoth(x) = arctanh(1/x) */
+      ACOTH: x => { x = +x; if (!Number.isFinite(x) || Math.abs(x) <= 1) return "#NUM!"; return Math.atanh(1 / x); },
+      /** COT — 余切 cot(x) = 1/tan(x)，x≠0 */
+      COT: x => { x = +x; if (!Number.isFinite(x) || x % Math.PI === 0) return "#NUM!"; return 1 / Math.tan(x); },
+      /** COTH — 双曲余切 coth(x) = cosh(x)/sinh(x) */
+      COTH: x => { x = +x; if (!Number.isFinite(x) || x === 0) return "#NUM!"; return Math.cosh(x) / Math.sinh(x); },
+      /** SEC — 正割 sec(x) = 1/cos(x) */
+      SEC: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; const c = Math.cos(x); if (c === 0) return "#NUM!"; return 1 / c; },
+      /** SECH — 双曲正割 sech(x) = 1/cosh(x) */
+      SECH: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; return 1 / Math.cosh(x); },
+      /** CSC — 余割 csc(x) = 1/sin(x) */
+      CSC: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; const s = Math.sin(x); if (s === 0) return "#NUM!"; return 1 / s; },
+      /** CSCH — 双曲余割 csch(x) = 1/sinh(x) */
+      CSCH: x => { x = +x; if (!Number.isFinite(x) || x === 0) return "#NUM!"; return 1 / Math.sinh(x); },
+      /** SIGN — 符号函数：x>0→1, x=0→0, x<0→-1 */
+      SIGN: x => { x = +x; if (!Number.isFinite(x)) return "#NUM!"; return x > 0 ? 1 : x < 0 ? -1 : 0; },
+      /** SQRTPI — √(x·π) */
+      SQRTPI: x => { x = +x; if (!Number.isFinite(x) || x < 0) return "#NUM!"; return Math.sqrt(x * Math.PI); },
       DEGREES: r => (+r) * 180 / Math.PI,
       RADIANS: d => (+d) * Math.PI / 180,
       /** FILTER — 动态数组筛选：按条件筛选数组，返回二维数组；条件为数组逐行 AND，多条件逐条件 OR（同 Excel）*/
@@ -446,6 +1249,48 @@
         const coled = FUNCS.TOCOL(array, ignoreBlanks, byCol).map(r => r[0]);
         return [coled];
       },
+      /** DROP — 从数组丢弃前/后 N 行/列（Excel 365）
+       *  DROP(array, rows, [columns])
+       *  rows 正=丢前N行，负=丢后|N|行；columns 同理（可选）
+       */
+      DROP: (array, rows, columns) => {
+        const arr = _toRows(array);
+        if (!arr.length) return "#CALC!";
+        const R = arr.length, C = arr[0].length;
+        let rStart = 0, rEnd = R;
+        const r = +rows;
+        if (r >= 0) rStart = Math.min(r, R);
+        else rEnd = Math.max(R + r, 0);
+        let cStart = 0, cEnd = C;
+        if (columns != null) {
+          const c = +columns;
+          if (c >= 0) cStart = Math.min(c, C);
+          else cEnd = Math.max(C + c, 0);
+        }
+        if (rStart >= rEnd || cStart >= cEnd) return "#CALC!";
+        return arr.slice(rStart, rEnd).map(row => row.slice(cStart, cEnd));
+      },
+      /** TAKE — 从数组取前/后 N 行/列（Excel 365）
+       *  TAKE(array, rows, [columns])
+       *  rows 正=取前N行，负=取后|N|行；columns 同理（可选）
+       */
+      TAKE: (array, rows, columns) => {
+        const arr = _toRows(array);
+        if (!arr.length) return "#CALC!";
+        const R = arr.length, C = arr[0].length;
+        let rStart = 0, rEnd = R;
+        const r = +rows;
+        if (r >= 0) rEnd = Math.min(r, R);
+        else rStart = Math.max(R + r, 0);
+        let cStart = 0, cEnd = C;
+        if (columns != null) {
+          const c = +columns;
+          if (c >= 0) cEnd = Math.min(c, C);
+          else cStart = Math.max(C + c, 0);
+        }
+        if (rStart >= rEnd || cStart >= cEnd) return "#CALC!";
+        return arr.slice(rStart, rEnd).map(row => row.slice(cStart, cEnd));
+      },
       /** VSTACK / HSTACK — 纵向/横向拼接多个数组 */
       VSTACK: (...args) => {
         const out = [];
@@ -493,6 +1338,68 @@
         if (idx < 0) return ifNotFound == null ? "#N/A" : ifNotFound;
         const rr = Array.isArray(returnRange) ? flat(returnRange) : [returnRange];
         return rr[idx] !== undefined ? rr[idx] : (ifNotFound == null ? "#N/A" : ifNotFound);
+      },
+      /** LOOKUP — 查找向量/数组（VLOOKUP 简化版，近似匹配）
+       *  LOOKUP(lookup_value, lookup_vector, [result_vector]) — 单行/单列，二分近似
+       *  LOOKUP(lookup_value, array) — 数组形式，自动选首行/首列查
+       */
+      LOOKUP: (lookup, lookupArr, resultArr) => {
+        // 数组形式：只有 2 个参数
+        if (resultArr == null) {
+          // array 可能是二维：列数 > 行数 → 首行查；否则首列查
+          if (Array.isArray(lookupArr) && Array.isArray(lookupArr[0])) {
+            const rows = lookupArr.length, cols = lookupArr[0].length;
+            if (cols > rows) {
+              // 横向：首行查，返回末行同列
+              const row0 = lookupArr[0];
+              const idx = _lookupApprox(row0, lookup);
+              if (idx < 0) return "#N/A";
+              return lookupArr[rows - 1][idx];
+            } else {
+              // 纵向：首列查，返回末列同行
+              const col0 = lookupArr.map(r => r[0]);
+              const idx = _lookupApprox(col0, lookup);
+              if (idx < 0) return "#N/A";
+              return lookupArr[idx][cols - 1];
+            }
+          }
+          // 单行/单列
+          const flatA = flat(lookupArr);
+          const idx = _lookupApprox(flatA, lookup);
+          return idx < 0 ? "#N/A" : flatA[idx];
+        }
+        // 向量形式：lookup_vector + result_vector
+        const lv = flat(lookupArr);
+        const rv = flat(resultArr);
+        if (lv.length !== rv.length) return "#N/A";
+        const idx = _lookupApprox(lv, lookup);
+        return idx < 0 ? "#N/A" : rv[idx];
+      },
+      /** XMATCH — MATCH 进化版（支持 matchMode + searchMode + ifNotFound）
+       *  XMATCH(lookup, lookupArray, [matchMode=0], [searchMode=1])
+       *  matchMode: 0=精确, -1=精确或下一个小, 1=精确或下一个大, 2=通配符
+       *  searchMode: 1=正向(默认), -1=反向, 2=二分升序, -2=二分降序
+       */
+      XMATCH: (lookup, lookupArr, matchMode, searchMode) => {
+        const mode = matchMode == null ? 0 : (+matchMode | 0);
+        const smode = searchMode == null ? 1 : (+searchMode | 0);
+        const arr = flat(lookupArr);
+        // searchMode = -1 → 反向查找
+        if (smode === -1) {
+          const rev = arr.slice().reverse();
+          const idxRev = _xmatchCore(lookup, rev, mode);
+          return idxRev < 0 ? "#N/A" : arr.length - 1 - idxRev;
+        }
+        // searchMode = 2/-2 → 二分（假设已排序）
+        if (smode === 2 || smode === -2) {
+          const sorted = smode === -2 ? arr.slice().reverse() : arr.slice();
+          const idx = _xmatchCoreSorted(lookup, sorted, mode);
+          if (idx < 0) return "#N/A";
+          return smode === -2 ? arr.length - 1 - idx : idx + 1;
+        }
+        // 默认正向线性
+        const idx = _xmatchCore(lookup, arr, mode);
+        return idx < 0 ? "#N/A" : idx + 1;
       },
       /** AGGREGATE — 忽略错误/隐藏行的聚合（简化版，只处理数组错误）*/
       AGGREGATE: (func, opt, ...args) => {
@@ -543,7 +1450,19 @@
         for (const [key, vals] of groups) {
           const nums = numList(vals);
           let agg;
-          if (typeof func === "function") {
+          if (fn && fn.__lambda) {
+            try {
+              const callScope = Object.assign({}, fn.closure || {});
+              if (fn.params.length === 1) {
+                callScope[fn.params[0]] = nums;
+                agg = evalNode(fn.body, () => 0, callScope);
+              } else {
+                for (let i = 0; i < fn.params.length && i < nums.length; i++)
+                  callScope[fn.params[i]] = nums[i];
+                agg = evalNode(fn.body, () => 0, callScope);
+              }
+            } catch(e) { agg = "#CALC!"; }
+          } else if (typeof func === "function") {
             try { agg = func(nums); } catch { agg = "#CALC!"; }
           } else {
             const F = String(func).toUpperCase();
@@ -875,6 +1794,58 @@
         for (let i = 0; i < k; i++) r *= (n - i);
         return r;
       },
+      /** PERMUTATIONA — 可重复排列 P^rep(n, k) = n^k，n 和 k 非负整数 */
+      PERMUTATIONA: (n, k) => {
+        n = +n; k = +k;
+        if (n < 0 || k < 0 || !Number.isInteger(n) || !Number.isInteger(k)) return "#NUM!";
+        if (k === 0) return 1;
+        return Math.pow(n, k);
+      },
+      /** COMBINA — 可重复组合 C^rep(n, k) = C(n+k-1, k) */
+      COMBINA: (n, k) => {
+        n = +n; k = +k;
+        if (n < 0 || k < 0 || !Number.isInteger(n) || !Number.isInteger(k)) return "#NUM!";
+        return FUNCS.COMBIN(n + k - 1, k);
+      },
+      /** MULTINOMIAL — 多项式系数 (n₁+n₂+...+nₖ)! / (n₁!·n₂!·...·nₖ!)
+       *  MULTINOMIAL(number1, number2, ...) — 所有参数必须 ≥ 0 整数
+       *  用 Γ 函数 log 域计算避免大阶乘溢出
+       */
+      MULTINOMIAL: (...args) => {
+        const nums = [];
+        for (const a of args) {
+          const arr = Array.isArray(a) ? a : [a];
+          for (const v of arr) {
+            const n = +v;
+            if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) return "#NUM!";
+            nums.push(n);
+          }
+        }
+        if (nums.length === 0) return 1;
+        const sum = nums.reduce((a, b) => a + b, 0);
+        // ln(M) = ln(sum!) - Σ ln(ni!) = γ(sum+1) - Σ γ(ni+1)
+        let lnM = _gammaln(sum + 1);
+        for (const n of nums) lnM -= _gammaln(n + 1);
+        const r = Math.exp(lnM);
+        return Number.isFinite(r) ? Math.round(r) : "#NUM!";
+      },
+      /** SERIESSUM — 幂级数求和 Σ aᵢ · x^(n + i·m)
+       *  SERIESSUM(x, n, m, coefficients)
+       *  coefficients 是数组，a₁ 对应 i=0 的项
+       *  公式：a₁·x^n + a₂·x^(n+m) + a₃·x^(n+2m) + ...
+       */
+      SERIESSUM: (x, n, m, coefs) => {
+        x = +x; n = +n; m = +m;
+        if (!Number.isFinite(x) || !Number.isFinite(n) || !Number.isFinite(m)) return "#NUM!";
+        const arr = Array.isArray(coefs) ? coefs : [coefs];
+        let sum = 0;
+        for (let i = 0; i < arr.length; i++) {
+          const a = +arr[i];
+          if (!Number.isFinite(a)) continue;
+          sum += a * Math.pow(x, n + i * m);
+        }
+        return sum;
+      },
       /** CORREL — Pearson 相关系数
        *  CORREL(array1, array2)
        */
@@ -900,6 +1871,58 @@
        *  HYPERLINK(link, [friendlyName])
        */
       HYPERLINK: (link, friendly) => friendly != null ? friendly : String(link == null ? "" : link),
+      /** AREAS — 引用中区域数量（简化：数组长度） */
+      AREAS: ref => { if (Array.isArray(ref)) return ref.length; return 1; },
+      /** SHEET — 返回包含引用的工作表索引号（FE 层简化：返回 1） */
+      SHEET: () => 1,
+      /** SHEETS — 工作簿中工作表数量（FE 层简化：返回 1） */
+      SHEETS: () => 1,
+      /** CODE — 文本首字符的 ASCII 码（Excel CODE ≈ charCodeAt，但 Excel 用 ANSI） */
+      CODE: text => { const s = String(text == null ? "" : text); if (s === "") return "#VALUE!"; return s.charCodeAt(0); },
+      /** ERROR.TYPE — 错误类型编号：#NULL!=1, #DIV/0!=2, #VALUE!=3, #REF!=4, #NAME?=5, #NUM!=6, #N/A=7, #CALC!=14 */
+      "ERROR.TYPE": err => {
+        if (err === "#NULL!") return 1; if (err === "#DIV/0!") return 2; if (err === "#VALUE!") return 3;
+        if (err === "#REF!") return 4; if (err === "#NAME?") return 5; if (err === "#NUM!") return 6;
+        if (err === "#N/A") return 7; if (err === "#CALC!") return 14; if (err === "#SPILL!") return 13;
+        if (typeof err === "string" && err.startsWith("#")) return "#N/A";
+        return "#N/A";
+      },
+      ISERR: v => typeof v === "string" && v.startsWith("#") && v !== "#N/A",
+      ISREF: () => "#CALC!", // FE 层暂时不知道是不是引用
+      ISNONTEXT: v => typeof v !== "string" || (typeof v === "string" && v.startsWith("#")),
+      /** TYPE — 数据类型编号：数值=1, 文本=2, 逻辑=4, 错误=16, 数组=64 */
+      TYPE: v => {
+        if (v == null) return 1; if (typeof v === "boolean") return 4; if (typeof v === "number") return 1;
+        if (typeof v === "string") { if (v.startsWith("#")) return 16; return 2; }
+        if (Array.isArray(v)) return 64; return 1;
+      },
+      /** MUNIT — 单位矩阵（简化：返回 [[1]]，因为 MDETERM/MINVERSE 自己会处理） */
+      MUNIT: (n = 1) => {
+        n = Math.trunc(+n); if (!Number.isFinite(n) || n <= 0 || n > 100) return "#NUM!";
+        const m = []; for (let i = 0; i < n; i++) { const row = new Array(n).fill(0); row[i] = 1; m.push(row); }
+        return m;
+      },
+      /** SUMX2MY2 — Σ(x² - y²) */
+      SUMX2MY2: (xArr, yArr) => {
+        const x = flat(xArr), y = flat(yArr);
+        if (x.length !== y.length) return "#VALUE!";
+        let sum = 0; for (let i = 0; i < x.length; i++) { const xi = +x[i], yi = +y[i]; if (isNaN(xi) || isNaN(yi)) continue; sum += xi * xi - yi * yi; }
+        return sum;
+      },
+      /** SUMX2PY2 — Σ(x² + y²) */
+      SUMX2PY2: (xArr, yArr) => {
+        const x = flat(xArr), y = flat(yArr);
+        if (x.length !== y.length) return "#VALUE!";
+        let sum = 0; for (let i = 0; i < x.length; i++) { const xi = +x[i], yi = +y[i]; if (isNaN(xi) || isNaN(yi)) continue; sum += xi * xi + yi * yi; }
+        return sum;
+      },
+      /** SUMXMY2 — Σ(x - y)² */
+      SUMXMY2: (xArr, yArr) => {
+        const x = flat(xArr), y = flat(yArr);
+        if (x.length !== y.length) return "#VALUE!";
+        let sum = 0; for (let i = 0; i < x.length; i++) { const xi = +x[i], yi = +y[i]; if (isNaN(xi) || isNaN(yi)) continue; const d = xi - yi; sum += d * d; }
+        return sum;
+      },
       /** COUNTUNIQUE — 计算去重后的值个数（严格类型：1 和 TRUE 不同）
        *  COUNTUNIQUE(value1, [value2], ...)  支持单值 + 范围 + 多参数
        */
@@ -1105,6 +2128,873 @@
         if (cumulative) return 1 - Math.exp(-powA);
         return (alpha / beta) * Math.pow(xx, alpha - 1) * Math.exp(-powA);
       },
+      /** STANDARDIZE — 标准化 z-score */
+      STANDARDIZE: (x, mean, sd) => {
+        const z = (x - mean) / sd;
+        return sd === 0 ? "#DIV/0!" : z;
+      },
+      /** BINOM.INV — 二项分布反函数
+       *  找最小的 k 使 BINOM.DIST(k,n,p,TRUE) ≥ alpha
+       */
+      "BINOM.INV": (trials, p, alpha) => {
+        const n = Math.floor(+trials); p = +p; alpha = +alpha;
+        if (n < 0 || p < 0 || p > 1 || alpha <= 0 || alpha >= 1) return "#NUM!";
+        // 顺序搜索（n 一般不大，从 0 开始累加 CDF）
+        let cdf = 0;
+        for (let k = 0; k <= n; k++) {
+          cdf += FUNCS["BINOM.DIST"](k, n, p, false);
+          if (cdf >= alpha) return k;
+        }
+        return n;
+      },
+      /** POISSON.INV — 泊松分布反函数 */
+      "POISSON.INV": (mean, alpha) => {
+        const m = +mean; alpha = +alpha;
+        if (m <= 0 || alpha <= 0 || alpha >= 1) return "#NUM!";
+        let cdf = 0;
+        for (let k = 0; k <= 100000; k++) { // 安全上限
+          cdf += FUNCS["POISSON.DIST"](k, m, false);
+          if (cdf >= alpha) return k;
+        }
+        return "#NUM!";
+      },
+      /** HYPGEOM.DIST — 超几何分布
+       *  HYPGEOM.DIST(sample_s, num_sample, pop_s, pop_total, cumulative)
+       */
+      "HYPGEOM.DIST": (k, n, K, N, cumulative) => {
+        k = Math.floor(+k); n = Math.floor(+n); K = Math.floor(+K); N = Math.floor(+N);
+        if (k < 0 || n < 0 || K < 0 || N < 0 || n > N || K > N) return "#NUM!";
+        if (k > Math.min(n, K)) return cumulative ? 1 : 0;
+        if (k < Math.max(0, n + K - N)) return cumulative ? 0 : 0;
+        // C(N1, k) * C(N-N1, n-k) / C(N, n)
+        const lnC = (a, b) => {
+          if (b < 0 || b > a) return -Infinity;
+          let s = 0;
+          for (let i = 0; i < b; i++) s += Math.log(a - i) - Math.log(i + 1);
+          return s;
+        };
+        const num = lnC(K, k) + lnC(N - K, n - k);
+        const den = lnC(N, n);
+        if (!cumulative) return Math.exp(num - den);
+        // CDF = Σ PDF from max(0,n+K-N) to k
+        let cdf = 0;
+        const lo = Math.max(0, n + K - N);
+        for (let i = lo; i <= k; i++) {
+          const ni = lnC(K, i) + lnC(N - K, n - i);
+          cdf += Math.exp(ni - den);
+        }
+        return Math.min(1, Math.max(0, cdf));
+      },
+      /** NEGBINOM.DIST — 负二项分布
+       *  第 r 次成功时恰好有 number_f 次失败的概率
+       */
+      "NEGBINOM.DIST": (f, r, p, cumulative) => {
+        f = Math.floor(+f); r = Math.floor(+r); p = +p;
+        if (f < 0 || r < 1 || p <= 0 || p >= 1) return "#NUM!";
+        // PDF = C(f+r-1, f) * p^r * (1-p)^f
+        const lnC = (a, b) => {
+          let s = 0;
+          for (let i = 0; i < b; i++) s += Math.log(a - i) - Math.log(i + 1);
+          return s;
+        };
+        const pdf = Math.exp(lnC(f + r - 1, f) + r * Math.log(p) + f * Math.log(1 - p));
+        if (!cumulative) return pdf;
+        // CDF = Σ_{k=0}^f PDF(k,r,p)
+        let cdf = 0;
+        for (let k = 0; k <= f; k++) {
+          cdf += Math.exp(lnC(k + r - 1, k) + r * Math.log(p) + k * Math.log(1 - p));
+        }
+        return Math.min(1, cdf);
+      },
+      /** LOGNORM.DIST — 对数正态分布 */
+      "LOGNORM.DIST": (x, mean, sd, cumulative) => {
+        x = +x; mean = +mean; sd = +sd;
+        if (x <= 0 || sd <= 0) return "#NUM!";
+        const z = (Math.log(x) - mean) / sd;
+        return FUNCS["NORM.S.DIST"](z, cumulative);
+      },
+      /** LOGNORM.INV — 对数正态反函数 */
+      "LOGNORM.INV": (p, mean, sd) => {
+        p = +p; mean = +mean; sd = +sd;
+        if (p <= 0 || p >= 1 || sd <= 0) return "#NUM!";
+        const z = FUNCS["NORM.S.INV"](p);
+        return Math.exp(z * sd + mean);
+      },
+      /** SKEW — 样本偏度
+       *  n/((n-1)(n-2)) * Σ((xi-x̄)/s)^3
+       */
+      SKEW: (...args) => {
+        const arr = numList(args);
+        const n = arr.length;
+        if (n < 3) return "#NUM!";
+        const mean = arr.reduce((a, b) => a + b, 0) / n;
+        const s = Math.sqrt(arr.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1));
+        if (s === 0) return "#DIV/0!";
+        const m3 = arr.reduce((a, b) => a + ((b - mean) / s) ** 3, 0);
+        return n * m3 / ((n - 1) * (n - 2));
+      },
+      /** KURT — 样本峰度（excess kurtosis） */
+      KURT: (...args) => {
+        const arr = numList(args);
+        const n = arr.length;
+        if (n < 4) return "#NUM!";
+        const mean = arr.reduce((a, b) => a + b, 0) / n;
+        const s = Math.sqrt(arr.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1));
+        if (s === 0) return "#DIV/0!";
+        const m4 = arr.reduce((a, b) => a + ((b - mean) / s) ** 4, 0);
+        const term = n * (n + 1) / ((n - 1) * (n - 2) * (n - 3));
+        const bias = 3 * (n - 1) ** 2 / ((n - 2) * (n - 3));
+        return term * m4 - bias;
+      },
+      /** SKEW.P — 总体偏度（除以 n） */
+      "SKEW.P": (...args) => {
+        const arr = numList(args); const n = arr.length;
+        if (n < 3) return "#NUM!";
+        const m = arr.reduce((a, b) => a + b, 0) / n;
+        const s = Math.sqrt(arr.reduce((a, v) => a + (v - m) ** 2, 0) / n);
+        if (s === 0) return "#NUM!";
+        return arr.reduce((a, v) => a + ((v - m) / s) ** 3, 0) / n;
+      },
+
+      // ============ 统计函数 Level 1：纯数学一行一个 ============
+      /** AVEDEV — 平均绝对偏差 */
+      AVEDEV: (...args) => {
+        const arr = numList(args); const n = arr.length; if (n === 0) return "#NUM!";
+        const mean = arr.reduce((a, b) => a + b, 0) / n;
+        return arr.reduce((a, b) => a + Math.abs(b - mean), 0) / n;
+      },
+      /** DEVSQ — 偏差平方和 */
+      DEVSQ: (...args) => {
+        const arr = numList(args); const n = arr.length; if (n === 0) return "#NUM!";
+        const mean = arr.reduce((a, b) => a + b, 0) / n;
+        return arr.reduce((a, b) => a + (b - mean) ** 2, 0);
+      },
+      /** GEOMEAN — 几何平均 */
+      GEOMEAN: (...args) => {
+        const arr = numList(args); if (arr.some(v => v <= 0)) return "#NUM!";
+        const logSum = arr.reduce((a, b) => a + Math.log(b), 0);
+        return Math.exp(logSum / arr.length);
+      },
+      /** HARMEAN — 调和平均 */
+      HARMEAN: (...args) => {
+        const arr = numList(args); if (arr.some(v => v <= 0)) return "#NUM!";
+        return arr.length / arr.reduce((a, b) => a + 1 / b, 0);
+      },
+      /** LARGE — 第 k 大 */
+      LARGE: (arr, k) => {
+        const a = Array.isArray(arr) ? arr.slice() : [arr]; const n = a.length;
+        k = Math.floor(+k); if (k < 1 || k > n) return "#NUM!";
+        return a.sort((a, b) => b - a)[k - 1];
+      },
+      /** SMALL — 第 k 小 */
+      SMALL: (arr, k) => {
+        const a = Array.isArray(arr) ? arr.slice() : [arr]; const n = a.length;
+        k = Math.floor(+k); if (k < 1 || k > n) return "#NUM!";
+        return a.sort((a, b) => a - b)[k - 1];
+      },
+      /** PERCENTILE.INC — 含端点百分位数 */
+      "PERCENTILE.INC": (arr, p) => {
+        const a = (Array.isArray(arr) ? arr : [arr]).slice().sort((a, b) => a - b);
+        p = +p; if (p < 0 || p > 1 || a.length === 0) return "#NUM!";
+        const n = a.length; const i = p * (n - 1); const lo = Math.floor(i), hi = Math.ceil(i);
+        return lo === hi ? a[lo] : a[lo] * (hi - i) + a[hi] * (i - lo);
+      },
+      /** PERCENTILE.EXC — 不含端点百分位数 */
+      "PERCENTILE.EXC": (arr, p) => {
+        const a = (Array.isArray(arr) ? arr : [arr]).slice().sort((a, b) => a - b);
+        p = +p; const n = a.length; if (p <= 0 || p >= 1 || n === 0) return "#NUM!";
+        const i = p * (n + 1) - 1; if (i < 0 || i >= n) return "#NUM!";
+        const lo = Math.floor(i), hi = Math.ceil(i);
+        return lo === hi ? a[lo] : a[lo] * (hi - i) + a[hi] * (i - lo);
+      },
+      /** PERCENTRANK.INC — 百分位排名（含端点） */
+      "PERCENTRANK.INC": (arr, x, sigDigits) => {
+        const a = (Array.isArray(arr) ? arr : [arr]).slice().sort((a, b) => a - b);
+        x = +x; const n = a.length; if (n === 0) return "#NUM!";
+        if (x < a[0]) return 0; if (x > a[n - 1]) return 1;
+        let lo = 0, hi = n - 1;
+        for (let i = 0; i < n; i++) { if (a[i] >= x) { hi = i; break; } }
+        for (let i = n - 1; i >= 0; i--) { if (a[i] <= x) { lo = i; break; } }
+        let pct = (lo === hi) ? lo / (n - 1) : (lo + (x - a[lo]) / (a[hi] - a[lo])) / (n - 1);
+        const sd = sigDigits == null ? 3 : Math.max(0, Math.floor(+sigDigits));
+        const factor = Math.pow(10, sd); return Math.round(pct * factor) / factor;
+      },
+      /** PERCENTRANK.EXC — 百分位排名（不含端点） */
+      "PERCENTRANK.EXC": (arr, x, sigDigits) => {
+        const a = (Array.isArray(arr) ? arr : [arr]).slice().sort((a, b) => a - b);
+        x = +x; const n = a.length; if (n === 0 || x < a[0] || x > a[n - 1]) return "#NUM!";
+        let lo = 0, hi = n - 1;
+        for (let i = 0; i < n; i++) { if (a[i] >= x) { hi = i; break; } }
+        for (let i = n - 1; i >= 0; i--) { if (a[i] <= x) { lo = i; break; } }
+        let pct = (lo === hi) ? (lo + 1) / (n + 1) : (lo + 1 + (x - a[lo]) / (a[hi] - a[lo])) / (n + 1);
+        const sd = sigDigits == null ? 3 : Math.max(0, Math.floor(+sigDigits));
+        const factor = Math.pow(10, sd); return Math.round(pct * factor) / factor;
+      },
+      /** RANK.EQ — 排名（同分同排名，跳号） */
+      "RANK.EQ": (x, arr, order) => {
+        const a = (Array.isArray(arr) ? arr : [arr]).slice();
+        x = +x; const n = a.length; let rank = 1;
+        for (let i = 0; i < n; i++) {
+          const cmp = (order === 1) ? (a[i] < x) : (a[i] > x);
+          if (cmp) rank++;
+        }
+        return rank;
+      },
+      /** RANK.AVG — 排名（同分取平均） */
+      "RANK.AVG": (x, arr, order) => {
+        const a = (Array.isArray(arr) ? arr : [arr]).slice().sort((a, b) => a - b);
+        x = +x; const n = a.length;
+        let loCount = 0, eqCount = 0;
+        if (order === 1) {
+          // 升序：x 比多少元素大 = loCount，跟多少元素相等 = eqCount
+          for (let i = 0; i < n; i++) { if (a[i] < x) loCount++; else if (a[i] === x) eqCount++; }
+        } else {
+          // 降序（默认）：x 比多少元素小 = loCount
+          for (let i = 0; i < n; i++) { if (a[i] > x) loCount++; else if (a[i] === x) eqCount++; }
+        }
+        if (eqCount === 0) return loCount + 1;
+        // 同分区间 [loCount+1, loCount+eqCount] 的平均
+        return loCount + (eqCount + 1) / 2;
+      },
+      /** QUARTILE.INC — 含端点四分位数 */
+      "QUARTILE.INC": (arr, q) => {
+        q = +q; if (q < 0 || q > 4) return "#NUM!";
+        return FUNCS["PERCENTILE.INC"](arr, q * 0.25);
+      },
+      /** QUARTILE.EXC — 不含端点四分位数 */
+      "QUARTILE.EXC": (arr, q) => {
+        q = +q; if (q < 0 || q > 4) return "#NUM!";
+        return FUNCS["PERCENTILE.EXC"](arr, q * 0.25);
+      },
+      /** TRIMMEAN — 截尾均值 */
+      TRIMMEAN: (arr, p) => {
+        const a = (Array.isArray(arr) ? arr : [arr]).slice().sort((x, y) => x - y);
+        p = +p; const n = a.length; if (p < 0 || p >= 1 || n === 0) return "#NUM!";
+        const k = Math.floor(p * n / 2); if (k === 0) return a.reduce((s, x) => s + x, 0) / n;
+        const trimmed = a.slice(k, n - k);
+        return trimmed.reduce((s, x) => s + x, 0) / trimmed.length;
+      },
+      /** PROB — 概率分布概率
+       *  PROB(x_range, prob_range, lower_limit, [upper_limit])
+       */
+      PROB: (xR, pR, lo, up) => {
+        const xs = Array.isArray(xR) ? xR : [xR]; const ps = Array.isArray(pR) ? pR : [pR];
+        if (xs.length !== ps.length) return "#NUM!";
+        let sum = 0; for (let i = 0; i < xs.length; i++) {
+          if (xs[i] >= lo && (up == null || xs[i] <= up)) sum += ps[i];
+        }
+        return sum;
+      },
+      /** COVARIANCE.S — 样本协方差 */
+      "COVARIANCE.S": (xR, yR) => {
+        const xs = Array.isArray(xR) ? xR : [xR]; const ys = Array.isArray(yR) ? yR : [yR];
+        const n = xs.length; if (n !== ys.length || n < 2) return "#NUM!";
+        const mx = xs.reduce((a, b) => a + b, 0) / n;
+        const my = ys.reduce((a, b) => a + b, 0) / n;
+        let sum = 0; for (let i = 0; i < n; i++) sum += (xs[i] - mx) * (ys[i] - my);
+        return sum / (n - 1);
+      },
+      /** COVARIANCE.P — 总体协方差 */
+      "COVARIANCE.P": (xR, yR) => {
+        const xs = Array.isArray(xR) ? xR : [xR]; const ys = Array.isArray(yR) ? yR : [yR];
+        const n = xs.length; if (n !== ys.length || n === 0) return "#NUM!";
+        const mx = xs.reduce((a, b) => a + b, 0) / n;
+        const my = ys.reduce((a, b) => a + b, 0) / n;
+        let sum = 0; for (let i = 0; i < n; i++) sum += (xs[i] - mx) * (ys[i] - my);
+        return sum / n;
+      },
+      /** FISHER — Fisher 变换 */
+      FISHER: (x) => { x = +x; if (x <= -1 || x >= 1) return "#NUM!"; return 0.5 * Math.log((1 + x) / (1 - x)); },
+      /** FISHERINV — Fisher 反变换 */
+      FISHERINV: (y) => { y = +y; return (Math.exp(2 * y) - 1) / (Math.exp(2 * y) + 1); },
+      /** GAUSS — NORM.S.DIST(z, TRUE) - 0.5 */
+      GAUSS: (z) => FUNCS["NORM.S.DIST"](z, true) - 0.5,
+      /** PHI — 标准正态分布 PDF（(1/√(2π))·e^(-z²/2)） */
+      PHI: (z) => {
+        z = +z;
+        return Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
+      },
+      /** GAMMA — Gamma 函数 Γ(x)，用 Lanczos 近似 */
+      GAMMA: (x) => { if (x <= 0 && Number.isInteger(x)) return "#NUM!"; return Math.exp(_gammaln(x)); },
+      /** GAMMALN — ln(Γ(x)) */
+      GAMMALN: (x) => { if (x <= 0 && Number.isInteger(x)) return "#NUM!"; return _gammaln(x); },
+      /** GAMMALN.PRECISE — Excel 2013+ 版本（同 GAMMALN） */
+      "GAMMALN.PRECISE": (x) => FUNCS.GAMMALN(x),
+      /** AVERAGEA — 含文本/逻辑值的平均（简化版：文本当 0，TRUE=1，FALSE=0） */
+      AVERAGEA: (...args) => {
+        let sum = 0, cnt = 0;
+        const walk = (a) => Array.isArray(a) ? a.forEach(walk) : a != null && a !== "" ? (sum += Number(a) || 0, cnt++) : null;
+        args.forEach(walk); return cnt === 0 ? "#DIV/0!" : sum / cnt;
+      },
+      /** STDEVA — 含文本/逻辑值的样本标准差（简化：文本=0, TRUE=1, FALSE=0） */
+      STDEVA: (...args) => {
+        const arr = numList(args, true); const n = arr.length; if (n < 2) return "#NUM!";
+        const mean = arr.reduce((a, b) => a + b, 0) / n;
+        return Math.sqrt(arr.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1));
+      },
+      /** STDEVPA — 含文本/逻辑值的总体标准差 */
+      STDEVPA: (...args) => {
+        const arr = numList(args, true); const n = arr.length; if (n === 0) return "#NUM!";
+        const mean = arr.reduce((a, b) => a + b, 0) / n;
+        return Math.sqrt(arr.reduce((a, b) => a + (b - mean) ** 2, 0) / n);
+      },
+      /** VARA — 含文本/逻辑值的样本方差 */
+      VARA: (...args) => { const arr = numList(args, true); const n = arr.length; if (n < 2) return "#NUM!";
+        const mean = arr.reduce((a, b) => a + b, 0) / n; return arr.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1); },
+      /** VARPA — 含文本/逻辑值的总体方差 */
+      VARPA: (...args) => { const arr = numList(args, true); const n = arr.length; if (n === 0) return "#NUM!";
+        const mean = arr.reduce((a, b) => a + b, 0) / n; return arr.reduce((a, b) => a + (b - mean) ** 2, 0) / n; },
+      /** MAXA — 含文本/逻辑值的最大（文本=0） */
+      MAXA: (...args) => {
+        let max = -Infinity, found = false;
+        const walk = (a) => Array.isArray(a) ? a.forEach(walk) : a != null && a !== "" ? (found = true, max = Math.max(max, Number(a) || 0)) : null;
+        args.forEach(walk); return found ? max : "#NUM!";
+      },
+      /** MINA — 含文本/逻辑值的最小（文本=0） */
+      MINA: (...args) => {
+        let min = Infinity, found = false;
+        const walk = (a) => Array.isArray(a) ? a.forEach(walk) : a != null && a !== "" ? (found = true, min = Math.min(min, Number(a) || 0)) : null;
+        args.forEach(walk); return found ? min : "#NUM!";
+      },
+      /** RSQ — 决定系数 R²（CORREL²） */
+      RSQ: (xR, yR) => { const r = FUNCS.CORREL(xR, yR); return typeof r === "number" ? r * r : r; },
+      /** STEYX — 标准误差 */
+      STEYX: (yR, xR) => {
+        const ys = Array.isArray(yR) ? yR : [yR]; const xs = Array.isArray(xR) ? xR : [xR];
+        const n = ys.length; if (n !== xs.length || n < 3) return "#NUM!";
+        const slope = FUNCS.SLOPE(ys, xs); const intercept = FUNCS.INTERCEPT(ys, xs);
+        let sse = 0; for (let i = 0; i < n; i++) { const yhat = slope * xs[i] + intercept; sse += (ys[i] - yhat) ** 2; }
+        return Math.sqrt(sse / (n - 2));
+      },
+      /** PEARSON — Pearson 相关系数（同 CORREL） */
+      PEARSON: (xR, yR) => FUNCS.CORREL(xR, yR),
+
+      // ============ 统计函数 Level 2：分布函数（依赖 _gammaln/_betainc/_gammainc）============
+      /** CHISQ.DIST — χ² 分布 PDF/CDF */
+      "CHISQ.DIST": (x, df, cumulative) => {
+        x = +x; df = +df; if (x < 0 || df <= 0) return "#NUM!";
+        const gHalf = _gammaln(df / 2);
+        if (!cumulative) {
+          return Math.exp((df / 2 - 1) * Math.log(x / 2) - x / 2 - gHalf) / 2;
+        }
+        return _gammainc(df / 2, x / 2, true);
+      },
+      /** CHISQ.DIST.RT — χ² 右尾概率 */
+      "CHISQ.DIST.RT": (x, df) => { const c = FUNCS["CHISQ.DIST"](x, df, true); return typeof c === "number" ? 1 - c : c; },
+      /** CHISQ.INV — χ² 分布反函数（CDF→x） */
+      "CHISQ.INV": (p, df) => { p = +p; df = +df; if (p <= 0 || p >= 1 || df <= 0) return "#NUM!";
+        return _chisinv(p, df); },
+      /** CHISQ.INV.RT — χ² 右尾反函数 */
+      "CHISQ.INV.RT": (p, df) => { p = +p; return FUNCS["CHISQ.INV"](1 - p, df); },
+      /** F.DIST — F 分布 PDF/CDF */
+      "F.DIST": (x, d1, d2, cumulative) => {
+        x = +x; d1 = +d1; d2 = +d2; if (x < 0 || d1 <= 0 || d2 <= 0) return "#NUM!";
+        if (!cumulative) {
+          const lg1 = _gammaln(d1 / 2), lg2 = _gammaln(d2 / 2), lgs = _gammaln((d1 + d2) / 2);
+          const num = _gammaln(d1 / 2 + d2 / 2);
+          const p1 = Math.pow(d1 * x, d1 / 2);
+          const p2 = Math.pow(d2 + d1 * x, (d1 + d2) / 2);
+          return Math.exp(num - lg1 - lg2 - lgs) * p1 / p2 * d1 / d2;
+        }
+        const b = (d1 * x) / (d1 * x + d2);
+        return _betainc(d1 / 2, d2 / 2, b, true);
+      },
+      /** F.DIST.RT — F 右尾 */
+      "F.DIST.RT": (x, d1, d2) => { const c = FUNCS["F.DIST"](x, d1, d2, true); return typeof c === "number" ? 1 - c : c; },
+      /** F.INV — F 反函数 */
+      "F.INV": (p, d1, d2) => { p = +p; d1 = +d1; d2 = +d2; if (p <= 0 || p >= 1 || d1 <= 0 || d2 <= 0) return "#NUM!";
+        return _finv(p, d1, d2); },
+      /** F.INV.RT — F 右尾反函数 */
+      "F.INV.RT": (p, d1, d2) => FUNCS["F.INV"](1 - p, d1, d2),
+      /** BETA.DIST — Beta 分布 PDF/CDF */
+      "BETA.DIST": (x, a, b, cumulative) => {
+        x = +x; a = +a; b = +b;
+        if (x < 0 || x > 1 || a <= 0 || b <= 0) return "#NUM!";
+        if (cumulative) return _betainc(a, b, x, true);
+        // PDF
+        const la = _gammaln(a), lb = _gammaln(b), ls = _gammaln(a + b);
+        return Math.exp((a - 1) * Math.log(x) + (b - 1) * Math.log(1 - x) + ls - la - lb);
+      },
+      /** BETA.INV — Beta 反函数 */
+      "BETA.INV": (p, a, b) => { p = +p; a = +a; b = +b; if (p <= 0 || p >= 1 || a <= 0 || b <= 0) return "#NUM!";
+        return _betaincinv(a, b, p); },
+      /** GAMMA.DIST — Gamma 分布 */
+      "GAMMA.DIST": (x, a, beta, cumulative) => {
+        x = +x; a = +a; beta = +beta;
+        if (x < 0 || a <= 0 || beta <= 0) return "#NUM!";
+        if (!cumulative) {
+          const ga = _gammaln(a);
+          return Math.exp((a - 1) * Math.log(x / beta) - x / beta - ga) / beta;
+        }
+        return _gammainc(a, x / beta, true);
+      },
+      /** GAMMA.INV — Gamma 反函数 */
+      "GAMMA.INV": (p, a, beta) => { p = +p; a = +a; beta = +beta; if (p <= 0 || p >= 1 || a <= 0 || beta <= 0) return "#NUM!";
+        return _gammaincinv(a, p) * beta; },
+      /** T.DIST — Student t 分布 CDF（单尾或双尾）
+       *  T.DIST(x, df, cumulative) 或 T.DIST(x, df, true) 单尾 CDF
+       *  Excel 实际上 T.DIST 是单尾累计，T.DIST.2T 是双尾
+       */
+      "T.DIST": (x, df, cumulative) => {
+        x = +x; df = +df; if (df <= 0) return "#NUM!";
+        const z = df / (df + x * x);
+        const betaVal = _betainc(df / 2, 0.5, z, true);
+        const cdf = 0.5 * (1 - betaVal);
+        if (cumulative) return x >= 0 ? 1 - cdf : cdf;
+        // PDF
+        const lg = _gammaln((df + 1) / 2) - _gammaln(df / 2) - 0.5 * Math.log(df * Math.PI);
+        return Math.exp(lg - 0.5 * (df + 1) * Math.log(1 + x * x / df));
+      },
+      /** T.DIST.RT — t 右尾概率 */
+      "T.DIST.RT": (x, df) => { x = +x; const c = FUNCS["T.DIST"](Math.abs(x), df, true); return typeof c === "number" ? 1 - c : c; },
+      /** T.DIST.2T — t 双尾概率 */
+      "T.DIST.2T": (x, df) => { x = +x; const r = FUNCS["T.DIST.RT"](x, df); return typeof r === "number" ? 2 * r : r; },
+      /** T.INV — t 反函数（单尾） */
+      "T.INV": (p, df) => { p = +p; df = +df; if (p <= 0 || p >= 1 || df <= 0) return "#NUM!";
+        return _tinv(p, df); },
+      /** T.INV.2T — t 反函数（双尾） */
+      "T.INV.2T": (p, df) => FUNCS["T.INV"](1 - p / 2, df),
+      /** CONFIDENCE.NORM — 正态置信区间半宽 */
+      "CONFIDENCE.NORM": (alpha, sd, n) => { alpha = +alpha; sd = +sd; n = +n;
+        if (alpha <= 0 || alpha >= 1 || sd <= 0 || n <= 0) return "#NUM!";
+        const z = FUNCS["NORM.S.INV"](1 - alpha / 2);
+        return z * sd / Math.sqrt(n); },
+      /** CONFIDENCE.T — t 置信区间半宽 */
+      "CONFIDENCE.T": (alpha, sd, n) => { alpha = +alpha; sd = +sd; n = +n;
+        if (alpha <= 0 || alpha >= 1 || sd <= 0 || n <= 1) return "#NUM!";
+        const t = FUNCS["T.INV"](1 - alpha / 2, n - 1);
+        return t * sd / Math.sqrt(n); },
+      /** Z.TEST — Z 检验 p-value */
+      "Z.TEST": (xR, mu0, sd) => {
+        const xs = Array.isArray(xR) ? xR : [xR]; const n = xs.length; if (n === 0) return "#NUM!";
+        const mean = xs.reduce((a, b) => a + b, 0) / n;
+        const z = (mean - mu0) / (sd / Math.sqrt(n));
+        return 1 - FUNCS["NORM.S.DIST"](z, true);
+      },
+      /** CHISQ.TEST — χ² 列联表检验 p-value
+       *  公式：Σ(O-E)²/E → p = 1 - CHISQ.DIST(χ², df, TRUE)
+       */
+      "CHISQ.TEST": (obsR, expR) => {
+        const O = Array.isArray(obsR) ? obsR : [obsR];
+        const E = Array.isArray(expR) ? expR : [expR];
+        const n = O.length; if (n !== E.length || n < 1) return "#NUM!";
+        let chi2 = 0; let df = 0;
+        for (let i = 0; i < n; i++) {
+          const e = +E[i]; const o = +O[i];
+          if (e <= 0) return "#NUM!";
+          chi2 += (o - e) * (o - e) / e;
+          df++;
+        }
+        df = Math.max(1, df - 1); // df = cells - 1（简化一维情况）
+        return 1 - FUNCS["CHISQ.DIST"](chi2, df, true);
+      },
+      /** F.TEST — F 方差齐性检验（双侧 p-value）
+       *  F = VAR.S(arr1) / VAR.S(arr2)，df1=n1-1, df2=n2-1
+       */
+      "F.TEST": (arr1, arr2) => {
+        const a1 = Array.isArray(arr1) ? arr1 : [arr1];
+        const a2 = Array.isArray(arr2) ? arr2 : [arr2];
+        const n1 = a1.length, n2 = a2.length;
+        if (n1 < 2 || n2 < 2) return "#DIV/0!";
+        const m1 = a1.reduce((s, x) => s + x, 0) / n1;
+        const m2 = a2.reduce((s, x) => s + x, 0) / n2;
+        let s1 = 0, s2 = 0;
+        for (const x of a1) s1 += (x - m1) ** 2;
+        for (const x of a2) s2 += (x - m2) ** 2;
+        const v1 = s1 / (n1 - 1), v2 = s2 / (n2 - 1);
+        if (v1 === 0 || v2 === 0) return "#DIV/0!";
+        const df1 = n1 - 1, df2 = n2 - 1;
+        const F = v1 / v2;
+        // 双侧 p-value
+        const pLo = FUNCS["F.DIST"](F, df1, df2, true);
+        const pHi = FUNCS["F.DIST"](F, df1, df2, false);
+        return 2 * Math.min(pLo, 1 - pLo);
+      },
+      /** T.TEST — t 检验（三种模式）
+       *  type 1=paired 2=equal variance 3=unequal variance（Welch）
+       *  tails 1=one-tailed 2=two-tailed
+       */
+      "T.TEST": (arr1, arr2, tails, type) => {
+        const a1 = Array.isArray(arr1) ? arr1 : [arr1];
+        const a2 = Array.isArray(arr2) ? arr2 : [arr2];
+        tails = +tails; type = +type;
+        if (tails !== 1 && tails !== 2) return "#NUM!";
+        if (type < 1 || type > 3) return "#NUM!";
+        let t, df;
+        if (type === 1) {
+          // paired：差值的单样本 t 检验
+          if (a1.length !== a2.length) return "#N/A";
+          const d = a1.map((v, i) => v - a2[i]);
+          const n = d.length; if (n < 2) return "#N/A";
+          const md = d.reduce((s, x) => s + x, 0) / n;
+          let sd2 = 0; for (const x of d) sd2 += (x - md) ** 2;
+          sd2 /= (n - 1);
+          if (sd2 === 0) return "#DIV/0!";
+          t = md / Math.sqrt(sd2 / n);
+          df = n - 1;
+        } else {
+          // two-sample
+          const n1 = a1.length, n2 = a2.length;
+          if (n1 < 2 || n2 < 2) return "#N/A";
+          const m1 = a1.reduce((s, x) => s + x, 0) / n1;
+          const m2 = a2.reduce((s, x) => s + x, 0) / n2;
+          let s1 = 0, s2 = 0;
+          for (const x of a1) s1 += (x - m1) ** 2;
+          for (const x of a2) s2 += (x - m2) ** 2;
+          const v1 = s1 / (n1 - 1), v2 = s2 / (n2 - 1);
+          if (v1 === 0 && v2 === 0) return "#DIV/0!";
+          if (type === 2) {
+            // equal variance
+            const sp2 = ((n1 - 1) * v1 + (n2 - 1) * v2) / (n1 + n2 - 2);
+            if (sp2 === 0) return "#DIV/0!";
+            t = (m1 - m2) / Math.sqrt(sp2 * (1 / n1 + 1 / n2));
+            df = n1 + n2 - 2;
+          } else {
+            // Welch (unequal variance)
+            const se = Math.sqrt(v1 / n1 + v2 / n2);
+            if (se === 0) return "#DIV/0!";
+            t = (m1 - m2) / se;
+            // Welch-Satterthwaite df
+            const num = (v1 / n1 + v2 / n2) ** 2;
+            const den = (v1 / n1) ** 2 / (n1 - 1) + (v2 / n2) ** 2 / (n2 - 1);
+            df = num / den;
+          }
+        }
+        // t 分布 CDF → p-value
+        const pOne = FUNCS["T.DIST.RT"](Math.abs(t), df);
+        return tails === 1 ? pOne : 2 * pOne;
+      },
+      /** BINOM.DIST.RANGE — 二项分布区间概率 */
+      "BINOM.DIST.RANGE": (trials, p, s, h) => {
+        const n = Math.floor(+trials); p = +p;
+        if (n < 0 || p < 0 || p > 1) return "#NUM!";
+        if (h == null) return FUNCS["BINOM.DIST"](s, n, p, true);
+        let sum = 0; for (let k = s; k <= h; k++) sum += FUNCS["BINOM.DIST"](k, n, p, false);
+        return sum;
+      },
+      /** MODE.MULT — 众数数组（简化：返回第一个众数的数组） */
+      "MODE.MULT": (...args) => {
+        const arr = numList(args); const cnt = {}; let maxF = 0;
+        arr.forEach(v => { cnt[v] = (cnt[v] || 0) + 1; if (cnt[v] > maxF) maxF = cnt[v]; });
+        if (maxF < 2) return "#N/A";
+        return arr.filter(v => cnt[v] === maxF).filter((v, i, a) => a.indexOf(v) === i);
+      },
+      /** MODE.SNGL — 众数单值（Excel 2013 旧版，同分取第一个出现的） */
+      "MODE.SNGL": (...args) => {
+        const arr = numList(args); const cnt = {}; let maxF = 0; let mode = null;
+        // 先统计频次
+        arr.forEach(v => { cnt[v] = (cnt[v] || 0) + 1; if (cnt[v] > maxF) maxF = cnt[v]; });
+        if (maxF < 2) return "#N/A";
+        // 按出现顺序返回第一个众数
+        for (const v of arr) { if (cnt[v] === maxF) return +v; }
+        return "#N/A";
+      },
+
+      /** MDETERM — 矩阵行列式
+       *  MDETERM(A) 接受二维 range，返回标量行列式
+       */
+      MDETERM: (A) => {
+        const m = _toMatrix(A, false);
+        const n = m.length; if (m[0].length !== n || n === 0) return "#NUM!";
+        // 2×2 直接公式
+        if (n === 2) return m[0][0] * m[1][1] - m[0][1] * m[1][0];
+        const gj = _gjInverseDet(m);
+        if (!gj) return 0; // 奇异矩阵 det=0
+        return gj.det;
+      },
+      /** MINVERSE — 矩阵逆
+       *  MINVERSE(A) 接受二维 range，返回逆矩阵数组（行优先）
+       */
+      MINVERSE: (A) => {
+        const m = _toMatrix(A, false);
+        const n = m.length; if (m[0].length !== n || n === 0) return "#NUM!";
+        const gj = _gjInverseDet(m);
+        if (!gj) return "#NUM!"; // 奇异矩阵不可逆
+        return gj.inv;
+      },
+      /** MMULT — 矩阵乘法
+       *  MMULT(A, B) 接受两个二维 range，返回 A×B 结果矩阵
+       */
+      MMULT: (A, B) => {
+        const Am = _toMatrix(A, false); const Bm = _toMatrix(B, false);
+        const ar = Am.length, ac = Am[0].length;
+        const br = Bm.length, bc = Bm[0].length;
+        if (ac !== br || ar === 0 || bc === 0) return "#NUM!";
+        const C = Array.from({ length: ar }, () => new Array(bc).fill(0));
+        for (let i = 0; i < ar; i++)
+          for (let j = 0; j < bc; j++) {
+            let s = 0;
+            for (let k = 0; k < ac; k++) s += Am[i][k] * Bm[k][j];
+            C[i][j] = s;
+          }
+        return C;
+      },
+
+      /** LINEST — 线性回归（数组公式，返回 5×N 矩阵）
+       *  LINEST(known_y's, [known_x's], [const=TRUE], [stats=FALSE])
+       *  - known_y's: 单列/单行向量
+       *  - known_x's: 单列/单行/多列矩阵；省略时用 {1,2,3,...}
+       *  - const: TRUE(默认) 加截距列；FALSE 强制过原点
+       *  - stats: FALSE(默认) 只返回系数行；TRUE 返回完整 5 行矩阵
+       *  系数顺序（Excel 约定）: m_k, m_{k-1}, ..., m_1, b — 斜率从右到左 + 截距
+       */
+      LINEST: (knownY, knownX, const_, stats) => {
+        // 参数处理
+        let useConst = const_ !== false;  // 默认 true
+        let useStats = stats === true;    // 默认 false
+
+        // knownY → 列向量 n×1
+        const Yraw = _toMatrix(knownY, true);
+        const n = Yraw.length; if (n < 2) return "#NUM!";
+        const y = Yraw.map(r => r[0]); // 一维列向量
+
+        // knownX → 多列矩阵 n×p
+        let Xmat; // n × pX（不含截距列）
+        if (knownX == null || knownX === true || knownX === false) {
+          // 省略 knownX — 用 1,2,3,...
+          Xmat = y.map((_, i) => [i + 1]);
+        } else {
+          const Xraw = _toMatrix(knownX, true);
+          // 如果是 1×N 行向量（knownX 单行），转置成 N×1 列向量
+          if (Xraw.length === 1 && n > 1 && Xraw[0].length === n) {
+            Xmat = Xraw[0].map(v => [v]);
+          } else if (Xraw.length !== n) {
+            // knownX 行数不对
+            if (Xraw.length === n) { Xmat = Xraw; }
+            else return "#NUM!";
+          } else {
+            Xmat = Xraw;
+          }
+        }
+        // 验证 X 无缺失值
+        for (const row of Xmat) for (const v of row) if (isNaN(v)) return "#NUM!";
+
+        const pX = Xmat[0].length; // 原始斜率数
+        const p = useConst ? pX + 1 : pX; // 设计矩阵列数（含截距）
+
+        // 构建设计矩阵 X_design（n × p）
+        const Xd = useConst
+          ? Xmat.map(row => [...row, 1])  // 加一列全 1
+          : Xmat.map(row => [...row]);
+
+        // 计算 X'X（p×p）
+        const XtX = Array.from({ length: p }, () => new Array(p).fill(0));
+        for (let i = 0; i < p; i++)
+          for (let j = 0; j < p; j++) {
+            let s = 0;
+            for (let k = 0; k < n; k++) s += Xd[k][i] * Xd[k][j];
+            XtX[i][j] = s;
+          }
+
+        // Gauss-Jordan 求 (X'X)⁻¹ 和 det(X'X)
+        const gj = _gjInverseDet(XtX);
+        if (!gj) return "#NUM!"; // 奇异矩阵（X 列线性相关）
+        const XtXinv = gj.inv;
+
+        // 计算 X'y（p×1）
+        const Xty = new Array(p).fill(0);
+        for (let i = 0; i < p; i++)
+          for (let k = 0; k < n; k++) Xty[i] += Xd[k][i] * y[k];
+
+        // β = (X'X)⁻¹ X'y（p×1 列向量，最后一个是截距 b 当 useConst=true）
+        const beta = new Array(p).fill(0);
+        for (let i = 0; i < p; i++)
+          for (let j = 0; j < p; j++) beta[i] += XtXinv[i][j] * Xty[j];
+
+        // === 计算预测值 ŷ 和平方和 ===
+        let yMean = y.reduce((a, b) => a + b, 0) / n;
+        let SS_tot = 0, SS_res = 0;
+        const yhat = new Array(n).fill(0);
+        for (let k = 0; k < n; k++) {
+          let yh = 0;
+          for (let j = 0; j < p; j++) yh += Xd[k][j] * beta[j];
+          yhat[k] = yh;
+          SS_tot += (y[k] - yMean) ** 2;
+          SS_res += (y[k] - yh) ** 2;
+        }
+
+        // === 构建输出（Excel 斜率反向：m_k ... m_1, b）===
+        // beta[pX-1] 是 m_1（对应 knownX 第 1 列），beta[0] 是 m_k（最后一列）
+        // 我们要输出顺序：m_k, m_{k-1}, ..., m_1, [b]
+        const slopes = [];
+        for (let j = pX - 1; j >= 0; j--) slopes.push(beta[j]); // 反向！
+        const b = useConst ? beta[p - 1] : 0; // 截距或强制过原点
+        const row1 = useConst ? [...slopes, b] : [...slopes];
+
+        if (!useStats) return [row1]; // 单行系数（二维 1×p）
+
+        // === stats 计算 ===
+        const dfReg = pX;           // 回归自由度 = 斜率数
+        const dfRes = n - p;        // 残差自由度
+        if (dfRes <= 0) return "#NUM!";
+        const MSE = SS_res / dfRes;
+
+        // SS_reg = SS_tot - SS_res（当 const=true）或 SS_reg = Σŷ²（const=false 过原点）
+        let SS_reg;
+        if (useConst) {
+          SS_reg = SS_tot - SS_res;
+        } else {
+          SS_reg = 0;
+          for (const yh of yhat) SS_reg += yh * yh;
+        }
+
+        // R²
+        const R2 = SS_tot > 0 ? SS_reg / SS_tot : 1;
+        // 当 const=false 且 SS_tot=0 时 R² 定义不同，简化处理
+
+        // SE(y) — 标准误差
+        const seY = Math.sqrt(MSE);
+
+        // SE(β) — √(diag(X'X⁻¹) * MSE)
+        const seBeta = new Array(p).fill(0);
+        for (let j = 0; j < p; j++) seBeta[j] = Math.sqrt(Math.abs(XtXinv[j][j]) * MSE);
+        // 同样反向 + 截距
+        const seSlopes = [];
+        for (let j = pX - 1; j >= 0; j--) seSlopes.push(seBeta[j]);
+        const seB = useConst ? seBeta[p - 1] : 0;
+        const row2 = useConst ? [...seSlopes, seB] : [...seSlopes];
+
+        // F 统计量
+        let Fstat, dfF1, dfF2;
+        if (dfReg > 0 && SS_res > 0) {
+          Fstat = (SS_reg / dfReg) / MSE;
+          dfF1 = dfReg; dfF2 = dfRes;
+        } else {
+          Fstat = 0; dfF1 = 1; dfF2 = dfRes;
+        }
+
+        return [
+          row1,                                    // Row 1: 系数
+          row2,                                    // Row 2: SE
+          [R2, seY],                               // Row 3: R², SE(y)
+          [Fstat, dfF2],                           // Row 4: F, df_res
+          [SS_reg, SS_res]                         // Row 5: SS_reg, SS_res
+        ];
+      },
+
+      /** LOGEST — 指数曲线回归（y = b·m₁^x₁·m₂^x₂·...）
+       *  LOGEST(known_y's, [known_x's], [const=TRUE], [stats=FALSE])
+       *  算法：对 ln(y) 跑 LINEST，然后系数行 exp 还原
+       *  stats 行直接复用 LINEST 的（在 ln 空间计算的）
+       */
+      LOGEST: (knownY, knownX, const_, stats) => {
+        // known_y 必须 > 0（否则 ln 无定义）
+        const Yraw = _toMatrix(knownY, true);
+        const n = Yraw.length; if (n < 2) return "#NUM!";
+        const lnY = Yraw.map(r => {
+          const v = r[0];
+          if (v <= 0 || isNaN(v)) return NaN;
+          return Math.log(v);
+        });
+        if (lnY.some(v => isNaN(v))) return "#NUM!";
+        // 把 lnY 转回列向量格式供 LINEST
+        const lnYcol = lnY.map(v => [v]);
+        const useStats = stats === true;
+        const useConst = const_ !== false;
+        // knownX 格式处理：跟 LINEST 保持一致 — 传原始值让 LINEST 自己转
+        const lsResult = FUNCS.LINEST(lnYcol, knownX, useConst, true);
+        if (typeof lsResult === "string") return lsResult;
+
+        // 系数行 [m_k, m_{k-1}, ..., m_1, b] — 每个系数 exp 还原
+        const row1 = lsResult[0].map(v => Math.exp(v));
+        // SE 行也要 exp 吗？Excel LOGEST 的 SE 是在原始空间的 — 我们简化：直接给 ln 空间的 SE（乘以系数做 delta 方法）
+        // 简化：SE 行直接用 LINEST 的第二行（足够接近）
+        const row2 = lsResult[1];
+        // stats 行（R², SE(y), F, df, SS）— 直接用 LINEST 的（在 ln 空间）
+        if (!useStats) return [row1];
+        return [row1, row2, lsResult[2], lsResult[3], lsResult[4]];
+      },
+
+      /** TREND — 线性回归预测
+       *  TREND(known_y's, [known_x's], [new_x's], [const=TRUE])
+       *  用 LINEST 拟合后对 new_x 预测；省略 new_x 时用 known_x 内插
+       */
+      TREND: (knownY, knownX, newX, const_) => {
+        const useConst = const_ !== false;
+        // 先用 LINEST 拿 beta（stats=FALSE 够了）
+        const ls = FUNCS.LINEST(knownY, knownX, useConst, false);
+        if (typeof ls === "string") return ls;
+        const coefs = ls[0]; // 反向的系数行：[m_k, m_{k-1}, ..., m_1, b]
+        // 注意 coefs 顺序是 Excel 反向！最后一个是 b（截距），前面依次是 m_k, m_{k-1}, ..., m_1
+        // knownX 有 pX 列 → coefs 前 pX 个是斜率（反向），最后 1 个（如果 useConst）是 b
+        const pX = coefs.length - (useConst ? 1 : 0);
+        const b = useConst ? coefs[coefs.length - 1] : 0;
+        // 斜率数组（反向）：coefs[0] 对应 knownX 最后一列
+        const revSlopes = [];
+        for (let j = 0; j < pX; j++) revSlopes.push(coefs[j]);
+
+        // new_x 的处理：省略时用 known_x
+        let targetX;
+        if (newX == null) {
+          if (knownX == null) return "#NUM!";
+          targetX = _toMatrix(knownX, true);
+        } else {
+          targetX = _toMatrix(newX, true);
+        }
+        // 单行数组转置成列向量（Excel TREND/GROWTH 行为）
+        if (targetX.length === 1 && targetX[0].length > 1) {
+          targetX = targetX[0].map(v => [v]);
+        }
+        // 列数对齐
+        if (targetX[0].length !== pX) return "#NUM!";
+
+        // 预测 ŷ = b + Σ(slope_i * x_{pX-i+1}) 因为 revSlopes 反向
+        // 更简单：revSlopes[j]（j=0→m_k）乘以 targetX 最后一列（第 pX 列，index pX-1-j）
+        // 其实顺序一致就行——revSlopes[0] 对应 knownX 最后一列
+        // 我们直接按原 knownX 顺序取系数：coefs[pX-j-1] 对应 knownX 第 j 列
+        const pred = targetX.map(row => {
+          let yh = b;
+          for (let j = 0; j < pX; j++) {
+            // coefs 里斜率顺序是 m_k, m_{k-1}, ..., m_1 → coefs[pX-1-j] 对应 knownX 第 j 列
+            const m = coefs[pX - 1 - j];
+            yh += m * row[j];
+          }
+          return yh;
+        });
+        // 一维数组 → 单行（跟 LINEST 输出形状对应）
+        return [pred];
+      },
+
+      /** GROWTH — 指数曲线预测（y = b·m₁^x₁·m₂^x₂·...）
+       *  GROWTH(known_y's, [known_x's], [new_x's], [const=TRUE])
+       *  known_y 必须 > 0；省略 new_x 时用 known_x 内插
+       */
+      GROWTH: (knownY, knownX, newX, const_) => {
+        const useConst = const_ !== false;
+        // known_y 必须 > 0
+        const Yraw = _toMatrix(knownY, true);
+        if (Yraw.some(r => r[0] <= 0 || isNaN(r[0]))) return "#NUM!";
+        // 用 LOGEST 拟合（stats=FALSE 拿系数行）
+        const lg = FUNCS.LOGEST(knownY, knownX, useConst, false);
+        if (typeof lg === "string") return lg;
+        const coefs = lg[0]; // [m_k, m_{k-1}, ..., m_1, b]（已 exp 还原）
+        const pX = coefs.length - (useConst ? 1 : 0);
+        const b = useConst ? coefs[coefs.length - 1] : 1; // 无截距时 b=1（指数过原点形式）
+
+        let targetX;
+        if (newX == null) {
+          if (knownX == null) return "#NUM!";
+          targetX = _toMatrix(knownX, true);
+        } else {
+          targetX = _toMatrix(newX, true);
+        }
+        // 单行数组转置成列向量
+        if (targetX.length === 1 && targetX[0].length > 1) {
+          targetX = targetX[0].map(v => [v]);
+        }
+        if (targetX[0].length !== pX) return "#NUM!";
+
+        const pred = targetX.map(row => {
+          let yh = b;
+          for (let j = 0; j < pX; j++) {
+            const m = coefs[pX - 1 - j];
+            yh *= Math.pow(m, row[j]);
+          }
+          return yh;
+        });
+        return [pred];
+      },
+
       // ============ 财务函数（续） ============
       /** NPER — 期数 */
       NPER: (rate, pmt, pv, fv, type) => {
@@ -1170,7 +3060,31 @@
        *  时间轴契约：values[0] = 第 0 期（通常是负的初始投资），values[1] = 第 1 期...
        *  收敛条件 |Δrate| < 1e-7 或 20 次迭代
        */
-      IRR: () => "#CALC!", // 走 evalNode 特殊路径
+      IRR: (values, guess) => {
+        // IRR(values, [guess=0.1]) — Newton-Raphson 解 NPV(r)=0
+        const arr = Array.isArray(values) ? values : [values];
+        const flows = arr.map(v => +v);
+        if (flows.length < 2) return "#NUM!";
+        // 必须有正有负
+        const hasPos = flows.some(v => v > 0);
+        const hasNeg = flows.some(v => v < 0);
+        if (!hasPos || !hasNeg) return "#NUM!";
+        let r = guess != null ? +guess : 0.1;
+        for (let iter = 0; iter < 50; iter++) {
+          let npv = 0, dnpv = 0;
+          for (let i = 0; i < flows.length; i++) {
+            const pow = Math.pow(1 + r, i);
+            npv += flows[i] / pow;
+            dnpv -= i * flows[i] / (pow * (1 + r));
+          }
+          if (Math.abs(dnpv) < 1e-15) { r += 0.1; continue; }
+          const rNew = r - npv / dnpv;
+          if (rNew <= -1) return "#NUM!";
+          if (Math.abs(rNew - r) < 1e-10) return rNew;
+          r = rNew;
+        }
+        return "#NUM!";
+      },
       /** PV — 现值
        *  PV(rate, nper, pmt, [fv=0], [type=0])
        *  type=0 → 期末支付（默认）；type=1 → 期初支付
@@ -1196,6 +3110,195 @@
         if (r === 0) return -(p + f) / n;
         const pow = Math.pow(1 + r, n);
         return -(p * pow + f) * r / ((pow - 1) * adj);
+      },
+      /** IPMT — 第 period 期利息支付
+       *  IPMT(rate, period, nper, pv, [fv], [type])
+       */
+      IPMT: (rate, period, nper, pv, fv, type) => {
+        const r = +rate, per = Math.trunc(+period), n = +nper, p = +pv;
+        const f = fv != null ? +fv : 0;
+        const t = type != null ? +type : 0;
+        if (per < 1 || per > n) return "#NUM!";
+        // 期初/期末调整
+        const adj = _tvmAdj(t, r);
+        // 期末（type=0）：利息余额 = r * 剩余本金
+        // 期初（type=1）：首月 0 利息，其余同
+        if (t === 1 && per === 1) return 0;
+        // 计算该期前的未偿本金
+        const bal = _ipmtBV(r, per - 1, n, p, f, t);
+        return r * bal * adj;
+      },
+      /** PPMT — 第 period 期本金支付 */
+      PPMT: (rate, period, nper, pv, fv, type) => {
+        const r = +rate, per = Math.trunc(+period), n = +nper, p = +pv;
+        const f = fv != null ? +fv : 0;
+        const t = type != null ? +type : 0;
+        if (per < 1 || per > n) return "#NUM!";
+        return FUNCS.PMT(r, n, p, f, t) - FUNCS.IPMT(r, per, n, p, f, t);
+      },
+      /** CUMIPMT — 累计利息支付（从 start_period 到 end_period） */
+      CUMIPMT: (rate, nper, pv, startPeriod, endPeriod, type) => {
+        const r = +rate, n = +nper, p = +pv;
+        const s = Math.trunc(+startPeriod), e = Math.trunc(+endPeriod);
+        const t = type != null ? +type : 0;
+        if (r <= 0 || n <= 0 || p <= 0 || s < 1 || e < s || e > n) return "#NUM!";
+        let total = 0;
+        for (let i = s; i <= e; i++) total += FUNCS.IPMT(r, i, n, p, 0, t);
+        return total;
+      },
+      /** CUMPRINC — 累计本金支付 */
+      CUMPRINC: (rate, nper, pv, startPeriod, endPeriod, type) => {
+        const r = +rate, n = +nper, p = +pv;
+        const s = Math.trunc(+startPeriod), e = Math.trunc(+endPeriod);
+        const t = type != null ? +type : 0;
+        if (r <= 0 || n <= 0 || p <= 0 || s < 1 || e < s || e > n) return "#NUM!";
+        let total = 0;
+        for (let i = s; i <= e; i++) total += FUNCS.PPMT(r, i, n, p, 0, t);
+        return total;
+      },
+      /** SLN — 直线折旧 */
+      SLN: (cost, salvage, life) => {
+        const c = +cost, s = +salvage, l = +life;
+        if (c < 0 || s < 0 || s > c || l <= 0) return "#NUM!";
+        return (c - s) / l;
+      },
+      /** SYD — 年数总和法折旧
+       *  SYD(cost, salvage, life, period) — 第 period 期
+       */
+      SYD: (cost, salvage, life, period) => {
+        const c = +cost, s = +salvage, l = +life, p = Math.trunc(+period);
+        if (c < 0 || s < 0 || s > c || l <= 0 || p < 1 || p > l) return "#NUM!";
+        const dep = c - s;
+        const totalDigits = l * (l + 1) / 2;
+        return dep * (l - p + 1) / totalDigits;
+      },
+      /** DB — 固定余额递减法（计算 rate = 1 - (salvage/cost)^(1/life)） */
+      DB: (cost, salvage, life, period, month) => {
+        const c = +cost, s = +salvage, l = +life, p = Math.trunc(+period);
+        const m = month != null ? +month : 12;
+        if (c < 0 || s < 0 || s > c || l <= 0 || p < 1 || p > l) return "#NUM!";
+        const rate = 1 - Math.pow(s / c, 1 / l);
+        let prev = c;
+        for (let i = 1; i < p; i++) prev = prev * (1 - rate);
+        const factor = p === 1 ? m / 12 : (m === 12 ? 1 : rate);
+        // 最后一期按剩余值折旧
+        if (p === l) {
+          return Math.max(prev - s, 0);
+        }
+        const d = prev * rate * factor;
+        return Math.max(d, 0);
+      },
+      /** DDB — 双倍余额递减法（可指定 factor，默认 2） */
+      DDB: (cost, salvage, life, period, factor) => {
+        const c = +cost, s = +salvage, l = +life, p = Math.trunc(+period);
+        const f = factor != null ? +factor : 2;
+        if (c < 0 || s < 0 || s > c || l <= 0 || p < 1 || p > l || f <= 0) return "#NUM!";
+        const rate = f / l;
+        let prev = c;
+        for (let i = 1; i < p; i++) prev = prev * (1 - rate);
+        const d = prev * rate;
+        return Math.min(d, Math.max(prev - s, 0));
+      },
+      /** VDB — 可变余额递减法（双倍/指定 factor，可切换直线） */
+      VDB: (cost, salvage, life, startPeriod, endPeriod, factor, noSwitch) => {
+        const c = +cost, s = +salvage, l = +life;
+        const sp = +startPeriod, ep = +endPeriod;
+        const f = factor != null ? +factor : 2;
+        if (c < 0 || s < 0 || s > c || l <= 0 || f <= 0) return "#NUM!";
+        // 简化：从 sp 到 ep 区间余额递减，按实际已过时间比例折旧
+        const rate = f / l;
+        // 先算 startPeriod 时的账面价值
+        let bvS = c;
+        for (let i = 0; i < sp; i++) {
+          const d = bvS * rate;
+          bvS = Math.max(bvS - d, s);
+          if (bvS <= s) break;
+        }
+        // 然后算 endPeriod 时的账面价值
+        let bvE = bvS;
+        for (let i = sp; i < ep; i++) {
+          const d = bvE * rate;
+          bvE = Math.max(bvE - d, s);
+          if (bvE <= s) break;
+        }
+        // 加上 endPeriod 当期中的（按小数）
+        const frac = ep - Math.floor(ep);
+        const dFrac = bvE * rate * frac;
+        return Math.max(bvS - bvE - dFrac, 0);
+      },
+      /** EFFECT — 名义利率 → 实际年利率（EAR）
+       *  EFFECT(nominal_rate, npery) — (1 + r/m)^m - 1
+       */
+      EFFECT: (nominalRate, npery) => {
+        const r = +nominalRate, m = Math.trunc(+npery);
+        if (r < 0 || m <= 0 || !Number.isFinite(r)) return "#NUM!";
+        return Math.pow(1 + r / m, m) - 1;
+      },
+      /** NOMINAL — 实际年利率 → 名义年利率
+       *  NOMINAL(effective_rate, npery) — m * ((1 + EAR)^(1/m) - 1)
+       */
+      NOMINAL: (effectRate, npery) => {
+        const r = +effectRate, m = Math.trunc(+npery);
+        if (r < 0 || m <= 0 || !Number.isFinite(r)) return "#NUM!";
+        return m * (Math.pow(1 + r, 1 / m) - 1);
+      },
+      /** XNPV — 不定期现金流净现值
+       *  XNPV(rate, values, dates) — 基于实际天数折现
+       */
+      XNPV: (rate, values, dates) => {
+        const r = +rate;
+        const vArr = Array.isArray(values) ? values : [values];
+        const dArr = Array.isArray(dates) ? dates : [dates];
+        if (!Number.isFinite(r) || vArr.length !== dArr.length || vArr.length === 0) return "#NUM!";
+        const t0 = new Date(dArr[0]);
+        let npv = 0;
+        for (let i = 0; i < vArr.length; i++) {
+          const ti = new Date(dArr[i]);
+          if (isNaN(ti)) return "#NUM!";
+          const days = Math.round((ti - t0) / 86400000);
+          if (days < 0) return "#NUM!";
+          const yi = days / 365;
+          npv += (+vArr[i]) / Math.pow(1 + r, yi);
+        }
+        return npv;
+      },
+      /** XIRR — 不定期现金流内部收益率
+       *  XIRR(values, dates, [guess=0.1]) — Newton-Raphson 解 XNPV(r)=0
+       *  导数 dXNPV/dr = -Σ CF[i] * yi / (1+r)^(yi+1)
+       */
+      XIRR: (values, dates, guess) => {
+        const vArr = Array.isArray(values) ? values : [values];
+        const dArr = Array.isArray(dates) ? dates : [dates];
+        if (vArr.length < 2 || vArr.length !== dArr.length) return "#NUM!";
+        const flows = vArr.map(v => +v);
+        const hasPos = flows.some(v => v > 0);
+        const hasNeg = flows.some(v => v < 0);
+        if (!hasPos || !hasNeg) return "#NUM!";
+        const t0 = new Date(dArr[0]);
+        if (isNaN(t0)) return "#NUM!";
+        const yrs = [];
+        for (let i = 0; i < flows.length; i++) {
+          const ti = new Date(dArr[i]);
+          if (isNaN(ti)) return "#NUM!";
+          const days = Math.round((ti - t0) / 86400000);
+          if (days < 0) return "#NUM!";
+          yrs.push(days / 365);
+        }
+        let r = guess != null ? +guess : 0.1;
+        for (let iter = 0; iter < 50; iter++) {
+          let xnpv = 0, dxnpv = 0;
+          for (let i = 0; i < flows.length; i++) {
+            const pow = Math.pow(1 + r, yrs[i]);
+            xnpv += flows[i] / pow;
+            dxnpv -= yrs[i] * flows[i] / (pow * (1 + r));
+          }
+          if (Math.abs(dxnpv) < 1e-15) { r += 0.1; continue; }
+          const rNew = r - xnpv / dxnpv;
+          if (rNew <= -1) return "#NUM!";
+          if (Math.abs(rNew - r) < 1e-10) return rNew;
+          r = rNew;
+        }
+        return "#NUM!";
       },
       // OFFSET / INDIRECT — 需要 getCell 动态范围解析，evalNode 特殊路径拦截
       OFFSET: () => "#CALC!",
@@ -2027,6 +4130,92 @@
       }
       return out;
     }
+
+    /** toggleRefStyle — F4 绝对/相对引用四态循环（Excel 行为）
+     *  只切「光标所在或最近」的那个引用，不是全切
+     *  absMode 顺序（复用 ADDRESS 定义）：1=$A$1 → 2=A$1 → 3=$A1 → 4=A1 → 1=$A$1
+     *  @param {string} formula 完整公式（含 =）
+     *  @param {number} cursorPos 光标在 formula 里的偏移（0-based, -1=全切）
+     *  @returns {string} 改后公式
+     */
+    function toggleRefStyle(formula, cursorPos) {
+      if (typeof formula !== "string" || !formula.startsWith("=")) return formula;
+      const body = formula.slice(1);
+      let out = "=", i = 0;
+
+      // 先扫描所有 ref 位置，找到离 cursorPos 最近的
+      // 保存 { start, end, colAbs, colLetters, rowAbs, digits }
+      const refs = [];
+      let si = 0; // 字符串字面量跳过
+      while (si < body.length) {
+        if (body[si] === '"') { let j = si + 1; while (j < body.length && body[j] !== '"') j++; si = j + 1; continue; }
+        const m = /^\$?([A-Za-z]+)(\$?)(\d+)/.exec(body.slice(si));
+        if (m) {
+          const prev = si === 0 ? "" : body[si - 1];
+          if (!/[A-Za-z0-9_]/.test(prev)) {
+            refs.push({ start: si, end: si + m[0].length, colAbs: m[0][0] === "$", colLetters: m[1], rowAbs: m[2] === "$", digits: m[3] });
+          }
+          si += m[0].length; continue;
+        }
+        si++;
+      }
+
+      // 找到目标 ref：cursorPos 在 ref.start~ref.end 范围内 → 那个；否则找距离最近的
+      // cursorPos 是整个 formula 里的位置（含 "="），body 是 slice(1) 后的
+      // 所以 bodyPos = cursorPos - 1（0-based in body）
+      const bodyCursor = cursorPos != null ? Math.max(0, cursorPos - 1) : -1;
+      let targetIdx = -1;
+      if (bodyCursor >= 0) {
+        // 精确命中
+        for (let k = 0; k < refs.length; k++) {
+          if (bodyCursor >= refs[k].start && bodyCursor <= refs[k].end) { targetIdx = k; break; }
+        }
+        // 没命中 → 找最近
+        if (targetIdx < 0) {
+          let bestDist = Infinity;
+          for (let k = 0; k < refs.length; k++) {
+            const d = Math.min(Math.abs(bodyCursor - refs[k].start), Math.abs(bodyCursor - refs[k].end));
+            if (d < bestDist) { bestDist = d; targetIdx = k; }
+          }
+        }
+      } else {
+        // cursorPos=-1 → 全切（fallback，Excel 不走这条）
+        targetIdx = -1;
+      }
+
+      // 重建 formula，对目标 ref 切换
+      while (i < body.length) {
+        const ch = body[i];
+        if (ch === '"') { let j = i + 1; out += '"'; while (j < body.length && body[j] !== '"') { out += body[j]; j++; } out += '"'; i = j + 1; continue; }
+        const m = /^\$?([A-Za-z]+)(\$?)(\d+)/.exec(body.slice(i));
+        if (m) {
+          const prev = i === 0 ? "" : body[i - 1];
+          if (!/[A-Za-z0-9_]/.test(prev)) {
+            // 这个 ref 在 refs 数组里的 index
+            let refIdx = -1;
+            for (let k = 0; k < refs.length; k++) if (refs[k].start === i) { refIdx = k; break; }
+            const isTarget = (targetIdx >= 0 && refIdx === targetIdx) || (targetIdx < 0);
+
+            if (isTarget) {
+              // Excel F4 实际循环顺序（不是 ADDRESS absMode 顺序）：
+              // A1(相对) → $A$1(绝对) → A$1(行绝对) → $A1(列绝对) → A1(相对)
+              let { colAbs: ca, rowAbs: ra } = refs[refIdx];
+              if (!ca && !ra) { ca = true; ra = true; }   // 相对 → 绝对
+              else if (ca && ra) { ca = false; ra = true; } // 绝对 → 行绝对
+              else if (!ca && ra) { ca = true; ra = false; } // 行绝对 → 列绝对
+              else if (ca && !ra) { ca = false; ra = false; } // 列绝对 → 相对
+              out += (ca ? "$" : "") + refs[refIdx].colLetters + (ra ? "$" : "") + refs[refIdx].digits;
+            } else {
+              out += m[0]; // 不是目标，原样
+            }
+            i += m[0].length; continue;
+          }
+        }
+        out += ch; i++;
+      }
+      return out;
+    }
+
     function compile(formula) {
       try {
         const toks = tokenize(formula.slice(1));
@@ -2074,7 +4263,7 @@
     // 名称解析器：(name:string) => range string | null，由外部注入
     let _nameResolver = null;
 
-    return { run, compile, adjustFormula, colToIdx, idxToCol, parseRef, expandRange, tokenize, extractRefs, setNameResolver: fn => (_nameResolver = fn) };
+    return { run, compile, adjustFormula, toggleRefStyle, colToIdx, idxToCol, parseRef, expandRange, tokenize, extractRefs, setNameResolver: fn => (_nameResolver = fn) };
   })();
   OS.FormulaEngine = FE;
 
@@ -3156,6 +5345,241 @@
       OS.toast("数字格式：" + f.label, "ok");
     }
 
+    // ===== Ctrl+1 单元格格式面板（MVP：数字 / 对齐 / 边框 3 Tab）=====
+    function openCellFormat() {
+      // 先退出编辑态，否则关面板后数据丢失
+      if (td && td.getAttribute("contenteditable") === "true") commitCell(td);
+      const rg = rangeRect(); if (!rg) { OS.toast("请先选中单元格", "warn"); return; }
+
+      // ===== 6 Tab 结构（后 3 个占位）=====
+      const tabs = [
+        { id: "num",    label: "数字",  enabled: true  },
+        { id: "align",  label: "对齐",  enabled: true  },
+        { id: "border", label: "边框",  enabled: true  },
+        { id: "font",   label: "字体",  enabled: false },
+        { id: "fill",   label: "填充",  enabled: false },
+        { id: "protect",label: "保护",  enabled: false },
+      ];
+
+      const FMTS = [
+        { id: "general",    code: "General",     label: "常规" },
+        { id: "number",     code: "0.00",        label: "数值" },
+        { id: "currency",   code: "$#,##0.00",   label: "货币" },
+        { id: "accounting", code: "_($* #,##0.00_)", label: "会计专用" },
+        { id: "percent",    code: "0%",           label: "百分比" },
+        { id: "fraction",   code: "# ?/?",        label: "分数" },
+        { id: "scientific", code: "0.00E+00",     label: "科学计数" },
+        { id: "date",       code: "yyyy-mm-dd",   label: "日期" },
+        { id: "time",       code: "h:mm:ss",      label: "时间" },
+        { id: "comma",      code: "#,##0.00",     label: "千分位" },
+        { id: "text",       code: "@",            label: "文本" },
+      ];
+
+      // 初始值快照（从选区第一个格读）
+      const firstRef = FE.idxToCol(rg.c1) + rg.r1;
+      const firstStyle = data.styles[firstRef] || {};
+      const initFmt = firstStyle.numberFormat || "General";
+      const initAlign = firstStyle.align || "left";
+      const initWrap = firstStyle.wrapText === true;
+      const initBorderColor = (firstStyle.border && firstStyle.border.left && firstStyle.border.left.color) || "#333333";
+
+      const ov = document.createElement("div");
+      ov.className = "pg-overlay";
+
+      // Tab 按钮
+      const tabBtns = tabs.map((t, i) =>
+        `<button type="button" class="pg-tab${i === 0 ? " on" : ""}${t.enabled ? "" : " disabled"}" data-tab="${t.id}" ${t.enabled ? "" : 'disabled'}>${t.label}</button>`
+      ).join("");
+
+      // Tab 1: 数字格式
+      const numOpts = FMTS.map(f =>
+        `<option value="${f.code}"${initFmt === f.code || (initFmt === "General" && f.id === "general") ? " selected" : ""}>${f.label}</option>`
+      ).join("");
+
+      // Tab 2: 对齐
+      const alignBtns = [
+        { val: "left",    icon: "⬅", label: "左对齐" },
+        { val: "center",  icon: "⬌", label: "居中" },
+        { val: "right",   icon: "➡", label: "右对齐" },
+        { val: "justify", icon: "⇔", label: "两端对齐" },
+      ].map(b => `<button type="button" data-a="${b.val}" title="${b.label}" class="${initAlign === b.val ? "on" : ""}">${b.icon}</button>`).join("");
+
+      // Tab 3: 边框
+      const borderBtns = [
+        { key: "out",  icon: "▢", title: "外边框" },
+        { key: "top",  icon: "▬", title: "上边框" },
+        { key: "bot",  icon: "▮", title: "下边框" },
+        { key: "left", icon: "▌", title: "左边框" },
+        { key: "right",icon: "▐", title: "右边框" },
+        { key: "none", icon: "✕", title: "清除边框" },
+      ];
+
+      ov.innerHTML = '<div class="pg-modal" style="width:420px">' +
+        '<div class="pg-title">单元格格式</div>' +
+        '<div class="pg-tabs">' + tabBtns + '</div>' +
+        '<div class="pg-panel on" data-panel="num">' +
+          '<div class="pg-panel-inner">' +
+            '<div class="pg-num-row"><label>分类</label><select class="pg-fmt-select">' + numOpts + '</select></div>' +
+            '<div class="pg-num-row"><label>格式代码</label><input type="text" class="pg-fmt-code" value="' + initFmt + '" placeholder="如 0.00%"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="pg-panel" data-panel="align">' +
+          '<div class="pg-panel-inner">' +
+            '<div class="pg-align-row"><label>水平对齐</label><div class="pg-btn-group pg-align-h">' + alignBtns + '</div></div>' +
+            '<div class="pg-align-row"><label>其他</label><label><input type="checkbox" class="pg-wrap"' + (initWrap ? " checked" : "") + '> 自动换行</label>　<label><input type="checkbox" class="pg-merge"> 合并单元格</label></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="pg-panel" data-panel="border">' +
+          '<div class="pg-panel-inner">' +
+            '<div class="pg-bd-row"><label>颜色</label><input type="color" class="pg-bd-color" value="' + initBorderColor + '"></div>' +
+            '<div class="pg-bd-row"><label>线型</label><div class="pg-btn-group">' +
+              '<button type="button" class="pg-bd-style on" data-s="thin">细</button>' +
+              '<button type="button" class="pg-bd-style" data-s="medium">中</button>' +
+              '<button type="button" class="pg-bd-style" data-s="thick">粗</button>' +
+            '</div></div>' +
+            '<div class="pg-bd-grid">' + borderBtns.map(b => `<button type="button" class="pg-bd-btn" data-b="${b.key}" title="${b.title}">${b.icon}</button>`).join("") + '</div>' +
+            '<div class="pg-bd-hint">点按钮应用/清除对应边框</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="pg-panel" data-panel="font"><div class="pg-panel-inner"><div class="pg-bd-hint">字体面板 — 开发中，下一轮补</div></div></div>' +
+        '<div class="pg-panel" data-panel="fill"><div class="pg-panel-inner"><div class="pg-bd-hint">填充面板 — 开发中，下一轮补</div></div></div>' +
+        '<div class="pg-panel" data-panel="protect"><div class="pg-panel-inner"><div class="pg-bd-hint">保护面板 — 开发中，下一轮补</div></div></div>' +
+        '<div class="pg-actions"><button class="pg-cancel">取消</button><button class="pg-ok primary">确定</button></div>' +
+      '</div>';
+
+      wrap.appendChild(ov);
+
+      // Tab 切换
+      ov.querySelectorAll(".pg-tab").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.tab;
+          const tab = tabs.find(t => t.id === id);
+          if (!tab || !tab.enabled) return;
+          ov.querySelectorAll(".pg-tab").forEach(b => b.classList.remove("on"));
+          btn.classList.add("on");
+          ov.querySelectorAll(".pg-panel").forEach(p => p.classList.remove("on"));
+          ov.querySelector('[data-panel="' + id + '"]').classList.add("on");
+        });
+      });
+
+      // 数字格式：下拉和格式代码联动
+      const fmtSelect = ov.querySelector(".pg-fmt-select");
+      const fmtCode = ov.querySelector(".pg-fmt-code");
+      fmtSelect.addEventListener("change", () => {
+        fmtCode.value = fmtSelect.value;
+      });
+
+      // 对齐按钮组（单选）
+      ov.querySelectorAll(".pg-align-h button").forEach(b => {
+        b.addEventListener("click", () => {
+          ov.querySelectorAll(".pg-align-h button").forEach(x => x.classList.remove("on"));
+          b.classList.add("on");
+        });
+      });
+
+      // 边框线型
+      ov.querySelectorAll(".pg-bd-style").forEach(b => {
+        b.addEventListener("click", () => {
+          ov.querySelectorAll(".pg-bd-style").forEach(x => x.classList.remove("on"));
+          b.classList.add("on");
+        });
+      });
+
+      // 边框按钮（立即应用，点一下改选区边框）
+      ov.querySelectorAll(".pg-bd-btn").forEach(bb => {
+        bb.addEventListener("click", () => {
+          const side = bb.dataset.b;
+          const bdColor = ov.querySelector(".pg-bd-color").value;
+          const bdStyle = ov.querySelector(".pg-bd-style.on").dataset.s;
+          applyBorderSide(side, bdColor, bdStyle);
+          if (side === "none") {
+            // 清除 → 其他边框按钮取消选中
+            ov.querySelectorAll(".pg-bd-btn").forEach(x => x.classList.remove("on"));
+          } else {
+            bb.classList.toggle("on");
+            // 点 none 之外的按钮时，none 不高亮
+            ov.querySelector('.pg-bd-btn[data-b="none"]').classList.remove("on");
+          }
+        });
+      });
+
+      // 关闭逻辑
+      const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+      ov.querySelector(".pg-cancel").onclick = close;
+      ov.addEventListener("click", e => { if (e.target === ov) close(); });
+      // Esc 关面板
+      const escHandler = e => { if (e.key === "Escape" && ov.parentNode) { e.preventDefault(); close(); document.removeEventListener("keydown", escHandler); } };
+      document.addEventListener("keydown", escHandler);
+
+      // 确定 — 批量应用到选区
+      ov.querySelector(".pg-ok").onclick = () => {
+        snapshot();
+        const patch = {};
+        // 数字格式
+        const code = fmtCode.value.trim();
+        if (code) patch.numberFormat = code;
+        // 对齐
+        const alignOn = ov.querySelector(".pg-align-h button.on");
+        if (alignOn) patch.align = alignOn.dataset.a;
+        const wrapOn = ov.querySelector(".pg-wrap").checked;
+        patch.wrapText = wrapOn;
+        // 应用 patch
+        if (Object.keys(patch).length > 0) applyRangeStyle(patch);
+        // 合并单元格（单独处理）
+        if (ov.querySelector(".pg-merge").checked) {
+          const rg2 = rangeRect();
+          if (rg2 && (rg2.r1 !== rg2.r2 || rg2.c1 !== rg2.c2)) {
+            if (!data.merge) data.merge = [];
+            const ref1 = FE.idxToCol(rg2.c1) + rg2.r1;
+            const ref2 = FE.idxToCol(rg2.c2) + rg2.r2;
+            const rangeRef = ref1 + ":" + ref2;
+            // 去重
+            data.merge = data.merge.filter(m => m.range !== rangeRef);
+            data.merge.push({ range: rangeRef, type: "merge" });
+            // 隐藏非主格 + 主格居中
+            for (let r = rg2.r1; r <= rg2.r2; r++)
+              for (let c = rg2.c1; c <= rg2.c2; c++) {
+                const r2 = FE.idxToCol(c) + r;
+                if (r2 !== ref1) { if (!data.styles[r2]) data.styles[r2] = {}; data.styles[r2].merge = true; }
+              }
+            if (!data.styles[ref1]) data.styles[ref1] = {};
+            data.styles[ref1].align = "center";
+            if (!data.styles[ref1].vAlign) data.styles[ref1].vAlign = "middle";
+            applyMerges(); applyFmt();
+          }
+        }
+        ctx.markDirty();
+        close();
+        if (Object.keys(patch).length > 0 || ov.querySelector(".pg-merge").checked) {
+          OS.toast("已应用单元格格式", "ok");
+        }
+      };
+    }
+
+    // ===== Ctrl+1 边框面板用：按方向给选区加/清边框 =====
+    function applyBorderSide(side, color, style) {
+      const rg = rangeRect(); if (!rg) return;
+      snapshot();
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          const s = data.styles[ref] || (data.styles[ref] = {});
+          if (!s.border) s.border = {};
+          const isEdgeLeft = c === rg.c1, isEdgeRight = c === rg.c2;
+          const isEdgeTop = r === rg.r1, isEdgeBottom = r === rg.r2;
+          // "none" → 清全部
+          if (side === "none") { s.border = {}; continue; }
+          const setBd = (dir, cond) => { if (cond) s.border[dir] = { style, color }; else delete s.border[dir]; };
+          if (side === "out")  { setBd("left", isEdgeLeft); setBd("right", isEdgeRight); setBd("top", isEdgeTop); setBd("bottom", isEdgeBottom); }
+          if (side === "left")   { setBd("left", isEdgeLeft); }
+          if (side === "right")  { setBd("right", isEdgeRight); }
+          if (side === "top")    { setBd("top", isEdgeTop); }
+          if (side === "bot")    { setBd("bottom", isEdgeBottom); }
+        }
+      }
+      applyFmt(); applyCondFormat(); ctx.markDirty();
+    }
+
     // ===== 上一格复制值 / 复制公式 =====
     function copyFromAbove(onlyValue) {
       const ap = FE.parseRef(anchor);
@@ -3630,7 +6054,46 @@
       // --- Excel: 批注 / 重复 / 选择当前区域 / 公式切换 ---
       else if (e.shiftKey && k === "F2") { e.preventDefault(); addComment(); }
       else if (ctrl && e.shiftKey && k === "F2") { e.preventDefault(); addComment(); OS.toast("已创建线程批注（同单格）", "ok"); }
-      else if (k === "F4") { e.preventDefault(); repeatLastAction(); }
+      else if (k === "F4") {
+        e.preventDefault();
+        // 编辑态且是公式 → 切换绝对/相对引用样式；否则 → 重复上一操作
+        const isEditing = td && td.getAttribute("contenteditable") === "true";
+        if (isEditing) {
+          const formula = td.textContent || "";
+          if (formula.startsWith("=")) {
+            // 取光标在 formula 里的偏移（0-based, 含 =）
+            let cursorPos = formula.length;
+            try {
+              const sel = window.getSelection();
+              if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                if (td.contains(range.startContainer)) {
+                  const preRange = range.cloneRange();
+                  preRange.selectNodeContents(td);
+                  preRange.setEnd(range.startContainer, range.startOffset);
+                  cursorPos = preRange.toString().length;
+                }
+              }
+            } catch (_) {}
+            const newFormula = FE.toggleRefStyle(formula, cursorPos);
+            if (newFormula !== formula) {
+              td.textContent = newFormula;
+              // 光标放回末尾（简化，Excel 也只切不改光标位置）
+              td.focus();
+              const s = window.getSelection(), r = document.createRange();
+              r.selectNodeContents(td); r.collapse(false);
+              s.removeAllRanges(); s.addRange(r);
+              OS.toast("F4：引用样式已切换", "ok");
+            } else {
+              OS.toast("F4：未检测到可切换的引用", "info");
+            }
+          } else {
+            repeatLastAction(); // 非公式单元格 → 保持原行为
+          }
+        } else {
+          repeatLastAction(); // 非编辑态 → 保持原行为
+        }
+      }
       else if (ctrl && e.shiftKey && k === "*") { e.preventDefault(); selectCurrentRegion(); }
       else if (ctrl && e.shiftKey && k === "O") { e.preventDefault(); selectAllComments(); }
       else if (ctrl && k === "`" || ctrl && k === "Dead") { e.preventDefault(); toggleFormulas(); }
@@ -3664,7 +6127,7 @@
       else if (ctrl && k === "Enter") { e.preventDefault(); fillRangeWithCurrent(); }
       else if (ctrl && k === ";") { e.preventDefault(); commit(ref, new Date().toLocaleDateString()); recompute(); }
       else if (ctrl && e.shiftKey && (k === ";" || k === ":")) { e.preventDefault(); commit(ref, new Date().toLocaleTimeString()); recompute(); }
-      else if (ctrl && k === "1") { e.preventDefault(); OS.toast("Ctrl+1 单元格格式面板 — 开发中", "info"); }
+      else if (ctrl && k === "1") { e.preventDefault(); openCellFormat(); }
       else if (k === "Escape") { td.removeAttribute("contenteditable"); recompute(); }
       else if (k.length === 1 && !ctrl && !e.metaKey && !e.altKey) {
         if (td.getAttribute("contenteditable") !== "true") { td.setAttribute("contenteditable", "true"); td.textContent = ""; td.focus(); }
@@ -6193,21 +8656,40 @@
     }
     function applyFmt() {
       const bCss = st => ({ hair: "1px solid", thin: "1px solid", medium: "2px solid", thick: "3px solid", dashed: "1px dashed", mediumDashed: "2px dashed", dotted: "1px dotted", double: "3px double", dashDot: "1px dashed", mediumDashDot: "2px dashed", dashDotDot: "1px dashed", slantDashDot: "1px dashed" }[st] || "1px solid");
-      // 数字格式渲染（简单 JS toLocaleString 转换）
+      // 数字格式渲染（通用 format string 解析 + toLocaleString）
       function renderNumber(v, fmt) {
         if (v == null || v === "") return v;
         if (typeof v !== "number") return v;
+        if (!fmt || fmt === "General" || fmt === "@") return v;
         try {
-          switch (fmt) {
-            case "0%": return (v * 100).toFixed(0) + "%";
-            case "$#,##0.00": return "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            case "0.00E+00": return v.toExponential(2);
-            case "#,##0.00": return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            case "yyyy-mm-dd": { const d = new Date(v); return d.toISOString().slice(0, 10); }
-            case "h:mm:ss": { const d = new Date(v); return d.toTimeString().slice(0, 8); }
-            case "General": case undefined: return v;
-            default: return v;
+          // 百分比：格式里有 % 且不在字符串字面量里
+          const isPercent = /%/.test(fmt);
+          if (isPercent) v = v * 100;
+          // 匹配货币前缀（￥ $ ¥ € £ ¤ 或任意字符前缀如 "RMB "）
+          const currencyMatch = fmt.match(/^[¥￥$€£]\s*/) || fmt.match(/^"([^"]+)"\s*/);
+          const currency = currencyMatch ? (currencyMatch[1] || currencyMatch[0]) : "";
+          // 匹配整数部分有 #,## 分隔符
+          const hasThousandsSep = /,[\d#]+/.test(fmt);
+          // 匹配小数位精度：小数点后跟的 0 或 # 的数量（Excel 格式用 # 和 0 做占位符）
+          const decMatch = fmt.match(/\.([#0]+)/);
+          const decimals = decMatch ? decMatch[1].length : 0;
+          // 日期格式
+          if (/yyyy|yy|mm|dd|hh|h:mm/.test(fmt.toLowerCase())) {
+            const d = new Date(v);
+            if (/h:mm/.test(fmt.toLowerCase())) return d.toTimeString().slice(0, 8);
+            if (/yyyy-mm-dd/.test(fmt)) return d.toISOString().slice(0, 10);
+            if (/yy-mm-dd|yy\/mm\/dd/.test(fmt)) return `${d.getFullYear() - 2000}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            if (/yyyy\/mm\/dd/.test(fmt)) return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
           }
+          // 科学计数法
+          if (/e\+\d+|e-\d+|E\+\d+|E-\d+/.test(fmt)) return v.toExponential(2);
+          // 通用数字格式化
+          const opts = hasThousandsSep
+            ? { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
+            : { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: false };
+          const locale = currency === "￥" || currency === "¥" ? "zh-CN" : "en-US";
+          const numStr = v.toLocaleString(locale, opts);
+          return currency + numStr + (isPercent ? "%" : "");
         } catch (e) { return v; }
       }
       for (const ref in data.styles) {

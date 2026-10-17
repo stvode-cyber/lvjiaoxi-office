@@ -711,6 +711,22 @@
       const sheetName = sh.name || ("Sheet" + idx);
       const cells = sh.cells || {};
 
+      // 收集 cell.hyperlink → sh.hyperlinks（OOXML 独立结构）
+      const cellHls = [];
+      Object.keys(cells).forEach(ref => {
+        const c = cells[ref];
+        if (c && c.hyperlink && c.hyperlink.url) {
+          if (c.hyperlink.url.startsWith("#")) {
+            // 内部跳转：#A1 或 #Sheet2!B5 → anchor 属性，无 rel
+            cellHls.push({ ref, anchor: c.hyperlink.url.slice(1), friendly: c.hyperlink.friendly });
+          } else {
+            // 外部 URL → r:id + rels
+            cellHls.push({ ref, target: c.hyperlink.url, friendly: c.hyperlink.friendly });
+          }
+        }
+      });
+      if (cellHls.length) sh.hyperlinks = cellHls;
+
       const byRow = {};
       Object.keys(cells).forEach(ref => {
         const m = /^([A-Z]+)(\d+)$/.exec(ref); if (!m) return;
@@ -743,7 +759,10 @@
             let val = "";
             try { if (OS.FormulaEngine) val = OS.FormulaEngine.run(cell.f, getCellVal); } catch (e) {}
             const sv = (typeof val === "number") ? val : (val == null ? "" : String(val));
-            cellsXml += '<c r="' + ref + '"' + sAttr + '><f>' + esc(cell.f.replace(/^=/, "")) + "</f><v>" + esc(sv) + "</v></c>";
+            let fTag = '<f';
+            if (cell.isArrayFormula && cell.arrayRef) fTag += ' t="array" ref="' + esc(cell.arrayRef.toUpperCase()) + '"';
+            fTag += '>' + esc(cell.f.replace(/^=/, "")) + "</f>";
+            cellsXml += '<c r="' + ref + '"' + sAttr + '>' + fTag + '<v>' + esc(sv) + "</v></c>";
           } else {
             const v = cell ? cell.v : undefined;
             if (v == null || v === "") {
@@ -868,13 +887,20 @@
       // hyperlinks 超链接（区域式，ref→rId）
       let hlXml = "";
       const hls = (sh.hyperlinks && sh.hyperlinks.length) ? sh.hyperlinks : [];
-      const hlRels = []; // 每个 rId 对应 target
+      const hlRels = []; // 每个 rId 对应 target（仅外部 hyperlink）
       if (hls.length) {
         let items = [];
         hls.forEach((h, hi) => {
-          const rid = "rIdH" + (hi + 1);
-          items.push('<hyperlink ref="' + (h.ref || "").toUpperCase() + '" r:id="' + rid + '"/>');
-          hlRels.push({ rid, target: h.target || "", external: !!(h.target && /^https?:|^ftps?:|^mailto:|^file:/i.test(h.target)) });
+          const refAttr = 'ref="' + (h.ref || "").toUpperCase() + '"';
+          if (h.anchor) {
+            // 内部跳转：anchor 属性，不需要 rel
+            items.push('<hyperlink ' + refAttr + ' anchor="' + esc(h.anchor) + '"/>');
+          } else if (h.target) {
+            // 外部 URL：r:id + rels
+            const rid = "rIdH" + (hi + 1);
+            items.push('<hyperlink ' + refAttr + ' r:id="' + rid + '"/>');
+            hlRels.push({ rid, target: h.target, external: !!(h.target && /^https?:|^ftps?:|^mailto:|^file:/i.test(h.target)) });
+          }
         });
         hlXml = '<hyperlinks>' + items.join("") + '</hyperlinks>';
       }
@@ -968,15 +994,50 @@
       }).join("") + "</definedNames>";
     }
 
+    // ListObject 表（workbook.xml 级 tableParts + 独立 table XML 文件）
+    let tablePartsXml = "";
+    const listObjs = (data.listObjects && data.listObjects.length) ? data.listObjects : [];
+    const tableEntries = []; // 每个 entry 是 { name, xml, relId, colCount }
+    listObjs.forEach((lo, i) => {
+      const tidx = i + 1;
+      const relId = "rIdT" + tidx;
+      // table XML 结构（简化版，Excel 可识别）
+      const colCount = (lo.columns && lo.columns.length) ? lo.columns.length :
+        ((lo.ref || "").includes(":") ? 2 : 1);
+      const tableColsXml = lo.columns && lo.columns.length
+        ? lo.columns.map((c, ci) => '<tableColumn id="' + (ci + 1) + '" name="' + esc(c.name || "") + '"/>').join("")
+        : "";
+      const tableXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+        '<table xmlns="' + X.w + '" id="' + tidx + '" name="' + esc(lo.name || ("表" + tidx)) + '"' +
+        ' displayName="' + esc(lo.name || ("表" + tidx)) + '"' +
+        (lo.ref ? ' ref="' + esc(lo.ref) + '"' : "") +
+        (lo.showAutoFilter === false ? ' showAutoFilter="0"' : "") +
+        ' tableStyleId="2">' + // TableStyleMedium2（Excel 内置）
+        (lo.showAutoFilter !== false ? '<autoFilter ref="' + esc(lo.ref || "") + '"/>' : "") +
+        '<tableColumns count="' + (lo.columns ? lo.columns.length : colCount) + '">' + tableColsXml + '</tableColumns>' +
+        '<tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/>' +
+        "</table>";
+      tableEntries.push({ tidx, xml: tableXml, relId });
+      tablePartsXml += '<tablePart r:id="' + relId + '"/>';
+    });
+    if (tablePartsXml) tablePartsXml = '<tableParts count="' + listObjs.length + '">' + tablePartsXml + '</tableParts>';
+
     const workbookXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-      '<workbook xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheets>' + wbSheets + "</sheets>" + dnXml + "</workbook>";
+      '<workbook xmlns="' + X.w + '" xmlns:r="' + X.r + '"><sheets>' + wbSheets + "</sheets>" + dnXml + tablePartsXml + "</workbook>";
 
+    // workbook rels：加 tablePart 关系
+    let wbRelsExtra = "";
+    tableEntries.forEach(te => {
+      wbRelsExtra += '<Relationship Id="' + te.relId + '" Type="' + X.r + '/table" Target="tables/table' + te.tidx + '.xml"/>';
+    });
     const wbRelsXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
       '<Relationships xmlns="' + X.rel + '">' + wbRels +
       '<Relationship Id="rIdS" Type="' + X.r + '/styles" Target="styles.xml"/>' +
       '<Relationship Id="rIdT" Type="' + X.r + '/sharedStrings" Target="sharedStrings.xml"/>' +
+      wbRelsExtra +
       "</Relationships>";
 
     const ct =
@@ -988,6 +1049,7 @@
       ctOverrides +
       '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
       '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>' +
+      tableEntries.map(te => '<Override PartName="/xl/tables/table' + te.tidx + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>').join("") +
       chartCT +
       cmtEntries.map(c => '<Override PartName="/xl/comments/comment' + c.sheetIdx + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/>').join("") +
       '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
@@ -1009,6 +1071,7 @@
     zip.file("_rels/.rels", rootRels);
     zip.file("xl/workbook.xml", workbookXml);
     zip.file("xl/_rels/workbook.xml.rels", wbRelsXml);
+    tableEntries.forEach(te => zip.file("xl/tables/table" + te.tidx + ".xml", te.xml));
     sheetEntries.forEach(s => zip.file(s.file, s.xml));
     // 辅助：生成 hyperlink Relationship XML 片段
     const hlRelXml = (idx) => {

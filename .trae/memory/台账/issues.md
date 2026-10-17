@@ -1,28 +1,8 @@
-# 踩坑台账（Growth Ledger · 分级版）
+﻿# issues.md — L1 聚合坑（长期预防规则）
 
-> **分级规则**：L1 模块聚合坑（3+ 条同模块子坑，根因相似） / L2 独立实例坑 / archived 历史归档
-> **升级触发**：同模块 L2 实例 ≥ 3 条 → 新建 L1 聚合，原 L2 移进子坑列表
-> **新增入口**：所有新坑先进 L2。每轮收尾检查升级阈值
-> **快速扫**：`(Get-Content issues.md -Raw) -split '---' | Select-Object -First 4`
-
+> L2 独立实例坑归档 → [archive/issues_L2_2026-10-10前.md](archive/issues_L2_2026-10-10前.md)
 
 ---
-
-## [P1] [git-proxy] Git/Curl libcurl 不走 IE 代理 — push 永远断网
-
-- **现象**：`git push origin main` 报 `Failed to connect to github.com:443` 连续 N 次，但 PowerShell `Invoke-WebRequest https://github.com` 立刻返回 HTTP 200
-- **根因**：这台机器 IE 代理开启（`ProxyEnable=1, ProxyServer=127.0.0.1:7890`，Clash/V2Ray 本地端口）。.NET HttpWebRequest（PowerShell Invoke-WebRequest）**自动读 IE 代理**走代理通 github；git.exe（自带 libcurl）+ curl.exe **不走 IE 代理**，直连 20.205.243.166:443 被防火墙阻断（TCP 层 Trying → Timed out）
-- **修复**：必须给 git 手动配代理
-  ```powershell
-  git config --global http.proxy http://127.0.0.1:7890
-  git config --global https.proxy http://127.0.0.1:7890
-  ```
-- **预防规则**：任何网络断网诊断，先查 `Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" | Select ProxyEnable,ProxyServer`，如果 ProxyEnable=1 就必须给 libcurl 系工具（git/curl/wget）手动配同端口代理
-- **关联命令**：`nslookup github.com`（20.205.243.166）、`netsh winhttp show proxy`（WinHTTP 可能没开但 IE 开了）
-- **决策人**：实测排查（grep libcurl verbose log 看到 `Trying 20.205.243.166:443... Timed out`）
-
----
-
 ## [P0] [L1|xlsx-import] XLSX/XLS 导入反复丢失格式/数据（9 条子坑）✅
 
 - **子坑数**：9 条
@@ -44,8 +24,8 @@
   - [2026-10-02] [xlsx-merge-string-format] parseXlsx mergeCells push 纯字符串 `"A1:B2"`，applyMerges 期望 `{ range: "A1:B2" }` → m.range undefined 全跳过 → 修：源头改 push 对象 + normalizeDoc normMerge 兜底
   - [2026-09-30] [electron-contextIsolation-window] Electron contextIsolation 下 window.OS 不暴露 → OOXML 导入静默失败（详见 L1|electron 子坑）
 
----
 
+---
 ## [P1] [L1|fe-case] FE evalNode 大小写敏感统一问题（3 条子坑）
 
 - **子坑数**：3 条
@@ -57,8 +37,8 @@
   - [2026-10-01] [let-name-case] 修了 LET name 大写后破坏了 name 节点查 scope（scope["A"] 找不到 node.name="a"）→ name 节点也要先大写兜底
   - [2026-10-01] [func-scope-case] 函数调用查 scope[node.func] 时 node.func 已是大写 ✓，但要确保 LET 绑定和函数调用都用同一大小写
 
----
 
+---
 ## [P0] [L1|electron] Electron 运行时反复踩坑（5 条子坑）
 
 - **子坑数**：5 条
@@ -78,8 +58,8 @@
   - [2026-09-30] [electron-contextIsolation-window] contextIsolation 下 global ≠ window → 第三方库只挂 window → OOXML 导入静默失败
 
 
----
 
+---
 ## [P0] [L1|shell] Shell 状态管理反复踩坑（3 条子坑）
 
 - **子坑数**：3 条
@@ -95,8 +75,8 @@
   - [2026-09-30] [shell-openDoc-无await] openDoc 无 await + 进度条粒度粗 → "95% 卡死"假象
 
 
----
 
+---
 ## [P0] [L1|boot] 启动与冒烟测试反复踩坑（2 条子坑）
 
 - **子坑数**：2 条
@@ -110,8 +90,8 @@
   - [2026-09-15] [boot-os-undefined] 启动时 OS 对象 undefined
 
 
----
 
+---
 ## [P2] [L1|powershell] PowerShell 批处理反复踩坑（2 条子坑）
 
 - **子坑数**：2 条
@@ -126,8 +106,8 @@
   - [2026-09-30] [powershell-regex-quote-hell] PowerShell 正则引号地狱
 
 
----
 
+---
 ## [P2] [L1|mindmap] 思维导图模块反复踩坑（2 条子坑）
 
 - **子坑数**：2 条
@@ -141,119 +121,8 @@
   - [2026-09-30] [mindmap-NaN-path] layoutMap.place 只从 root 递归 → 孤立节点坐标 undefined → SVG path 抛 NaN
 
 
----
-
-## [P0] [L2|tesseract-worker-in-inline-script] worker.min.js 被 script 标签直接加载到主线程
-
-- **问题**：index.html 里写了 `<script src=worker.min.js>` 把 Web Worker 脚本当普通 JS 加载到主线程，每次页面加载 12+ 次 dispatchHandlers 异常（TypeError: t.action is not a function）
-- **解决**：移除那行 script 标签。Tesseract.createWorker 会在 OCR 真正被调用时动态 new Worker 加载
-- **根因**：worker-*.js 脚本里的 `self.addEventListener('message', handler)` 在主线程 context 下初始化时，self 不是 WorkerGlobalScope
-- **预防**：任何 worker-*.js / *worker.min.js **绝对不能**用 script src 直接加载
-- **关联文件**：app/index.html
-- **首次踩坑**：2026-09-16
-
 
 ---
-
-## [P2] [L2|parseXmind-internationalized-title] XMind 2020+ title 可能是国际化对象而非字符串
-
-- **问题**：XMind 2020+ 的 title 可能是 `{"default": "...", "en_US": "..."}` 对象而非纯字符串 → `.trim()` 抛 TypeError
-- **解决**：加类型判断 + 取 `.default` 或第一个非空值
-- **关联文件**：app/js/modules/mindmap.js
-
-
----
-
-## [P1] [L2|Promise-no-timeout] Promise 链无 timeout 兜底导致 UI 卡死
-
-- **问题**：Electron IPC / pdf.js 渲染等异步操作无 timeout → 网络问题 / 文件损坏时 UI 永远等
-- **解决**：关键 Promise 包装 `Promise.race([op, new Promise(r => setTimeout(() => r(new Error("超时")), 30000))])`
-- **关联文件**：app/js/shell.js, app/js/modules/pdf.js
-
-
----
-
-## [P2] [L2|koa-connect-ctx-leak] koa-connect wrapper 导致 ctx 泄漏
-
-- **关联文件**：server/*.js
-
-
----
-
-## [P1] [L2|xmind-mknode-color] XMind 导入 mkNode 默认颜色 bug
-
-- **关联文件**：app/js/modules/mindmap.js
-
-
----
-
-## [P1] [L2|toast-not-mounted-body] Toast 容器未挂载到 body
-
-- **关联文件**：app/js/shell.js, app/index.html
-
-
----
-
-## [P1] [L2|fileassoc-hardcoded-absolute] fileAssoc 硬编码绝对路径跨环境炸
-
-- **关联文件**：scripts/*.js, electron/main.js
-
-
----
-
-## [P2] [L2|order-inventory-approval-residue] 订单/库存/审批残留引用导致白屏
-
-- **关联文件**：app/js/store.js, app/js/tasks.js
-
-
----
-
-## [P1] [L2|pptx-zipfile-null] JSZip zip.file() 返回 null 后调 .async() → Cannot read properties of null
-
-- **关联文件**：app/js/export-ooxml.js
-
-
----
-
-## [P1] [L2|installer-asar-not-updated] 安装版 app.asar 不自动更新
-
-- **关联文件**：scripts/bump-version.js, electron/main.js
-
-
----
-
-## [P2] [L2|ledger-info-stale] 台账/拉手.md 里的功能状态可能过时
-
-- **关联文件**：.trae/memory/台账/index.md, AI交接_拉手.md
-
-
----
-
-## [P2] [L2|office-shortcuts-missing] Ctrl+N/O/W/P 四大基础快捷键全缺失
-
-- **关联文件**：app/js/shell.js
-
-
----
-
-## [P3] [L2|shortcut-test-fragile] 快捷键矩阵测试用字符串包含匹配，改一下函数名就全挂
-
-- **关联文件**：_shell_shortcuts_live_test.js
-
-
----
-
-# 历史归档（已修复 + 3 个月未复发）
-
-> 本区块存已稳定修复、3 个月内未再复发的老坑，只留一句话标题和解决概要
-
-- [archived|2026-09-15] boot-os-undefined：启动时 OS 对象 undefined → 加 window.OS 挂载保护
-- [archived|2026-09-15] toast-not-mounted-body：Toast 容器未挂载到 body → mount 时 appendChild
-- [archived|2026-09-15] installer-asar-not-updated：安装版 app.asar 不自动更新 → bump-version 加 asar 重建
-
-
----
-
 ## [P0] [L1|pdf] PDF 模块反复踩坑（8 条子坑）
 
 - **子坑数**：8 条
@@ -276,127 +145,4 @@
   - [2026-09-30] [pdf-escapehtml-osutil] PDF 模块 escapeHtml 转发 OS.util 在 Node 环境 undefined
 
 
----
 
-## [P1] [L2] tesseract.js 7.x langPath 必须有 .traineddata.gz
-
-- **现象**：Electron 渲染进程 OCR 报 ENOENT: open '.../lang-data/eng.traineddata.gz'
-- **根因**：tesseract.js 7.x langPath 设计为浏览器远程 fetch + gzip 解压路径，**强制要求 .gz 压缩包存在**。光解压好的 .traineddata 它无视。
-- **修复**：vendor/tesseract/lang-data/ 下同时放 .traineddata 和 .traineddata.gz（重复一份，约 30 MB 冗余）
-- **预防**：以后加新语言包，必须同时下 .gz 原始包（别只解压）。下载源：https://tessdata.projectnaptha.com/4.0.0/{lang}.traineddata.gz
-- **关联文件**：app/vendor/tesseract/lang-data/
-
----
-
-## [L2|Presentation] CSS transform:scale 不占文档空间 → 缩略图被裁
-
-- **现象**：左侧幻灯片缩略图"显示不全"——高度被压扁，画面被截掉 80%
-- **根因**：renderSlide 用 	ransform: scale(0.184) 缩 16:9 幻灯片到 140px 宽。CSS transform **只改变视觉、不改变文档空间占位**——元素在文档里仍然占 760×427，只有视觉上缩成 140×78。而 .pres-thumb 容器设了 overflow:hidden + 硬写 height=78px → 78px 容器里放 427px 高的内容 → 裁掉 82%
-- **修复**：不用 transform scale，硬写缩后宽高（width: W*scale + height: H*scale）。renderEl 内部元素本来就乘了 scale，transform 是冗余的
-- **预防**：CSS transform scale 只适合纯视觉修饰的场景（hover 放大、动画），**绝对不能用来做布局尺寸计算**
-- **关联文件**：app/js/modules/presentation.js（L171-182 renderSlide + L259-271 renderThumbs）
-
----
-
-## [L2|Presentation] 中间画布（.pres-canvas）硬写 760×427 不适屏
-
-- **现象**：中间 16:9 幻灯片画布被直接塞进 .pres-canvas-area，固定 760×427，不随 viewport 大小缩放 → 窗口小则画布被裁，窗口大则大片留白
-- **根因**：① CSS L690 .pres-canvas 硬写 width:760px height:427px position:absolute left:0 top:0；② mount 里**完全没有** resize/fitScale 事件监听
-- **修复**：mount 内新增 itScale() 函数 —— 算 .pres-canvas-area clientWidth/clientHeight → scale = min(aw/760, ah/427) → translate 居中 + scale → 改 canvas.style.transform；加 ResizeObserver + window.resize 双监听
-- **技术要点**：transform translate 从 left:0 top:0 起平移，transformOrigin: top left → 居中公式 	x=(areaW-760*scale)/2, ty=(areaH-427*scale)/2 正确
-- **关联文件**：app/js/modules/presentation.js（L287-308 fitScale + renderAll 调用 + ResizeObserver）
-- **验证**：104/104 绿 + dist:local 13:17 重打
-
----
-
-## [L2|Presentation] CSS transform:scale + overflow:hidden 渲染顺序坑
-
-- **现象**：缩略图被裁掉 80%，只显示左上角小部分；数字编号 tnum 被覆盖看不见
-- **根因**：CSS 渲染顺序是 **layout → overflow clip → paint → transform**！
-  `
-  .pres-canvas { width:760px; transform: scale(0.184) }
-  .pres-thumb  { overflow: hidden; width:140px; height:78px }
-  
-  步骤 1 layout: .pres-canvas 文档空间占 760×427
-  步骤 2 overflow clip: .pres-thumb 按 140×78 裁 → .pres-canvas 只剩左上角 140×78
-  步骤 3 transform: 被裁后的 140×78 再 scale(0.184) → 只剩 25×14 视觉！
-  `
-- **修复**：彻底不用 transform scale + overflow:hidden 组合！
-  - renderSlide 硬写缩后宽高（W*scale × H*scale），和 renderEl 内部元素乘 scale 完全匹配
-  - 父容器不需要 overflow:hidden（canvas 正好填满）
-  - 也不需要 position:absolute（正常文档流）
-- **预防铁律**：
-  1. **transform scale 只适合纯视觉动画**（hover 放大、进入动画），**绝对不能用来做布局尺寸！**
-  2. **overflow:hidden 和 transform scale 同时存在时，前者先裁后者再缩 → 必出问题**
-  3. 布局尺寸计算必须硬写 width/height，别用 transform 投机取巧
-- **关联文件**：app/js/modules/presentation.js（renderSlide + renderThumbs）
-- **踩坑次数**：这是本轮第 3 次改 renderSlide，每次都在 transform scale 上翻车
-
----
-
-## [L2|Presentation] CSS class 复用冲突：.pres-canvas 被两条路径共享
-
-- **现象**：缩略图 canvas 画面"飘走"——只显示幻灯片的左半部分或中间部分，不是完整 16:9
-- **根因**：renderSlide（缩略图路径）和 renderMain（主画布路径）**都创建 .pres-canvas class 元素**，但 CSS L690 的 .pres-canvas 规则是给主画布写的：
-  `css
-  .pres-canvas{ position:absolute; left:0; top:0; overflow:hidden; width:760px; height:427px }
-  `
-  renderSlide 创建的缩略图 canvas 继承了 position:absolute，但它的父容器 .pres-thumb 没设 position:relative → absolute 元素飘到最近 positioned ancestor → 画面截断
-- **修复**：renderSlide 里用 JS 内联 style 显式覆盖：
-  `js
-  el.style.position = "static";
-  el.style.left = "auto";
-  el.style.top = "auto";
-  el.style.overflow = "visible";
-  `
-  （width/height 之前已经硬写缩后尺寸覆盖了 CSS 的 760×427）
-- **预防铁律**：
-  1. **同一个 CSS class 不能被两条语义不同的路径共用**！主画布和缩略图画布的布局需求完全不同（absolute vs static、overflow hidden vs visible）
-  2. **未来正确做法**：renderSlide 创建的元素改 class 名（比如 .pres-canvas-mini），彻底隔离 CSS 规则
-  3. **临时兜底**：JS 创建元素时用内联 style 覆盖所有 CSS class 的冲突属性
-- **踩坑次数**：这是 renderSlide 第 4 次修改。每次都在 CSS class 复用上翻车
-- **关联文件**：app/js/modules/presentation.js renderSlide + app/css/style.css L690
-
----
-
-## [P2] [L2|pdf-img-only-page-dropped] 图片专属页被 early-return 整页丢弃 ✅
-
-- **现象**：pdfToDocxHtml 对「只有图片没有文本/表格」的页整页 return，图片全部丢失
-- **根因**：early-return 条件 `!proseOnly.length && !tableSlots.length` 没把 imageSpans 算进去 — 图片分支上线前是死代码，该条件从未暴露
-- **修复**：条件补 `&& !imageSpans.length`
-- **预防**：给「备用分支」接数据时，先审计所有 early-return / 空值分支是否把新数据类型算进去
-- **关联文件**：app/js/modules/pdf-convert.js L181
-- **修复验证**：_pdf_convert_image_test.js「图片专属页保留 <img>」「第2页纯图片页保留且分页」2 断言，105/105 全绿
-
----
-
-## [P1] [L2|publish-chain-env-gaps] 发布链路环境三坑：bash 不在 PATH / rcprod 私钥缺失 / rsync 缺失 ✅
-
-- **现象**：publish-latest.sh 连跑三次失败：① PowerShell 无 bash（Git 在 PortableGit）② 脚本默认私钥 ~/.ssh/id_ed25519_rcprod 不存在 ③ publish-desktop-feed.js 走 rsync 但 PortableGit 不带 rsync
-- **根因**：发布脚本按「开发者本机装了完整 Git for Windows + 专用发布私钥」假设写的，本机环境是 PortableGit + 只有 id_ed25519
-- **修复**：用 PortableGit 全路径 bash + 环境变量覆盖 LVJX_FEED_SSH_KEY（id_ed25519 base64）+ 绕过 rsync 直接 scp 三个产物；另发现默认 host 8.149.245.252 已连不通，47.116.59.141 才是现役 VPS
-- **预防**：发布脚本默认值会随时间漂移 — 发布前先探活 host + 确认私钥名；PortableGit 环境没有 rsync，scp 是兜底
-- **关联文件**：scripts/publish-latest.sh, scripts/publish-desktop-feed.js
-- **修复验证**：远端 ls 三个产物齐 + sha256 双侧一致 + latest.yml HTTPS 200
-
----
-
-## [P1] [L2|pdf-multicol-table-y-flipped] PDF→DOCX 表格/多栏栏内行序上下颠倒（y 方向假设错误）✅
-
-- **现象**：PDF→DOCX 表格行序、多栏栏内行序在真实 PDF 里是上下颠倒的（表头跑到表格底部、栏内从底往上读）
-- **根因**：renderTableBlock 和双栏重排 colGroups 都按 baseY **降序**排（注释写"表头 y 最大先渲染"，假设 y-up）；但 extractAllPagesSpans 的 y = pdf.js transform[5]/vp.height 是 **y-down**（顶 0 底 1，实锤：批注渲染 `el.style.top = a.y*bh` 直接当 CSS 像素）。prose/events 升序正确，表格/多栏降序方向相反。原作者用降序的真实原因是让栏内 gap 为负、粘合成一整段保栏间顺序 —— 用"栏内颠倒"换"栏间正确"
-- **修复**：① renderTableBlock / colGroups 全部改 baseY **升序**（y 小=顶部先渲染）② 多栏段落改为预构建（每栏一整段，不走 y-gap 合并，避免栏切换 y 回落粘连 + 栏内拆段导致 events 交错）③ 所有栏段共享同一事件 y（colMinY）→ events 稳定 sort 保栏 1→2→3 顺序 ④ preserved（标题等）独立成段按自身 y 穿插，insertPreserved 删除
-- **预防**：碰 PDF 坐标系先确认 y 方向 —— 实锤方法看批注/文本层渲染怎么用（top=y*h 即 y-down）；凡"排序方向 + 注释声称的方向"与坐标系不符，先怀疑 pre-existing bug 再动手
-- **关联文件**：app/js/modules/pdf-convert.js（renderTableBlock L77-87、多栏重排 L155-191、events 构造 L209-212）
-- **修复验证**：_pdf_convert_3col_test.js B3「栏内阅读序 L1 在 L10 前」+ D2-D3 表格不被误吞，106/106 全绿
-
----
-
-## [P1] [L2|pdf-extract-coords-assumed] PDF 提取层坐标系两坑：y 方向实锤方法错误 + 矩阵乘法顺序错误（覆盖 #27 坐标系定论部分）✅
-
-- **现象**：① 真实 PDF 走 PDF→DOCX 全文/表格/多栏全部上下反序（#27 修复后反而更反）② pdf-lib drawImage 生成的 PDF 图片提取矩形飞出页面（x=8.3、y=-36）
-- **根因**：① #27 用「批注渲染 top=y*bh」当 y-down 实锤——但批注 y 来自 DOM 指针事件，与文本提取坐标系无关；真实 pdf.js textContent transform[5] 是用户空间 **y-up**（drawText y=740 → transform[5]=740 实锤），extractAllPagesSpans 没翻转，下游全按 y-down 升序排 → 真实数据全反。② multiplyM(args, ctm) 左乘只在单条 cm 碰巧正确（单位阵可交换），PDF/Canvas 语义是右乘 postmultiply（CTM_new = CTM × m），pdf-lib 的 平移→缩放 多步 cm 链顺序一错就算飞
-- **修复**：① 提取层翻转 y = 1 - t[5]/vp.height，归一化下沉纯函数 _textSpansFromTC（#27 的升序方向在 y-down 数据下才真正成立）② walkImageRects 全部右乘 multiplyM(ctm, m)，Form XObject Matrix 同样右乘 ③ 图片矩形 y 翻 y-down
-- **预防**：凡坐标系/矩阵约定，**禁止用间接证据实锤**（批注坐标 ≠ 提取坐标）——必须端到端实测（pdf-lib 生成已知坐标 PDF → 真实解析链路验证）；矩阵顺序用「多步非交换链」验证，单步恒等场景验不出来
-- **关联文件**：app/js/modules/pdf-convert.js L400-460、app/js/modules/pdf.js L138-181、_pdf_3col_e2e_test.js
-- **修复验证**：_pdf_3col_e2e_test.js 12 断言（真实三栏栏序+栏内序、单栏行序、form 嵌套图矩形、表格表头在上），107/107 全绿

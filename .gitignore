@@ -47,6 +47,13 @@ _e2e_scenarios_result.txt
 clients/android/app/build/
 cert/
 
+# 重要凭证/密码/证书（绝对不能入库）
+.credentials/
+*.pfx
+*.pem
+*.key
+*.p12
+
 # AI 临时工作产物（脚本、截图、测试结果）
 .trae/tmp/
 .trae-html-share-packages/

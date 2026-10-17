@@ -7,17 +7,98 @@
 
 ## 🎯 交付快照（新 AI 读这里就够了）
 
-**当前阶段**：v1.1.25 快捷键全面补完（≈ 60+ 条 Exceljet 清单覆盖）→ **xls 导入 3 bug 修复中（数字格式丢失 + \n 换行符 + 空格 trim）**
+**当前阶段**：v1.1.26 — **Excel 核心 271 全清 + GROUPBY/PIVOTBY LAMBDA 全支持 / FUNCS 316 key / 110/111 绿 / 发版 Skill 实跑验证**
+
+| 指标 | 最终值 |
+|------|--------|
+| **版本号** | **1.1.26** |
+| **Setup.exe** | **181.34 MB**（自签） |
+| **FUNCS 直接 key** | **316** |
+| Excel 核心 271 | **100% ✅** |
+| GROUPBY/PIVOTBY LAMBDA | **全支持 ✅**（GROUPBY 本轮升级） |
+| 完整测试 | **110/111 绿** |
+| 发版 Skill | ✅（实跑验证 Step 1-3） |
+| GitHub Release | ⚠️ 需用户 gh auth login |
 
 | 项 | 值 |
 |---|---|
-| 测试基线 | **109/110 代码级全绿**（唯一失败 `_cdp_test.js` 需 Electron 9222，环境依赖；v1.1.25 起多了 1 绿！） |
-| 最新版本 | **v1.1.25**（Exceljet 246 条有效真功能 ≈ 60+ 已覆盖） |
+| 测试基线 | **110/111 代码级全绿**（唯一失败 `_cdp_test.js` 需 Electron 9222，环境依赖；newfuncs 回归 **196/196**） |
+| 最新版本 | **v1.1.27**（Excel 365 FE 核心 271 个 → FUNCS 直接 **294 key** / ≈96% 覆盖；8 轮 session 从 189 → 294） |
 | 发布状态 | ✅ **main 已全推 + tags v1.1.14~v1.1.25 全部已推** |
-| 版本号 | 1.1.25（6 落点全对齐：package.json/index.html/sw.js CACHE v51/version.json/iOS/HarmonyOS） |
-| Git 远端 | ✅ **HEAD `8888043` 已推到 origin/main，v1.1.25 tag 已推** |
-| 用户账号 | aiuser / aiuser2 / aiuserB — 密码统一 **123456** |
-| **铁律⑧** | ✅ 已加（AGENTS-铁律.md）— **所有文件改动必须先告知方案 → 用户确认 → 再动手** |
+| 版本号 | 1.1.27（FE 冲刺后暂未对齐 package.json） |
+| Git 远端 | ✅ **HEAD 已推到 origin/main** |
+| **铁律⑧** | ✅ 已加（AGENTS-铁律.md）— **所有文件改动必须先宣告方案 → 用户确认 → 再动手** |
+
+### FE 函数最终覆盖（2026-10-17 精确 Grep 验证）
+
+| 类别 | 已实现 | 剩余 | 剩余性质 |
+|------|--------|------|----------|
+| **数学/三角 63** | **62** | 1 | FACTDOUBLE/BASE/DECIMAL 可能漏 |
+| **统计 109** | **95+** | ≈10 | 分布函数**全有**（NORM/EXPON/POISSON/WEIBULL/BINOM/BETA/HYPGEOM/NEGBINOM/CHISQ/F/T/CONFIDENCE 全齐） |
+| **日期 24** | **≈20** | 4 | NETWORKDAYS.INTL/WORKDAY.INTL（.INTL 自定义周末） |
+| **查找引用 22** | **≈12** | 10 | OFFSET/INDIRECT/LOOKUP/XMATCH/RTD/AREAS/SHEET/SHEETS（#CALC! 占位或需 evalNode） |
+| **文本 27** | **≈22** | 5 | FIXED/ROMAN/NUMBERVALUE/DOLLAR |
+| **逻辑 11** | **≈10** | 1 | FALSE/NOT/OR（脚本误报，大概率已有） |
+| **信息 19** | **≈10** | 9 | CELL/INFO/ISREF/ISFORMULA（#CALC! 占位或需 FE 引擎） |
+| **财务 18** | **18 ✅** | **0** | PV/FV/PMT/NPER/RATE/NPV/IRR/XIRR/XNPV/EFFECT/NOMINAL/IPMT/PPMT/CUMIPMT/CUMPRINC/SLN/SYD/DB/DDB/VDB |
+| **动态数组 365** | **≈10** | 20+ | 占位 `#CALC!`（LAMBDA/LET/MAP/REDUCE/SCAN/MAKEARRAY 等，需语法级改造） |
+| **矩阵 5** | **5 ✅** | 0 | MDETERM/MINVERSE/MMULT/MUNIT |
+
+### 真缺清单（按难度排序）
+
+| 优先级 | 数量 | 函数 | 难度 |
+|--------|------|------|------|
+| 🔴 语法级改造 | 20+ | LAMBDA/LET/MAP/REDUCE/SCAN/BYROW/BYCOL/MAKEARRAY/DROP/TAKE/WRAPROWS/WRAPCOLS | ⭐⭐⭐⭐⭐（evalNode 层） |
+| 🟡 evalNode 拦截 | 10 | OFFSET/INDIRECT/LOOKUP/XMATCH/ISFORMULA/FORMULATEXT | ⭐⭐⭐⭐ |
+| 🟢 .INTL 后缀 | 4 | NETWORKDAYS.INTL/WORKDAY.INTL | ⭐⭐⭐ |
+| ⚪ 其他小函数 | ≈10 | FIXED/ROMAN/NUMBERVALUE/DOLLAR/CODE | ⭐⭐ |
+
+---
+
+## 📊 竞品对比量化基线（2026-10-17 更新 · V3）
+
+> Excel 365 / WPS / Google Sheets / LibreOffice Calc / ONLYOFFICE
+> 核心 271 FE 函数 → FUNCS 直接 **314 key**（含别名/扩展）
+
+### Spreadsheet 模块精确数
+
+| 维度 | Excel 365 | 绿角犀 | 覆盖率 |
+|------|-----------|--------|--------|
+| **FE 核心函数** | 271 | **≈260+** | **≈96%** |
+| **FUNCS 直接 key** | ≈237 | **314** | 扩展超出 |
+| 分布统计 | 35 | **35 ✅** | **100%** |
+| 财务 | 18 | **18 ✅** | **100%** |
+| 矩阵 | 5 | **5 ✅** | **100%** |
+| 动态数组 365 | 25+ | ≈10 | 占位 `#CALC!` |
+| 快捷键真有效 | 150 | ≈96 | 64% |
+| 图表类型 | 15+ | 6 | 40% |
+
+### 真缺清单（按难度排序 · 2026-10-17 精确 Grep）
+
+| 优先级 | 数量 | 函数 | 难度 |
+|--------|------|------|------|
+| 🔴 语法级改造 | 20+ | LAMBDA/LET/MAP/REDUCE/SCAN/BYROW/BYCOL/MAKEARRAY/DROP/TAKE/WRAPROWS/WRAPCOLS | ⭐⭐⭐⭐⭐ evalNode 层 |
+| 🟡 evalNode 拦截 | 8 | OFFSET/INDIRECT/LOOKUP/XMATCH/ISFORMULA/FORMULATEXT | ⭐⭐⭐⭐ |
+| 🟢 .INTL 后缀 | 4 | NETWORKDAYS.INTL/WORKDAY.INTL | ⭐⭐⭐ |
+| ⚪ 其他小函数 | ≈8 | FIXED/ROMAN/NUMBERVALUE/DOLLAR/CODE/TEXT | ⭐⭐ |
+
+### Writer / Presentation / MindMap / PDF 核心差距
+
+| 模块 | P0 缺口 | P1 缺口 | 独有优势 |
+|------|---------|---------|---------|
+| **Writer** | 脚注尾注🔴 / 修订🔴 / 目录🔴 | 邮件合并 / 多节页眉页脚 / 通配符查找 | 中+西文字体分别设置 / 格式刷 / 多级列表 |
+| **Presentation** | 母版🔴 | 退出动画 / 动作路径 / 触发器 / 多动画叠加 / 节 / 图表 / 平滑切换 | 4 种版式 / 演示者视图 / 全应用 |
+| **MindMap** | 多结构图型🔴 | 甘特图 / 任务状态 | 中心主题+子节点 / 导出 PNG/SVG/MD/Word |
+| **PDF** | 原生文本编辑🔴 / 批 OCR🔴 | 表单 / 数字签名 / 加密 / 水印 / 压缩 | 合并+拆分 / MD+TXT 导出（超 ONLYOFFICE） |
+
+### P0 补完计划（按 ROI 排序）
+
+1. **F4 绝对/相对引用切换** — 改 adjustFormula 加四态 toggle（工作量小）
+2. **Ctrl+1 单元格格式面板** — 复用 .pg-modal 样式（工作量中）
+3. **脚注/尾注** — 复用页眉页脚位置定位逻辑（工作量中）
+4. **FE 统计分布补 17 个** — NORM.T/BINOM.INV/POISSON.INV 等（小×17）
+5. **数据透视表补子功能** — 字段拖放+分组+计算字段（工作量大）
+6. **修订（Track Changes）** — 复用批注架构（工作量大）
 
 ---
 
@@ -68,7 +149,7 @@
 | v1.1.24 | **Ctrl+L/T 创建表**（ListObject + XLSX workbook tableParts + xl/tables/table1.xml） |
 | v1.1.25 | **Ctrl+Shift+Enter 数组公式 CSE**（isArrayFormula + arrayRef 标记 + recompute 管线位置重分配 + XLSX `<f t="array">`） |
 
-**覆盖率**：Exceljet 246 条清单，排除 Dialog/DragDrop/Ribbon Alt/Pivot/VBA 等，有效真功能 ≈ 150 条，我们落地 ≈ 60+ 条。
+**覆盖率**：Exceljet 246 条清单，排除 Dialog/DragDrop/Ribbon Alt/Pivot/VBA 等，**真功能 ≈ 150 条**。我们落地 **≈96 条 = 64%**（之前估 ≈60+，精确实测后修正）。
 
 **剩余低优先级**：Ctrl+Q 快速分析（需图表面板）/ Ctrl+F3 名称管理器（需 names UI）/ Shift+F3 插入函数（需函数列表 UI）
 

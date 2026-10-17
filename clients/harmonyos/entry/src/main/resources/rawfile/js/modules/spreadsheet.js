@@ -2188,23 +2188,66 @@
 
     let selected = "A1", anchor = "A1";
     var cfAppliedRefs = [];
+    let extendMode = false;  // F8 扩展选区模式
+
+    // ===== 内部剪贴板（选择性粘贴用）=====
+    let internalClipboard = null; // { r1, c1, r2, c2, cells, styles, comments, formulas }
+    let internalClipboardHasData = false;
+
+    // ===== F4 重复上一操作 =====
+    let lastAction = null; // { fn, args: { patch, label }, offset: { dR, dC } }
+    function setLastAction(fn, args) {
+      // 记录当前选区 offset（anchor → selected），让 F4 能在偏移位置重放
+      const ap = FE.parseRef(anchor), sp = FE.parseRef(selected);
+      lastAction = { fn, args, offset: { dR: sp.row - ap.row, dC: sp.col - ap.col } };
+    }
+    function repeatLastAction() {
+      if (!lastAction) { OS.toast("无可重复的操作，请先做一个操作（加粗/格式/插入等）", "info"); return; }
+      const ap = FE.parseRef(anchor);
+      const { dR, dC } = lastAction.offset;
+      const newApR = Math.max(1, Math.min(ROWS, ap.row));
+      const newApC = Math.max(1, Math.min(COLS, ap.col));
+      const newSelR = Math.max(1, Math.min(ROWS, ap.row + dR));
+      const newSelC = Math.max(1, Math.min(COLS, ap.col + dC));
+      // 临时改 anchor/selected 为新位置，让 target 函数用 rangeRect() 自动算新选区
+      const prevAnchor = anchor, prevSelected = selected;
+      anchor = FE.idxToCol(newApC) + newApR;
+      selected = FE.idxToCol(newSelC) + newSelR;
+      try {
+        lastAction.fn(lastAction.args);
+        OS.toast("F4：已重复「" + (lastAction.args.label || "操作") + "」", "ok");
+      } catch (e) {
+        OS.toast("F4 执行失败：" + e.message, "warn");
+        anchor = prevAnchor; selected = prevSelected;
+      }
+    }
 
     // 构建表头与单元格
     const DEFAULT_COL_WIDTH = 64;
     const DEFAULT_ROW_HEIGHT = 18;
     function buildGrid() {
+      // 确保每个 sheet 都有 hideRows/hideCols Set
+      if (!sh0.hideRows) sh0.hideRows = new Set();
+      if (!sh0.hideCols) sh0.hideCols = new Set();
+      const hiddenRows = sh0.hideRows;
+      const hiddenCols = sh0.hideCols;
       const cw = sh0.colWidths || [];
       const rh = sh0.customRowHeights || {};
       let html = "<tr><th class='corner'></th>";
       for (let c = 1; c <= COLS; c++) {
         const w = cw[c] || DEFAULT_COL_WIDTH;
-        html += `<th class="colhead" data-col="${c}" style="width:${w}px;min-width:${w}px">${FE.idxToCol(c)}</th>`;
+        const hidden = hiddenCols.has(c) ? " hidden" : "";
+        html += `<th class="colhead${hidden}" data-col="${c}" style="width:${w}px;min-width:${w}px">${FE.idxToCol(c)}</th>`;
       }
       html += "</tr>";
       for (let r = 1; r <= ROWS; r++) {
         const rowH = rh[r] || DEFAULT_ROW_HEIGHT;
-        html += `<tr style="height:${rowH}px"><th class="rowhead" data-row="${r}" style="height:${rowH}px">${r}</th>`;
-        for (let c = 1; c <= COLS; c++) html += `<td data-ref="${FE.idxToCol(c)}${r}"></td>`;
+        const rhidden = hiddenRows.has(r) ? " hidden" : "";
+        html += `<tr class="${rhidden.trim()}" style="height:${rowH}px"><th class="rowhead${rhidden}" data-row="${r}" style="height:${rowH}px">${r}</th>`;
+        for (let c = 1; c <= COLS; c++) {
+          const chidden = hiddenCols.has(c) ? " hidden" : "";
+          html += `<td class="${chidden.trim()}" data-ref="${FE.idxToCol(c)}${r}"></td>`;
+        }
         html += "</tr>";
       }
       table.innerHTML = html;
@@ -2370,10 +2413,41 @@
     function recompute() {
       // 1. 清 cache 和旧 spill 记录
       for (const k in cache) delete cache[k];
+
+      // 1.5 数组公式重算：遍历所有 isArrayFormula cell，按 arrayRef 分组，从 anchor 重新 FE.run → 位置分配
+      const visitedArrays = new Set();
+      for (const ref in data.cells) {
+        const raw = data.cells[ref];
+        if (raw.isArrayFormula && raw.arrayRef) {
+          if (visitedArrays.has(raw.arrayRef)) continue;
+          visitedArrays.add(raw.arrayRef);
+          const r = FE.parseRef(raw.arrayRef);
+          const anchorRef = FE.idxToCol(r.col) + r.row;
+          let result;
+          try { result = FE.run(raw.f, getCell, anchorRef); } catch (e) { result = "#CALC!"; }
+          const is2D = result && Array.isArray(result) && result.length > 0 && Array.isArray(result[0]);
+          const is1D = result && Array.isArray(result) && result.length > 0 && !Array.isArray(result[0]);
+          for (let row = r.row; row <= r.row2; row++) {
+            for (let col = r.col; col <= r.col2; col++) {
+              const cellRef = FE.idxToCol(col) + row;
+              const cell = data.cells[cellRef];
+              if (!cell || !cell.isArrayFormula) continue;
+              const ri = row - r.row, ci = col - r.col;
+              let v = "#N/A";
+              if (is2D && ri < result.length && ci < result[0].length) v = result[ri][ci];
+              else if (is1D && ri < result.length && ci === 0) v = result[ri];
+              else if (!is2D && !is1D) v = result;
+              cell.v = (v instanceof Date ? v.toLocaleDateString() : (v instanceof Error ? "#CALC!" : v));
+              delete cache[cellRef];
+            }
+          }
+        }
+      }
+
       // 2. 预算所有带公式的单元格，让动态数组先铺满 cache
       for (const ref in data.cells) {
         const raw = data.cells[ref];
-        if (raw.f && raw.f.startsWith("=")) getCell(ref);
+        if (raw.f && raw.f.startsWith("=") && !raw.isArrayFormula) getCell(ref);
       }
       // 3. 统一写 DOM（此时 cache 已被预算全部填满）
       table.querySelectorAll("td[data-ref]").forEach(td => {
@@ -2968,6 +3042,9 @@
       if (!td || td.getAttribute("contenteditable") === "true") return;
       if (dragMoved) { dragMoved = false; return; } // 拖拽已设置选区
       const ref = td.dataset.ref;
+      const cell = data.cells[ref];
+      // Ctrl+Click = 超链接跳转
+      if (e.ctrlKey && cell && cell.hyperlink) { e.preventDefault(); jumpHyperlink(cell.hyperlink); return; }
       if (e.shiftKey) { selected = ref; paint(); updateStatus(); }
       else selectCell(ref);
     });
@@ -2998,6 +3075,445 @@
     function selectCol(col) { anchor = FE.idxToCol(col) + 1; selected = FE.idxToCol(col) + ROWS; paint(); updateStatus(); }
     function selectRow(row) { anchor = "A" + row; selected = FE.idxToCol(COLS) + row; paint(); updateStatus(); }
 
+    // ===== P0 辅助：Alt+= SUM 选区求和 =====
+    function sumSelection() {
+      const rg = rangeRect();
+      if (!rg) return;
+      const tl = FE.idxToCol(rg.c1) + rg.r1;
+      const br = FE.idxToCol(rg.c2) + rg.r2;
+      const formula = "=SUM(" + tl + ":" + br + ")";
+      // 写入 anchor 所在单元格，或选区下方一格（Excel 行为）
+      const ap = FE.parseRef(anchor);
+      let writeRef;
+      // 优先：选区正下方、同 anchor 列的格子
+      const belowRef = FE.idxToCol(ap.col) + (rg.r2 + 1);
+      if (rg.r2 + 1 <= ROWS && !data.cells[belowRef]) writeRef = belowRef;
+      else writeRef = anchor;
+      snapshot();
+      writeCell(writeRef, formula);
+      recompute(); applyFmt();
+      const td = table.querySelector(`td[data-ref="${writeRef}"]`);
+      if (td) { td.classList.add("selected"); anchor = writeRef; selected = writeRef; paint(); }
+      ctx.markDirty();
+      OS.toast("已写入 " + formula + " → " + writeRef, "ok");
+    }
+
+    // ===== P0 辅助：Delete/Backspace 清除选区内容 =====
+    function clearSelection() {
+      const rg = rangeRect();
+      if (!rg) return;
+      let count = 0;
+      snapshot();
+      for (let r = rg.r1; r <= rg.r2; r++)
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          if (data.cells[ref]) { delete data.cells[ref]; count++; }
+        }
+      recompute(); applyFmt(); ctx.markDirty();
+      if (count) OS.toast("已清除 " + count + " 个单元格", "ok");
+    }
+
+    // ===== P0 辅助：Ctrl+Shift+End/Home 选区扩展 =====
+    function expandSelectToCorner(direction) {
+      const rg = rangeRect(); if (!rg) return;
+      if (direction === "home") {
+        // 从当前选区扩展到 A1 对角
+        anchor = "A1";
+        selected = FE.idxToCol(rg.c2) + rg.r2;
+      } else {
+        const max = findDataMax();
+        anchor = FE.idxToCol(rg.c1) + rg.r1;
+        selected = FE.idxToCol(max.col) + max.row;
+      }
+      paint(); updateStatus();
+    }
+
+    // ===== 批量样式：给整个选区（不是只 selected）设样式 =====
+    function applyRangeStyle(patch) {
+      const rg = rangeRect(); if (!rg) return;
+      snapshot();
+      for (let r = rg.r1; r <= rg.r2; r++)
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          data.styles[ref] = Object.assign(data.styles[ref] || {}, patch);
+        }
+      applyFmt(); applyCondFormat(); ctx.markDirty();
+    }
+
+    // ===== Excel 7 个数字格式快捷键 =====
+    function applyNumberFormat(fmtId) {
+      const FMTS = {
+        "general":    { code: "General",     label: "常规" },
+        "currency":   { code: "$#,##0.00",  label: "货币" },
+        "percent":    { code: "0%",          label: "百分比" },
+        "scientific": { code: "0.00E+00",    label: "科学" },
+        "date":       { code: "yyyy-mm-dd", label: "日期" },
+        "time":       { code: "h:mm:ss",     label: "时间" },
+        "comma":      { code: "#,##0.00",    label: "千分位" }
+      };
+      const f = FMTS[fmtId]; if (!f) return;
+      applyRangeStyle({ numberFormat: f.code });
+      OS.toast("数字格式：" + f.label, "ok");
+    }
+
+    // ===== 上一格复制值 / 复制公式 =====
+    function copyFromAbove(onlyValue) {
+      const ap = FE.parseRef(anchor);
+      if (ap.row <= 1) { OS.toast("已是第一行", "info"); return; }
+      const aboveRef = FE.idxToCol(ap.col) + (ap.row - 1);
+      const above = data.cells[aboveRef];
+      if (!above) { OS.toast("上一格为空", "info"); return; }
+      snapshot();
+      if (onlyValue) {
+        const v = above.v != null ? above.v : (above.f != null ? FE.evalFormula(above.f, aboveRef) : null);
+        writeCell(anchor, v == null ? "" : v);
+      } else {
+        if (above.f != null) writeCell(anchor, "=" + above.f);
+        else writeCell(anchor, above.v != null ? above.v : "");
+      }
+      recompute(); applyFmt(); ctx.markDirty();
+    }
+
+    // ===== 向右填充（对应 Ctrl+D 向下填充） =====
+    function fillRight() {
+      const rg = rangeRect(); if (!rg || rg.c2 <= rg.c1) return;
+      snapshot();
+      const srcRef = FE.idxToCol(rg.c1) + anchorRow();
+      const src = data.cells[srcRef];
+      if (!src) { OS.toast("源单元格为空", "info"); return; }
+      for (let c = rg.c1 + 1; c <= rg.c2; c++) {
+        const ref = FE.idxToCol(c) + anchorRow();
+        if (src.f) writeCell(ref, "=" + src.f);
+        else writeCell(ref, src.v != null ? src.v : "");
+      }
+      recompute(); applyFmt(); ctx.markDirty();
+      OS.toast("已向右填充 " + (rg.c2 - rg.c1) + " 格", "ok");
+    }
+    function anchorRow() { return FE.parseRef(anchor).row; }
+
+    // ===== 边框快捷：Ctrl+Shift+& 外边框 / Ctrl+Shift+_ 去边框 =====
+    function setOuterBorder(remove) {
+      const rg = rangeRect(); if (!rg) return;
+      snapshot();
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          const s = data.styles[ref] || (data.styles[ref] = {});
+          if (!s.border) s.border = {};
+          if (remove) { s.border = {}; continue; }
+          const isEdgeLeft = c === rg.c1, isEdgeRight = c === rg.c2;
+          const isEdgeTop = r === rg.r1, isEdgeBottom = r === rg.r2;
+          if (isEdgeLeft)   s.border.left   = { style: "thin", color: "#333" }; else delete s.border.left;
+          if (isEdgeRight)  s.border.right  = { style: "thin", color: "#333" }; else delete s.border.right;
+          if (isEdgeTop)    s.border.top    = { style: "thin", color: "#333" }; else delete s.border.top;
+          if (isEdgeBottom) s.border.bottom = { style: "thin", color: "#333" }; else delete s.border.bottom;
+        }
+      }
+      applyFmt(); applyCondFormat(); ctx.markDirty();
+      OS.toast(remove ? "已清除选区边框" : "已添加外边框", "ok");
+    }
+
+    // ===== Ctrl+` 公式/值切换显示 =====
+    let showFormulasFlag = false;
+    function toggleFormulas() {
+      showFormulasFlag = !showFormulasFlag;
+      // 触发 applyFmt 重绘（它会根据 showFormulasFlag 决定 td.textContent 显示公式还是值）
+      applyFmt();
+      OS.toast("公式显示：" + (showFormulasFlag ? "开" : "关"), "ok");
+    }
+
+    // ===== 隐藏 / 取消隐藏行 & 列 =====
+    function syncHiddenClasses() {
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideRows) sh.hideRows = new Set();
+      if (!sh.hideCols) sh.hideCols = new Set();
+      // tr：通过内部 rowhead th.data-row 判断
+      table.querySelectorAll("tr").forEach(tr => {
+        const rh = tr.querySelector(".rowhead");
+        if (rh) tr.classList.toggle("hidden", sh.hideRows.has(Number(rh.dataset.row)));
+      });
+      // th.colhead
+      table.querySelectorAll("th.colhead").forEach(th => th.classList.toggle("hidden", sh.hideCols.has(Number(th.dataset.col))));
+      // td
+      table.querySelectorAll("td[data-ref]").forEach(td => {
+        const p = FE.parseRef(td.dataset.ref);
+        td.classList.toggle("hidden", sh.hideRows.has(p.row) || sh.hideCols.has(p.col));
+      });
+    }
+    function hideSelectedRows() {
+      const rg = rangeRect(); if (!rg) return;
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideRows) sh.hideRows = new Set();
+      let n = 0;
+      for (let r = rg.r1; r <= rg.r2; r++) { if (!sh.hideRows.has(r)) { sh.hideRows.add(r); n++; } }
+      snapshot(); syncHiddenClasses(); ctx.markDirty();
+      OS.toast("已隐藏 " + n + " 行（Ctrl+Shift+9 恢复）", "ok");
+    }
+    function hideSelectedCols() {
+      const rg = rangeRect(); if (!rg) return;
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideCols) sh.hideCols = new Set();
+      let n = 0;
+      for (let c = rg.c1; c <= rg.c2; c++) { if (!sh.hideCols.has(c)) { sh.hideCols.add(c); n++; } }
+      snapshot(); syncHiddenClasses(); ctx.markDirty();
+      OS.toast("已隐藏 " + n + " 列（Ctrl+Shift+0 恢复）", "ok");
+    }
+    function unhideAllRows() {
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideRows || sh.hideRows.size === 0) { OS.toast("没有已隐藏的行", "info"); return; }
+      const n = sh.hideRows.size;
+      sh.hideRows = new Set(); snapshot(); syncHiddenClasses(); ctx.markDirty();
+      OS.toast("已取消隐藏全部 " + n + " 行", "ok");
+    }
+    function unhideAllCols() {
+      const sh = data.sheets[data.activeSheet];
+      if (!sh.hideCols || sh.hideCols.size === 0) { OS.toast("没有已隐藏的列", "info"); return; }
+      const n = sh.hideCols.size;
+      sh.hideCols = new Set(); snapshot(); syncHiddenClasses(); ctx.markDirty();
+      OS.toast("已取消隐藏全部 " + n + " 列", "ok");
+    }
+
+    // ===== 插入/删除行列：ref 移位核心 =====
+    // shiftFormulaRefs: 公式字符串里所有单元格引用移位
+    function shiftFormulaRefs(formula, mode, idx, count) {
+      // mode: "row" 或 "col", idx: 起始行/列号, count: 移位量（插入=+count, 删除=-count）
+      // 解析 "A1" 型引用：如果 row>=idx 就 +count（插入后移）；如果 row>=idx+|count|（删除前移）
+      return formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)/g, (m, ab, col, ar, row) => {
+        const rowN = +row;
+        if (mode === "row") {
+          if (rowN >= idx && !ar) return col + (rowN + count);
+        } else {
+          const colN = FE.colToIdx ? FE.colToIdx(col) : col.split("").reduce((a,c)=>a*26+(c.charCodeAt(0)-64),0);
+          if (colN >= idx && !ab) return FE.idxToCol(colN + count) + rowN;
+        }
+        return m;
+      });
+    }
+    // shiftRangeStr: "A1:B3" 型 range 移位
+    function shiftRangeStr(rangeStr, mode, idx, count) {
+      if (!rangeStr) return rangeStr;
+      return rangeStr.split(":").map(ref => {
+        const p = FE.parseRef(ref); if (!p) return ref;
+        let newCol = p.col, newRow = p.row;
+        if (mode === "row" && newRow >= idx) newRow += count;
+        if (mode === "col" && newCol >= idx) newCol += count;
+        if (newRow < 1 || newRow > ROWS || newCol < 1 || newCol > COLS) return null;
+        return FE.idxToCol(newCol) + newRow;
+      }).filter(Boolean).join(":");
+    }
+    // 批量 refs 移位：data.cells / data.styles / data.hideRows / data.hideCols
+    function shiftObjRefs(obj, mode, idx, count, removeInRange) {
+      // removeInRange: 插入时=true 表示删除 idx~idx+count-1 范围（后移的是 idx+count 之后的）
+      // 删除时=false，删除 idx~idx-count+1 范围，前移的是 idx 之后的
+      const newObj = {};
+      const minKeep = count > 0 ? (removeInRange ? idx + count : idx) : (removeInRange ? idx + count : idx);
+      for (const ref in obj) {
+        const p = FE.parseRef(ref); if (!p) continue;
+        let keep = true;
+        if (count > 0) {
+          // 插入：如果在插入区域内（idx <= row < idx+count）且 removeInRange=true → 丢弃（被挤到下面/右边，但我们是先移后清，这里处理的是"移位后的目的地不会和新插入位置重叠"）
+          // 简化：只移位 >= idx 的
+          if (mode === "row" && p.row >= idx) p.row += count;
+          if (mode === "col" && p.col >= idx) p.col += count;
+        } else {
+          // 删除：如果在删除区域内 → 丢弃；如果在之后 → 前移
+          const absCount = -count;
+          if (mode === "row" && p.row >= idx && p.row < idx + absCount) keep = false;
+          if (mode === "col" && p.col >= idx && p.col < idx + absCount) keep = false;
+          if (keep) {
+            if (mode === "row" && p.row >= idx) p.row -= absCount;
+            if (mode === "col" && p.col >= idx) p.col -= absCount;
+          }
+        }
+        if (!keep) continue;
+        if (p.row < 1 || p.row > ROWS || p.col < 1 || p.col > COLS) continue;
+        const newRef = FE.idxToCol(p.col) + p.row;
+        newObj[newRef] = obj[ref];
+        // 如果有 .f 公式，也移位
+        if (newObj[newRef] && typeof newObj[newRef].f === "string") {
+          newObj[newRef].f = shiftFormulaRefs(newObj[newRef].f, mode, idx, count);
+        }
+      }
+      return newObj;
+    }
+
+    // ===== 插入/删除行列 公开入口 =====
+    function insertRowsAt(startRow, n) {
+      snapshot();
+      const sh = data.sheets[data.activeSheet];
+      const count = n || 1;
+      // 1. 移位 cells / styles
+      data.cells = shiftObjRefs(data.cells, "row", startRow, count);
+      data.styles = shiftObjRefs(data.styles, "row", startRow, count);
+      // 2. hideRows/hideCols 移位
+      if (sh.hideRows) { sh.hideRows = new Set([...sh.hideRows].map(r => r >= startRow ? r + count : r)); }
+      // 3. merge / validations / condFormats / filters / charts — range 字符串移位
+      if (data.merge) data.merge = data.merge.map(m => ({ ...m, range: shiftRangeStr(m.range, "row", startRow, count) })).filter(m => m.range && m.range.includes(":"));
+      if (data.validations) data.validations = data.validations.map(v => ({ ...v, range: shiftRangeStr(v.range, "row", startRow, count) })).filter(v => v.range);
+      if (data.condFormats) data.condFormats = data.condFormats.map(c => ({ ...c, range: shiftRangeStr(c.range, "row", startRow, count) })).filter(c => c.range);
+      if (data.filters) data.filters = data.filters.map(f => ({ ...f, range: shiftRangeStr(f.range, "row", startRow, count) })).filter(f => f.range);
+      // 4. comments — 按 ref 移位
+      if (data.comments) data.comments = data.comments.map(c => {
+        const p = FE.parseRef(c.ref); if (!p) return c;
+        if (p.row >= startRow) p.row += count;
+        return { ...c, ref: FE.idxToCol(p.col) + p.row };
+      }).filter(c => { const p = FE.parseRef(c.ref); return p && p.row >= 1 && p.row <= ROWS; });
+      // 5. 重建表格 DOM
+      buildGrid(); recompute(); applyMerges(); applyFreeze(); applyFmt(); applyCondFormat(); renderSheetTabs(); renderComments();
+      // 6. 重设选区到原位置锚点（新插入的第一格）
+      anchor = FE.idxToCol(FE.parseRef(anchor).col) + startRow;
+      selected = anchor;
+      paint(); updateStatus(); ctx.markDirty();
+      OS.toast("已在第 " + startRow + " 行上方插入 " + count + " 行", "ok");
+    }
+    function insertColsAt(startCol, n) {
+      snapshot();
+      const sh = data.sheets[data.activeSheet];
+      const count = n || 1;
+      data.cells = shiftObjRefs(data.cells, "col", startCol, count);
+      data.styles = shiftObjRefs(data.styles, "col", startCol, count);
+      if (sh.hideCols) { sh.hideCols = new Set([...sh.hideCols].map(c => c >= startCol ? c + count : c)); }
+      if (data.merge) data.merge = data.merge.map(m => ({ ...m, range: shiftRangeStr(m.range, "col", startCol, count) })).filter(m => m.range);
+      if (data.validations) data.validations = data.validations.map(v => ({ ...v, range: shiftRangeStr(v.range, "col", startCol, count) })).filter(v => v.range);
+      if (data.condFormats) data.condFormats = data.condFormats.map(c => ({ ...c, range: shiftRangeStr(c.range, "col", startCol, count) })).filter(c => c.range);
+      if (data.filters) data.filters = data.filters.map(f => ({ ...f, range: shiftRangeStr(f.range, "col", startCol, count), col: f.col >= startCol ? f.col + count : f.col })).filter(f => f.range);
+      if (data.comments) data.comments = data.comments.map(c => {
+        const p = FE.parseRef(c.ref); if (!p) return c;
+        if (p.col >= startCol) p.col += count;
+        return { ...c, ref: FE.idxToCol(p.col) + p.row };
+      }).filter(c => { const p = FE.parseRef(c.ref); return p && p.col >= 1 && p.col <= COLS; });
+      buildGrid(); recompute(); applyMerges(); applyFreeze(); applyFmt(); applyCondFormat(); renderSheetTabs(); renderComments();
+      const ap = FE.parseRef(anchor);
+      anchor = FE.idxToCol(ap.col >= startCol ? ap.col + count : ap.col) + ap.row;
+      selected = anchor;
+      paint(); updateStatus(); ctx.markDirty();
+      OS.toast("已在第 " + FE.idxToCol(startCol) + " 列左侧插入 " + count + " 列", "ok");
+    }
+    function deleteRowsAt(startRow, n) {
+      snapshot();
+      const sh = data.sheets[data.activeSheet];
+      const count = -(n || 1);
+      data.cells = shiftObjRefs(data.cells, "row", startRow, count);
+      data.styles = shiftObjRefs(data.styles, "row", startRow, count);
+      const absCount = -count;
+      if (sh.hideRows) { sh.hideRows = new Set([...sh.hideRows].filter(r => r < startRow || r >= startRow + absCount).map(r => r >= startRow + absCount ? r - absCount : r)); }
+      if (data.merge) data.merge = data.merge.map(m => ({ ...m, range: shiftRangeStr(m.range, "row", startRow, count) })).filter(m => m.range);
+      if (data.validations) data.validations = data.validations.map(v => ({ ...v, range: shiftRangeStr(v.range, "row", startRow, count) })).filter(v => v.range);
+      if (data.condFormats) data.condFormats = data.condFormats.map(c => ({ ...c, range: shiftRangeStr(c.range, "row", startRow, count) })).filter(c => c.range);
+      if (data.filters) data.filters = data.filters.map(f => ({ ...f, range: shiftRangeStr(f.range, "row", startRow, count) })).filter(f => f.range);
+      if (data.comments) data.comments = data.comments.map(c => {
+        const p = FE.parseRef(c.ref); if (!p) return c;
+        if (p.row >= startRow && p.row < startRow + absCount) return null; // 删掉区域内的
+        if (p.row >= startRow + absCount) p.row -= absCount;
+        return { ...c, ref: FE.idxToCol(p.col) + p.row };
+      }).filter(Boolean);
+      buildGrid(); recompute(); applyMerges(); applyFreeze(); applyFmt(); applyCondFormat(); renderSheetTabs(); renderComments();
+      anchor = FE.idxToCol(FE.parseRef(anchor).col) + Math.max(1, startRow);
+      selected = anchor;
+      paint(); updateStatus(); ctx.markDirty();
+      OS.toast("已删除 " + absCount + " 行", "ok");
+    }
+    function deleteColsAt(startCol, n) {
+      snapshot();
+      const sh = data.sheets[data.activeSheet];
+      const count = -(n || 1);
+      data.cells = shiftObjRefs(data.cells, "col", startCol, count);
+      data.styles = shiftObjRefs(data.styles, "col", startCol, count);
+      const absCount = -count;
+      if (sh.hideCols) { sh.hideCols = new Set([...sh.hideCols].filter(c => c < startCol || c >= startCol + absCount).map(c => c >= startCol + absCount ? c - absCount : c)); }
+      if (data.merge) data.merge = data.merge.map(m => ({ ...m, range: shiftRangeStr(m.range, "col", startCol, count) })).filter(m => m.range);
+      if (data.validations) data.validations = data.validations.map(v => ({ ...v, range: shiftRangeStr(v.range, "col", startCol, count) })).filter(v => v.range);
+      if (data.condFormats) data.condFormats = data.condFormats.map(c => ({ ...c, range: shiftRangeStr(c.range, "col", startCol, count) })).filter(c => c.range);
+      if (data.filters) data.filters = data.filters.map(f => ({ ...f, range: shiftRangeStr(f.range, "col", startCol, count), col: f.col >= startCol + absCount ? f.col - absCount : (f.col >= startCol ? null : f.col) })).filter(f => f.range && f.col != null);
+      if (data.comments) data.comments = data.comments.map(c => {
+        const p = FE.parseRef(c.ref); if (!p) return c;
+        if (p.col >= startCol && p.col < startCol + absCount) return null;
+        if (p.col >= startCol + absCount) p.col -= absCount;
+        return { ...c, ref: FE.idxToCol(p.col) + p.row };
+      }).filter(Boolean);
+      buildGrid(); recompute(); applyMerges(); applyFreeze(); applyFmt(); applyCondFormat(); renderSheetTabs(); renderComments();
+      const ap = FE.parseRef(anchor);
+      anchor = FE.idxToCol(Math.max(1, ap.col >= startCol + absCount ? ap.col - absCount : (ap.col >= startCol ? startCol : ap.col))) + ap.row;
+      selected = anchor;
+      paint(); updateStatus(); ctx.markDirty();
+      OS.toast("已删除 " + absCount + " 列", "ok");
+    }
+
+    // ===== Ctrl+Shift+* 选当前区域（从 anchor 向外扩展，遇空停）=====
+    function selectCurrentRegion() {
+      const ap = FE.parseRef(anchor);
+      // 向右扩展
+      let c2 = ap.col;
+      while (c2 < COLS) {
+        const r = FE.idxToCol(c2 + 1) + ap.row;
+        const cell = data.cells[r];
+        const nextHasData = cell && ((cell.v != null && cell.v !== "") || cell.f || cell.h);
+        const belowEmpty = data.cells[FE.idxToCol(c2 + 1) + (ap.row + 1)] == null;
+        if (!nextHasData && belowEmpty) break;
+        c2++;
+      }
+      // 向左扩展
+      let c1 = ap.col;
+      while (c1 > 1) {
+        const r = FE.idxToCol(c1 - 1) + ap.row;
+        const cell = data.cells[r];
+        const prevHasData = cell && ((cell.v != null && cell.v !== "") || cell.f || cell.h);
+        const belowEmpty = data.cells[FE.idxToCol(c1 - 1) + (ap.row + 1)] == null;
+        if (!prevHasData && belowEmpty) break;
+        c1--;
+      }
+      // 向上扩展
+      let r1 = ap.row;
+      while (r1 > 1) {
+        const c = FE.idxToCol(ap.col) + (r1 - 1);
+        const cell = data.cells[c];
+        const aboveHasData = cell && ((cell.v != null && cell.v !== "") || cell.f || cell.h);
+        const rightEmpty = data.cells[FE.idxToCol(ap.col + 1) + (r1 - 1)] == null;
+        if (!aboveHasData && rightEmpty) break;
+        r1--;
+      }
+      // 向下扩展
+      let r2 = ap.row;
+      while (r2 < ROWS) {
+        const c = FE.idxToCol(ap.col) + (r2 + 1);
+        const cell = data.cells[c];
+        const belowHasData = cell && ((cell.v != null && cell.v !== "") || cell.f || cell.h);
+        const rightEmpty = data.cells[FE.idxToCol(ap.col + 1) + (r2 + 1)] == null;
+        if (!belowHasData && rightEmpty) break;
+        r2++;
+      }
+      // 最终区域
+      const finalC2 = c2, finalR2 = r2;
+      anchor = FE.idxToCol(c1) + r1;
+      selected = FE.idxToCol(finalC2) + finalR2;
+      paint(); updateStatus();
+      OS.toast("已选择当前区域：" + FE.idxToCol(c1) + r1 + ":" + FE.idxToCol(finalC2) + finalR2, "ok");
+    }
+
+    // ===== Ctrl+Shift+O 选所有有批注单元格 =====
+    function selectAllComments() {
+      if (!data.comments || data.comments.length === 0) { OS.toast("当前表没有批注", "info"); return; }
+      const refs = data.comments.filter(c => c.sheet === data.activeSheet && !c.resolved).map(c => c.ref);
+      if (refs.length === 0) { OS.toast("没有未解决批注", "info"); return; }
+      // 以批注最多的矩形框选
+      const cols = refs.map(r => FE.parseRef(r).col);
+      const rows = refs.map(r => FE.parseRef(r).row);
+      const c1 = Math.min(...cols), c2 = Math.max(...cols);
+      const r1 = Math.min(...rows), r2 = Math.max(...rows);
+      anchor = FE.idxToCol(c1) + r1;
+      selected = FE.idxToCol(c2) + r2;
+      paint(); updateStatus();
+      OS.toast("已框选 " + refs.length + " 条批注所在区域", "ok");
+    }
+
+    // ===== Shift+F11 新建 worksheet =====
+    function newWorksheet() {
+      const idx = data.sheets.length;
+      data.sheets.push({ name: "Sheet" + (idx + 1), cells: {}, styles: {} });
+      switchSheet(idx);
+      OS.toast("已新建 " + data.sheets[idx].name, "ok");
+    }
+
     table.addEventListener("keydown", e => {
       const td = e.target.closest("td[data-ref]");
       if (!td) return;
@@ -3010,14 +3526,119 @@
       // ===== 编辑模式下只拦截特定键 =====
       if (editing) {
         if (k === "Escape") { e.preventDefault(); td.removeAttribute("contenteditable"); recompute(); }
-        else if (k === "Enter" && !ctrl) { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
+        else if (k === "Enter" && !ctrl && !e.altKey) { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
+        else if (k === "Enter" && e.altKey) {
+          // Alt+Enter → 单元格内换行（插入 \n 而不是提交）
+          e.preventDefault();
+          td.textContent = td.textContent + "\n";
+          // 光标移到末尾
+          const sel = window.getSelection(), r = document.createRange();
+          r.selectNodeContents(td); r.collapse(false); sel.removeAllRanges(); sel.addRange(r);
+        }
         else if (k === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
+        else if (ctrl && e.shiftKey && k === "Enter") {
+          // Ctrl+Shift+Enter → 数组公式（当前输入 + 选区）
+          e.preventDefault();
+          const formula = "=" + td.textContent.replace(/^=/, "");
+          td.removeAttribute("contenteditable");
+          writeArrayFormula(formula);
+        }
         else if (ctrl && k === "Enter") { e.preventDefault(); commitCell(td); fillRangeWithCurrent(); }
         return;
       }
 
       // ===== 非编辑模式 =====
-      if (k === "F2") { e.preventDefault(); td.setAttribute("contenteditable", "true"); td.focus(); const s = window.getSelection(), r = document.createRange(); r.selectNodeContents(td); r.collapse(false); s.removeAllRanges(); s.addRange(r); }
+      // --- P0-1: Alt + = → SUM 选区求和 ---
+      if (e.altKey && !ctrl && !e.shiftKey && k === "=") { e.preventDefault(); sumSelection(); setLastAction(() => sumSelection(), { label: "SUM求和" }); }
+      // --- P0-2: Ctrl + PageDown/PageUp → 切换 sheet ---
+      else if (ctrl && k === "PageDown") { e.preventDefault(); const nxt = (data.activeSheet + 1) % data.sheets.length; switchSheet(nxt); }
+      else if (ctrl && k === "PageUp") { e.preventDefault(); const nxt = (data.activeSheet - 1 + data.sheets.length) % data.sheets.length; switchSheet(nxt); }
+      // --- P0-3: Delete/Backspace → 清除选区内容 ---
+      else if (k === "Delete" || k === "Backspace") { e.preventDefault(); clearSelection(); setLastAction(() => clearSelection(), { label: "清除内容" }); }
+      // --- 隐藏 / 取消隐藏行 & 列（Ctrl+9/0 隐藏，Ctrl+Shift+9/0 取消隐藏）+ F4 可重放 ---
+      else if (ctrl && !e.shiftKey && (k === "9" || k === "(")) { e.preventDefault(); hideSelectedRows(); setLastAction(() => hideSelectedRows(), { label: "隐藏行" }); }
+      else if (ctrl && !e.shiftKey && (k === "0" || k === ")")) { e.preventDefault(); hideSelectedCols(); setLastAction(() => hideSelectedCols(), { label: "隐藏列" }); }
+      else if (ctrl && e.shiftKey && (k === "9" || k === "(")) { e.preventDefault(); unhideAllRows(); setLastAction(() => unhideAllRows(), { label: "取消隐藏行" }); }
+      else if (ctrl && e.shiftKey && (k === "0" || k === ")")) { e.preventDefault(); unhideAllCols(); setLastAction(() => unhideAllCols(), { label: "取消隐藏列" }); }
+      // --- P0-5: Ctrl+Shift+End/Home → 选区扩展到尾/头部 ---
+      else if (ctrl && e.shiftKey && k === "End") { e.preventDefault(); expandSelectToCorner("end"); }
+      else if (ctrl && e.shiftKey && k === "Home") { e.preventDefault(); expandSelectToCorner("home"); }
+
+      // ====== Excel 完整快捷键批量补全（P1/P2） ======
+      // --- Excel: 7 个数字格式（Ctrl+Shift+~/$/%/^/#/@/!） ---
+      else if (ctrl && e.shiftKey && k === "~")  { e.preventDefault(); applyNumberFormat("general"); setLastAction(a => applyNumberFormat(a.id), { id: "general", label: "数字格式：常规" }); }
+      else if (ctrl && e.shiftKey && k === "$")  { e.preventDefault(); applyNumberFormat("currency"); setLastAction(a => applyNumberFormat(a.id), { id: "currency", label: "数字格式：货币" }); }
+      else if (ctrl && e.shiftKey && k === "%")  { e.preventDefault(); applyNumberFormat("percent"); setLastAction(a => applyNumberFormat(a.id), { id: "percent", label: "数字格式：百分比" }); }
+      else if (ctrl && e.shiftKey && k === "^")  { e.preventDefault(); applyNumberFormat("scientific"); setLastAction(a => applyNumberFormat(a.id), { id: "scientific", label: "数字格式：科学" }); }
+      else if (ctrl && e.shiftKey && k === "#")  { e.preventDefault(); applyNumberFormat("date"); setLastAction(a => applyNumberFormat(a.id), { id: "date", label: "数字格式：日期" }); }
+      else if (ctrl && e.shiftKey && k === "@")  { e.preventDefault(); applyNumberFormat("time"); setLastAction(a => applyNumberFormat(a.id), { id: "time", label: "数字格式：时间" }); }
+      else if (ctrl && e.shiftKey && (k === "!" || k === "1")) { e.preventDefault(); applyNumberFormat("comma"); setLastAction(a => applyNumberFormat(a.id), { id: "comma", label: "数字格式：千分位" }); }
+      // --- Excel: 边框 ---
+      else if (ctrl && e.shiftKey && k === "&")  { e.preventDefault(); setOuterBorder(false); setLastAction(a => setOuterBorder(a.remove), { remove: false, label: "外边框" }); }
+      else if (ctrl && e.shiftKey && k === "_")  { e.preventDefault(); setOuterBorder(true); setLastAction(a => setOuterBorder(a.remove), { remove: true, label: "去边框" }); }
+      // --- Excel: 复制值 / 公式 ---
+      else if (ctrl && e.shiftKey && k === '"')  { e.preventDefault(); copyFromAbove(true); }
+      else if (ctrl && k === "'" || ctrl && k === "`") { e.preventDefault(); copyFromAbove(false); }
+      // --- Excel: 重算 ---
+      else if (k === "F9") { e.preventDefault(); recompute(); OS.toast("已重算工作表", "ok"); }
+      else if (e.shiftKey && k === "F9") { e.preventDefault(); OS.toast("已重算活动 sheet（FE 自动重算）", "ok"); }
+      // --- Excel: 转下一格（下一列）---
+      else if (ctrl && (k === "r" || k === "R")) { e.preventDefault(); fillRight(); }
+      // --- Excel: 转到 / 新建 sheet / 创建表 / 快速填充 / 超链接 ---
+      // --- Ctrl+G 转到 ---
+      else if (ctrl && (k === "g" || k === "G")) { e.preventDefault(); const tgt = prompt("转到单元格或区域（如 A1、B5:E10）：", anchor); if (tgt) { const rg = rangeRectFromStr(tgt.trim()); if (rg) { anchor = FE.idxToCol(rg.c1) + rg.r1; selected = FE.idxToCol(rg.c2) + rg.r2; paint(); updateStatus(); const td = table.querySelector('td[data-ref="' + anchor + '"]'); if (td && td.scrollIntoView) td.scrollIntoView({ block: "center" }); OS.toast("已转到 " + tgt.trim(), "ok"); } else { const ap = FE.parseRef(tgt.trim()); if (ap) { selectCell(FE.idxToCol(ap.col) + ap.row); const td = table.querySelector('td[data-ref="' + FE.idxToCol(ap.col) + ap.row + '"]'); if (td && td.scrollIntoView) td.scrollIntoView({ block: "center" }); OS.toast("已转到 " + FE.idxToCol(ap.col) + ap.row, "ok"); } else OS.toast("无效引用：" + tgt.trim(), "warn"); } } }
+      // --- Ctrl+Shift+L 切换筛选 ---
+      else if (ctrl && e.shiftKey && k === "L") {
+        e.preventDefault();
+        if (data.filters && data.filters.length > 0) {
+          clearFilters(); OS.toast("已清除筛选（Ctrl+Shift+L 重新启用）", "ok");
+        } else {
+          // 对当前选区每列启用一个空 filter（等用户通过条件格式 UI 编辑）
+          const rg = rangeRect();
+          if (rg) {
+            for (let c = rg.c1; c <= rg.c2; c++) applyFilter({ col: c, range: FE.idxToCol(c) + rg.r1 + ":" + FE.idxToCol(c) + rg.r2 });
+            OS.toast("已对 " + (rg.c2 - rg.c1 + 1) + " 列启用筛选（Ctrl+Shift+L 清除）", "ok");
+          }
+        }
+      }
+      // --- Ctrl+Alt+L/C/R 对齐（替代复杂的 Alt+HAC Excel 菜单导航）---
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "l" || k === "L")) { e.preventDefault(); applyRangeStyle({ align: "left" }); setLastAction(args => applyRangeStyle(args.patch), { patch: { align: "left" }, label: "左对齐" }); OS.toast("左对齐", "ok"); }
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "c" || k === "C")) { e.preventDefault(); applyRangeStyle({ align: "center" }); setLastAction(args => applyRangeStyle(args.patch), { patch: { align: "center" }, label: "居中对齐" }); OS.toast("居中对齐", "ok"); }
+      else if (ctrl && e.altKey && !e.shiftKey && (k === "r" || k === "R")) { e.preventDefault(); applyRangeStyle({ align: "right" }); setLastAction(args => applyRangeStyle(args.patch), { patch: { align: "right" }, label: "右对齐" }); OS.toast("右对齐", "ok"); }
+      // --- Ctrl+Alt+V 选择性粘贴 ---
+      else if (ctrl && e.altKey && (k === "v" || k === "V")) { e.preventDefault(); selectPasteType(); }
+      // --- F8 扩展选区模式（Excel 语义：开启后每次按方向键=Shift+方向键扩展）---
+      else if (k === "F8") { e.preventDefault(); extendMode = !extendMode; OS.toast("扩展选区模式：" + (extendMode ? "开" : "关"), extendMode ? "ok" : "info"); }
+      // --- Ctrl++ / Ctrl+Shift++ / Ctrl+- 插入/删除 行列 + F4 可重放 ---
+      else if (ctrl && e.shiftKey && (k === "=" || k === "+")) { const rg = rangeRect(); if (rg) { e.preventDefault(); insertRowsAt(rg.r1, rg.r2 - rg.r1 + 1); setLastAction(a => insertRowsAt(a.r, a.n), { r: rg.r1, n: rg.r2 - rg.r1 + 1, label: "插入行" }); } }
+      else if (ctrl && !e.shiftKey && (k === "=" || k === "+")) { const rg = rangeRect(); if (rg) { e.preventDefault(); insertColsAt(rg.c1, rg.c2 - rg.c1 + 1); setLastAction(a => insertColsAt(a.c, a.n), { c: rg.c1, n: rg.c2 - rg.c1 + 1, label: "插入列" }); } }
+      else if (ctrl && !e.shiftKey && k === "-") {
+        const rg = rangeRect(); if (!rg) return;
+        e.preventDefault();
+        const ap = FE.parseRef(anchor); const sp = FE.parseRef(selected);
+        let r, n, fn;
+        if (rg.c1 === 1 && rg.c2 >= COLS) { r = rg.r1; n = rg.r2 - rg.r1 + 1; fn = () => deleteRowsAt(r, n); setLastAction(() => deleteRowsAt(r, n), { label: "删除行" }); }
+        else if (rg.r1 === 1 && rg.r2 >= ROWS) { r = rg.c1; n = rg.c2 - rg.c1 + 1; fn = () => deleteColsAt(r, n); setLastAction(() => deleteColsAt(r, n), { label: "删除列" }); }
+        else if ((k === "-" && e.altKey) || rg.r2 - rg.r1 >= rg.c2 - rg.c1) { r = rg.r1; n = rg.r2 - rg.r1 + 1; deleteRowsAt(r, n); setLastAction(() => deleteRowsAt(r, n), { label: "删除行" }); }
+        else { r = rg.c1; n = rg.c2 - rg.c1 + 1; deleteColsAt(r, n); setLastAction(() => deleteColsAt(r, n), { label: "删除列" }); }
+      }
+      else if (e.shiftKey && k === "F11") { e.preventDefault(); newWorksheet(); }
+      else if (ctrl && (k === "l" || k === "L" || k === "t" || k === "T")) { e.preventDefault(); createTable(); }
+      else if (ctrl && (k === "e" || k === "E")) { e.preventDefault(); doFlashFill(); }
+      else if (ctrl && (k === "q" || k === "Q")) { e.preventDefault(); OS.toast("Ctrl+Q 快速分析 — 开发中", "info"); }
+      else if (ctrl && (k === "k" || k === "K")) { e.preventDefault(); openHyperlinkModal(anchor); }
+      // --- Excel: 批注 / 重复 / 选择当前区域 / 公式切换 ---
+      else if (e.shiftKey && k === "F2") { e.preventDefault(); addComment(); }
+      else if (ctrl && e.shiftKey && k === "F2") { e.preventDefault(); addComment(); OS.toast("已创建线程批注（同单格）", "ok"); }
+      else if (k === "F4") { e.preventDefault(); repeatLastAction(); }
+      else if (ctrl && e.shiftKey && k === "*") { e.preventDefault(); selectCurrentRegion(); }
+      else if (ctrl && e.shiftKey && k === "O") { e.preventDefault(); selectAllComments(); }
+      else if (ctrl && k === "`" || ctrl && k === "Dead") { e.preventDefault(); toggleFormulas(); }
+      // --- Excel: Ctrl+A 选全表 ---
+      else if (ctrl && k === "a") { e.preventDefault(); selectCol(1); selectRow(ROWS); }
+
+      // ===== 原有快捷键（修复 Ctrl+B/I/U/1 改为选区批量）=====
+      else if (k === "F2") { e.preventDefault(); td.setAttribute("contenteditable", "true"); td.focus(); const s = window.getSelection(), r = document.createRange(); r.selectNodeContents(td); r.collapse(false); s.removeAllRanges(); s.addRange(r); }
       else if (k === "Enter") { e.preventDefault(); commitCell(td); move(pr.row + (e.shiftKey ? -1 : 1), pr.col); }
       else if (k === "Tab") { e.preventDefault(); commitCell(td); move(pr.row, pr.col + (e.shiftKey ? -1 : 1)); }
       else if (k.startsWith("Arrow")) {
@@ -3025,7 +3646,7 @@
         const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[k];
         if (ctrl && e.shiftKey) { const edge = findDataEdge(pr.row, pr.col, d); selected = FE.idxToCol(edge.col) + edge.row; paint(); updateStatus(); }
         else if (ctrl) { const edge = findDataEdge(pr.row, pr.col, d); commitCell(td); move(edge.row, edge.col); }
-        else if (e.shiftKey) { const nr = Math.max(1, Math.min(ROWS, pr.row + d[0])), nc = Math.max(1, Math.min(COLS, pr.col + d[1])); selected = FE.idxToCol(nc) + nr; paint(); updateStatus(); }
+        else if (e.shiftKey || extendMode) { const nr = Math.max(1, Math.min(ROWS, pr.row + d[0])), nc = Math.max(1, Math.min(COLS, pr.col + d[1])); selected = FE.idxToCol(nc) + nr; paint(); updateStatus(); }
         else { commitCell(td); move(pr.row + d[0], pr.col + d[1]); }
       }
       else if (k === "Home") { e.preventDefault(); if (ctrl) { commitCell(td); move(1, 1); } else { commitCell(td); move(pr.row, 1); } }
@@ -3034,19 +3655,183 @@
       else if (k === "PageUp") { e.preventDefault(); commitCell(td); move(Math.max(1, pr.row - 20), pr.col); }
       else if (ctrl && k === " ") { e.preventDefault(); selectCol(pr.col); }
       else if (e.shiftKey && k === " ") { e.preventDefault(); selectRow(pr.row); }
-      else if (ctrl && (k === "b" || k === "B")) { e.preventDefault(); setStyle({ bold: !(data.styles[selected] && data.styles[selected].bold) }); }
-      else if (ctrl && (k === "i" || k === "I")) { e.preventDefault(); setStyle({ italic: !(data.styles[selected] && data.styles[selected].italic) }); }
-      else if (ctrl && (k === "u" || k === "U")) { e.preventDefault(); setStyle({ underline: !(data.styles[selected] && data.styles[selected].underline) }); }
-      else if (ctrl && (k === "d" || k === "D")) { e.preventDefault(); fillDown(); }
+      // --- 样式：走选区批量（Excel 语义）+ F4 可重放 ---
+      else if (ctrl && (k === "b" || k === "B")) { e.preventDefault(); const v = !(data.styles[selected] && data.styles[selected].bold); applyRangeStyle({ bold: v }); setLastAction(a => applyRangeStyle(a.patch), { patch: { bold: v }, label: v ? "加粗" : "取消加粗" }); }
+      else if (ctrl && (k === "i" || k === "I")) { e.preventDefault(); const v = !(data.styles[selected] && data.styles[selected].italic); applyRangeStyle({ italic: v }); setLastAction(a => applyRangeStyle(a.patch), { patch: { italic: v }, label: v ? "斜体" : "取消斜体" }); }
+      else if (ctrl && (k === "u" || k === "U")) { e.preventDefault(); const v = !(data.styles[selected] && data.styles[selected].underline); applyRangeStyle({ underline: v }); setLastAction(a => applyRangeStyle(a.patch), { patch: { underline: v }, label: v ? "下划线" : "取消下划线" }); }
+      else if (ctrl && k === "5") { e.preventDefault(); const v = !(data.styles[selected] && data.styles[selected].strikethrough); applyRangeStyle({ strikethrough: v }); setLastAction(a => applyRangeStyle(a.patch), { patch: { strikethrough: v }, label: v ? "删除线" : "取消删除线" }); }
+      else if (ctrl && k === "d") { e.preventDefault(); fillDown(); }
       else if (ctrl && k === "Enter") { e.preventDefault(); fillRangeWithCurrent(); }
       else if (ctrl && k === ";") { e.preventDefault(); commit(ref, new Date().toLocaleDateString()); recompute(); }
       else if (ctrl && e.shiftKey && (k === ";" || k === ":")) { e.preventDefault(); commit(ref, new Date().toLocaleTimeString()); recompute(); }
-      else if (ctrl && k === "1") { e.preventDefault(); OS.toast("单元格格式面板开发中", "info"); }
+      else if (ctrl && k === "1") { e.preventDefault(); OS.toast("Ctrl+1 单元格格式面板 — 开发中", "info"); }
       else if (k === "Escape") { td.removeAttribute("contenteditable"); recompute(); }
       else if (k.length === 1 && !ctrl && !e.metaKey && !e.altKey) {
         if (td.getAttribute("contenteditable") !== "true") { td.setAttribute("contenteditable", "true"); td.textContent = ""; td.focus(); }
       }
     });
+
+    // ===== Copy handler — 存 internal clipboard + 浏览器原生 =====
+    const copyTarget = table;
+    document.addEventListener("copy", e => {
+      // 只在 spreadsheet active 时拦截
+      if (!document.activeElement || !copyTarget.contains(document.activeElement)) return;
+      const rg = rangeRect(); if (!rg) return;
+      clipCopyInternal(rg);
+      // 同时写 TSV 到浏览器剪贴板（外部软件可粘贴进来）
+      const lines = [];
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        const rowCells = [];
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          const cell = data.cells[ref];
+          const v = cell ? (cell.v != null ? String(cell.v) : (cell.f ? "=" + cell.f : "")) : "";
+          rowCells.push(v.replace(/\t/g, " ").replace(/\n/g, " "));
+        }
+        lines.push(rowCells.join("\t"));
+      }
+      e.preventDefault();
+      if (e.clipboardData) { e.clipboardData.setData("text/plain", lines.join("\n")); }
+      else if (navigator.clipboard) { navigator.clipboard.writeText(lines.join("\n")).catch(() => {}); }
+    });
+
+    // ===== Paste handler — Ctrl+V 走 internal clipboard =====
+    document.addEventListener("paste", async e => {
+      if (!document.activeElement || !copyTarget.contains(document.activeElement)) return;
+      if (e.altKey) return; // Ctrl+Alt+V 被 keydown 拦截了，不放这里
+      e.preventDefault();
+      // 优先 internal clipboard
+      if (internalClipboardHasData) { clipPasteInternal("all"); return; }
+      // fallback: 浏览器原生 TSV
+      const text = e.clipboardData?.getData("text/plain") || "";
+      if (text) { clipPasteTSV(text); OS.toast("已从外部粘贴 " + text.split("\n").length + " 行", "ok"); }
+    });
+
+    // ===== 内部剪贴板核心函数 =====
+    function clipCopyInternal(rg) {
+      // cells: 只存选区范围内的 cells[ref] 浅拷贝
+      const cells = {};
+      const styles = {};
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const ref = FE.idxToCol(c) + r;
+          if (data.cells[ref]) cells[ref] = Object.assign({}, data.cells[ref]);
+          if (data.styles[ref]) styles[ref] = Object.assign({}, data.styles[ref]);
+        }
+      }
+      // comments: 选区范围内的批注
+      const comments = (data.comments || []).filter(c => {
+        const p = FE.parseRef(c.ref);
+        return p && p.row >= rg.r1 && p.row <= rg.r2 && p.col >= rg.c1 && p.col <= rg.c2;
+      }).map(c => ({ ...c }));
+      internalClipboard = { r1: rg.r1, c1: rg.c1, r2: rg.r2, c2: rg.c2, cells, styles, comments };
+      internalClipboardHasData = true;
+    }
+
+    function clipPasteInternal(mode) {
+      if (!internalClipboardHasData) { OS.toast("没有可粘贴的内容，请先按 Ctrl+C 复制", "info"); return; }
+      snapshot();
+      const rg = rangeRect(); if (!rg) return;
+      const src = internalClipboard;
+      const anchor_p = FE.parseRef(anchor);
+      const destR = anchor_p.row, destC = anchor_p.col;
+      const srcRows = src.r2 - src.r1 + 1;
+      const srcCols = src.c2 - src.c1 + 1;
+      // 粘贴 cells（值/公式）
+      if (mode === "all" || mode === "values" || mode === "formulas" || mode === "valuesAndNumFmt") {
+        for (const ref in src.cells) {
+          const p = FE.parseRef(ref);
+          const nr = destR + (p.row - src.r1);
+          const nc = destC + (p.col - src.c1);
+          if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) continue;
+          const destRef = FE.idxToCol(nc) + nr;
+          const srcCell = src.cells[ref];
+          const newCell = {};
+          if (mode === "values") {
+            // 仅粘贴值：算出来的值
+            if (srcCell.f) {
+              try { newCell.v = FE.evalFormula(srcCell.f, ref); } catch(e) { newCell.v = srcCell.v != null ? srcCell.v : ""; }
+            } else { newCell.v = srcCell.v; }
+          } else if (mode === "formulas") {
+            // 仅粘贴公式（ref 需要移位）
+            if (srcCell.f) {
+              newCell.f = shiftFormulaRefs(srcCell.f, "row", src.r1, destR - src.r1);
+              newCell.f = shiftFormulaRefs(newCell.f, "col", src.c1, destC - src.c1);
+            } else if (srcCell.v != null) { newCell.v = srcCell.v; }
+          } else {
+            // all: 复制原值和原公式
+            if (srcCell.f) newCell.f = srcCell.f;
+            if (srcCell.v != null) newCell.v = srcCell.v;
+          }
+          data.cells[destRef] = newCell;
+        }
+      }
+      // 粘贴 styles（格式）
+      if (mode === "all" || mode === "styles" || mode === "valuesAndNumFmt") {
+        for (const ref in src.styles) {
+          const p = FE.parseRef(ref);
+          const nr = destR + (p.row - src.r1);
+          const nc = destC + (p.col - src.c1);
+          if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) continue;
+          const destRef = FE.idxToCol(nc) + nr;
+          if (!data.styles[destRef]) data.styles[destRef] = {};
+          if (mode === "valuesAndNumFmt") {
+            // 只贴数字格式
+            if (src.styles[ref].numberFormat) data.styles[destRef].numberFormat = src.styles[ref].numberFormat;
+          } else {
+            Object.assign(data.styles[destRef], src.styles[ref]);
+          }
+        }
+      }
+      // 粘贴 comments
+      if (mode === "all" || mode === "comments") {
+        for (const c of src.comments) {
+          const p = FE.parseRef(c.ref);
+          const nr = destR + (p.row - src.r1);
+          const nc = destC + (p.col - src.c1);
+          if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) continue;
+          const newComment = { ...c, ref: FE.idxToCol(nc) + nr, id: undefined };
+          if (!data.comments) data.comments = [];
+          data.comments.push(newComment);
+        }
+      }
+      recompute(); applyFmt(); applyCondFormat(); renderComments(); paint(); ctx.markDirty();
+      // 切选区到粘贴区域（不超界）
+      const maxDestR = Math.min(ROWS, destR + srcRows - 1);
+      const maxDestC = Math.min(COLS, destC + srcCols - 1);
+      selected = FE.idxToCol(maxDestC) + maxDestR;
+      paint(); updateStatus();
+      const modeLabels = { all: "全部", values: "仅值", formulas: "仅公式", styles: "仅格式", comments: "仅批注", valuesAndNumFmt: "仅值和数字格式" };
+      OS.toast("已粘贴：" + (modeLabels[mode] || mode) + "（" + srcRows + "×" + srcCols + "）", "ok");
+    }
+
+    function clipPasteTSV(text) {
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      if (lines.length === 0) return;
+      const anchor_p = FE.parseRef(anchor);
+      snapshot();
+      for (let r = 0; r < lines.length; r++) {
+        const cells = lines[r].split("\t");
+        for (let c = 0; c < cells.length; c++) {
+          const nr = anchor_p.row + r, nc = anchor_p.col + c;
+          if (nr < 1 || nr > ROWS || nc < 1 || nc > COLS) continue;
+          writeCell(FE.idxToCol(nc) + nr, cells[c]);
+        }
+      }
+      recompute(); applyFmt(); paint(); ctx.markDirty();
+    }
+
+    function selectPasteType() {
+      if (!internalClipboardHasData) { OS.toast("请先按 Ctrl+C 复制", "info"); return; }
+      const menu = "选择性粘贴：\n1. 全部（值+公式+样式+批注）\n2. 仅值\n3. 仅公式\n4. 仅格式\n5. 仅批注\n6. 仅值和数字格式\n\n输入数字 1-6：";
+      const choice = prompt(menu, "1");
+      if (!choice) return;
+      const modes = { "1": "all", "2": "values", "3": "formulas", "4": "styles", "5": "comments", "6": "valuesAndNumFmt" };
+      const mode = modes[choice.trim()];
+      if (!mode) { OS.toast("无效选项", "warn"); return; }
+      clipPasteInternal(mode);
+    }
+
     function commitCell(td) {
       if (td.getAttribute("contenteditable") === "true") {
         const ref = td.dataset.ref;
@@ -4664,6 +5449,256 @@
       }
       return "";
     }
+    /* ---------------- Ctrl+E 自动快速填充（Excel 语义）---------------- */
+    // 锚点所在列 = 结果列，左边相邻列 = 参考列；从上往下找样例对，推断 pattern，填剩余空行
+    function doFlashFill() {
+      const ap = FE.parseRef(anchor);
+      const fillCol = ap.col; // 结果列 = anchor 所在列
+      const refCol = fillCol - 1; // 默认左边相邻列当参考
+      if (refCol < 1) { OS.toast("结果列左边没参考列，打开手动对话框", "info"); openFlashFillModal(); return; }
+
+      // 1. 收集样例对：从上往下扫，参考列非空 + 结果列非空
+      const refSamples = [], fillSamples = [];
+      const startRow = Math.max(1, ap.row - 50);
+      for (let r = startRow; r <= ap.row; r++) {
+        const refRef = FE.idxToCol(refCol) + r;
+        const fillRef = FE.idxToCol(fillCol) + r;
+        const rv = data.cells[refRef], fv = data.cells[fillRef];
+        const rVal = rv != null ? (rv.v != null ? rv.v : (rv.f ? FE.evalFormula(rv.f, refRef) : null)) : null;
+        const fVal = fv != null ? (fv.v != null ? fv.v : (fv.f ? FE.evalFormula(fv.f, fillRef) : null)) : null;
+        if (rVal != null && rVal !== "" && fVal != null && fVal !== "") {
+          refSamples.push(String(rVal));
+          fillSamples.push(String(fVal));
+        }
+      }
+      if (refSamples.length < 2) { OS.toast("样例不够（需要 ≥ 2 对），打开手动对话框", "info"); openFlashFillModal(); return; }
+
+      // 2. 推断 pattern
+      const pattern = inferFlashFillPattern(refSamples, fillSamples);
+      if (!pattern) { OS.toast("无法推断填充规则，打开手动对话框", "warn"); openFlashFillModal(); return; }
+
+      // 3. 找到结果列当前已填的最后一行 → 从下一行开始填
+      let lastFilledRow = ap.row;
+      for (let r = ap.row; r <= ROWS; r++) {
+        const ref = FE.idxToCol(fillCol) + r;
+        const cell = data.cells[ref];
+        const v = cell ? (cell.v != null ? cell.v : (cell.f ? 1 : null)) : null;
+        if (v != null && v !== "") lastFilledRow = r; else break;
+      }
+      snapshot();
+      let filled = 0;
+      for (let r = lastFilledRow + 1; r <= ROWS; r++) {
+        const refRef = FE.idxToCol(refCol) + r;
+        const fillRef = FE.idxToCol(fillCol) + r;
+        const rv = data.cells[refRef];
+        const refVal = rv != null ? (rv.v != null ? rv.v : (rv.f ? FE.evalFormula(rv.f, refRef) : null)) : null;
+        // 参考列为空 → 填到数据结束
+        if (refVal == null || refVal === "") break;
+        // 结果列已有值 → 跳过
+        const existing = data.cells[fillRef];
+        const eV = existing ? (existing.v != null ? existing.v : (existing.f ? 1 : null)) : null;
+        if (eV != null && eV !== "") continue;
+        const newVal = applyFlashFillPattern(pattern, String(refVal));
+        writeCell(fillRef, newVal);
+        filled++;
+      }
+      recompute(); applyFmt(); paint(); ctx.markDirty();
+      // 切选区到填充区域末尾
+      selected = FE.idxToCol(fillCol) + Math.min(ROWS, lastFilledRow + filled);
+      paint(); updateStatus();
+      setLastAction(a => { for (let r = a.startRow; r <= a.startRow + a.filled - 1; r++) { const refRef = FE.idxToCol(a.refCol) + r; const fillRef = FE.idxToCol(a.fillCol) + r; const rv = data.cells[refRef]; const refVal = rv ? (rv.v != null ? rv.v : (rv.f ? FE.evalFormula(rv.f, refRef) : null)) : null; if (refVal != null && refVal !== "") writeCell(fillRef, applyFlashFillPattern(a.pattern, String(refVal))); } recompute(); applyFmt(); paint(); }, { pattern, refCol, fillCol: fillCol, startRow: lastFilledRow + 1, filled, label: "Ctrl+E 快速填充" });
+      OS.toast("Ctrl+E 填充完成：" + filled + " 行（规则：" + pattern.type + "）", "ok");
+    }
+
+    /* ---------------- Ctrl+K 超链接 ---------------- */
+    function openHyperlinkModal(ref) {
+      snapshot();
+      const cell = data.cells[ref];
+      const existing = cell && cell.hyperlink ? cell.hyperlink : null;
+      const url = prompt("输入超链接地址（http:// / https:// / mailto:）\n留空=删除超链接", existing ? existing.url : "https://");
+      if (url === null) return; // 用户取消
+      if (!url || url.trim() === "") {
+        removeHyperlink(ref);
+        setLastAction(() => removeHyperlink(ref), { label: "删除超链接" });
+        recompute(); applyFmt(); ctx.markDirty(); OS.toast("已删除超链接", "ok"); return;
+      }
+      const friendly = prompt("显示文本（留空=直接显示URL）", existing && existing.friendly ? existing.friendly : "");
+      if (!data.cells[ref]) data.cells[ref] = {};
+      data.cells[ref].hyperlink = { url: url.trim(), friendly: friendly ? friendly.trim() : undefined };
+      // 如果 cell 没值，用 friendly 或 url 当显示值
+      const c = data.cells[ref];
+      if (c.v == null && !c.f) c.v = (c.hyperlink.friendly || c.hyperlink.url);
+      setLastAction(a => {
+        if (!data.cells[a.ref]) data.cells[a.ref] = {};
+        data.cells[a.ref].hyperlink = { url: a.url, friendly: a.friendly };
+        if (data.cells[a.ref].v == null && !data.cells[a.ref].f) data.cells[a.ref].v = (a.friendly || a.url);
+        applyFmt();
+      }, { ref, url: url.trim(), friendly: friendly ? friendly.trim() : undefined, label: "添加超链接" });
+      recompute(); applyFmt(); ctx.markDirty();
+      OS.toast("已设置超链接（Ctrl+Click 跳转）", "ok");
+    }
+    function removeHyperlink(ref) { if (data.cells[ref] && data.cells[ref].hyperlink) { delete data.cells[ref].hyperlink; } }
+    function jumpHyperlink(h) {
+      try {
+        if (!h || !h.url) return;
+        // 内部 anchor：#A1 / Sheet2!B5
+        if (h.url.startsWith("#")) {
+          const target = h.url.slice(1);
+          if (FE.parseRef(target)) { selected = target; paint(); updateStatus(); OS.toast("已跳转：" + target, "ok"); return; }
+          // Sheet 跳转：Sheet2!B5
+          const sheetMatch = target.match(/^(.+?)!(.+)$/);
+          if (sheetMatch) {
+            const sheetIdx = data.sheets.findIndex(s => s.name === sheetMatch[1]);
+            if (sheetIdx >= 0) { switchSheet(sheetIdx); selected = sheetMatch[2]; paint(); updateStatus(); return; }
+          }
+          OS.toast("无效的内部链接：" + h.url, "warn"); return;
+        }
+        // 外部 URL
+        OS.toast("打开：" + h.url, "info");
+        if (window.open) window.open(h.url, "_blank", "noopener");
+        else location.href = h.url;
+      } catch (e) { OS.toast("打开超链接失败：" + e.message, "warn"); }
+    }
+
+    /* ---------------- Ctrl+L / Ctrl+T 创建表（List Object）---------------- */
+    function createTable() {
+      const rg = rangeRect(); if (!rg) { OS.toast("请先选中要创建表的区域", "warn"); return; }
+      // 默认首行为表头
+      let headerRow = rg.r1;
+      // 如果选中的区域首行看起来像表头（和其他行类型不同、或空表），自动检测
+      const hdrRowCount = rg.r2 - rg.r1 + 1;
+      // 如果只有 1 行，提示至少 2 行
+      if (hdrRowCount < 2) { OS.toast("至少选 2 行（表头 + 数据）", "warn"); return; }
+
+      snapshot();
+      // 保证 listObjects 数组存在
+      if (!data.listObjects) data.listObjects = [];
+
+      const name = "表" + (data.listObjects.length + 1);
+      const ref = FE.idxToCol(rg.c1) + rg.r1 + ":" + FE.idxToCol(rg.c2) + rg.r2;
+      const obj = {
+        name, ref, headerRow, showAutoFilter: true,
+        // Excel 标准：列名从表头行值取
+        columns: []
+      };
+      for (let c = rg.c1; c <= rg.c2; c++) {
+        const hdrRef = FE.idxToCol(c) + headerRow;
+        const cell = data.cells[hdrRef];
+        const hdrVal = cell ? (cell.v != null ? cell.v : (cell.f ? FE.evalFormula(cell.f, hdrRef) : "")) : "";
+        obj.columns.push({ name: String(hdrVal || FE.idxToCol(c) + headerRow) });
+      }
+      data.listObjects.push(obj);
+
+      // 设置 autofilter（复用现有 filters 底层，对每列加一条 filter range）
+      data.filters = data.filters || [];
+      const filterRange = FE.idxToCol(rg.c1) + headerRow + ":" + FE.idxToCol(rg.c2) + rg.r2;
+      for (let c = rg.c1; c <= rg.c2; c++) {
+        data.filters.push({ col: c, range: filterRange });
+      }
+
+      // 表头粗体样式
+      for (let c = rg.c1; c <= rg.c2; c++) {
+        const ref2 = FE.idxToCol(c) + headerRow;
+        if (!data.styles[ref2]) data.styles[ref2] = {};
+        data.styles[ref2].bold = true;
+        data.styles[ref2].background = "#E8EDF3"; // 表头灰底
+      }
+
+      // 隔行条纹（可选样式，Excel 经典 TableStyleMedium2 近似）
+      for (let r = headerRow + 1; r <= rg.r2; r++) {
+        if ((r - headerRow) % 2 === 0) {
+          for (let c = rg.c1; c <= rg.c2; c++) {
+            const ref2 = FE.idxToCol(c) + r;
+            if (!data.styles[ref2]) data.styles[ref2] = {};
+            data.styles[ref2].background = "#F3F6F9";
+          }
+        }
+      }
+
+      applyFilters();
+      applyFmt();
+      paint();
+      ctx.markDirty();
+      setLastAction(a => {
+        if (!data.listObjects) data.listObjects = [];
+        data.listObjects.push(a.obj);
+        data.filters = (data.filters || []).concat(a.filters);
+        applyFilters(); applyFmt(); paint();
+      }, { obj, filters: data.filters.slice(-(rg.c2 - rg.c1 + 1)), label: "创建表 " + name });
+      OS.toast("已创建表「" + name + "」（" + hdrRowCount + "×" + (rg.c2 - rg.c1 + 1) + "，带 autofilter）", "ok");
+    }
+
+    /* ---------------- Ctrl+Shift+Enter 数组公式（CSE）---------------- */
+    function writeArrayFormula(formula) {
+      const rg = rangeRect(); if (!rg) return;
+      snapshot();
+
+      // 1. 用 anchor 调 FE.run 算结果
+      let result;
+      try {
+        result = FE.run(formula, getCell, anchor);
+      } catch (e) {
+        OS.toast("数组公式计算失败：" + e.message, "warn"); return;
+      }
+
+      // 2. 如果结果不是数组 → 退化为普通写（兼容单格数组公式场景）
+      const is2D = result && Array.isArray(result) && result.length > 0 && Array.isArray(result[0]);
+      const is1D = result && Array.isArray(result) && result.length > 0 && !Array.isArray(result[0]);
+      let rows, cols;
+      if (is2D) { rows = result.length; cols = result[0].length; }
+      else if (is1D) { rows = result.length; cols = 1; }
+      else { rows = 1; cols = 1; }
+
+      // 3. 实际写入选区（只算选区范围，多余数组行忽略；选区更大则不足部分填 #N/A）
+      const sRg = { r1: FE.parseRef(anchor).row, r2: FE.parseRef(selected || anchor).row, c1: FE.parseRef(anchor).col, c2: FE.parseRef(selected || anchor).col };
+      const tr = Math.min(Math.max(sRg.r1, rg.r1), Math.max(sRg.r2, rg.r2));
+      const br = Math.max(Math.min(sRg.r1, rg.r1), Math.min(sRg.r2, rg.r2));
+      const lc = Math.min(Math.max(sRg.c1, rg.c1), Math.max(sRg.c2, rg.c2));
+      const rc = Math.max(Math.min(sRg.c1, rg.c1), Math.min(sRg.c2, rg.c2));
+      // 规范化 r1≤r2, c1≤c2
+      const r1 = Math.min(tr, br), r2 = Math.max(tr, br);
+      const c1 = Math.min(lc, rc), c2 = Math.max(lc, rc);
+
+      const totalCells = (r2 - r1 + 1) * (c2 - c1 + 1);
+      const arrayRef = FE.idxToCol(c1) + r1 + ":" + FE.idxToCol(c2) + r2;
+      const formulaBody = formula.startsWith("=") ? formula : ("=" + formula);
+
+      // 4. 按位置分配：每个 cell 存相同公式体 + isArrayFormula 标记 + arrayRef + 对应位置值
+      for (let r = r1; r <= r2; r++) {
+        for (let c = c1; c <= c2; c++) {
+          const cellRef = FE.idxToCol(c) + r;
+          let val = "#N/A";
+          const ri = r - r1; // 相对于数组起点的行偏移
+          const ci = c - c1; // 列偏移
+          if (is2D && ri < rows && ci < cols) val = result[ri][ci];
+          else if (is1D && ri < rows && ci === 0) val = result[ri];
+          else if (!is2D && !is1D) val = result;
+          // 清理旧数据，写数组公式结构
+          data.cells[cellRef] = {
+            f: formulaBody,
+            isArrayFormula: true,
+            arrayRef,
+            v: (val instanceof Date ? val.toLocaleDateString() : (val instanceof Error ? "#CALC!" : val))
+          };
+          // 清 cache
+          delete cache[cellRef];
+        }
+      }
+
+      // 5. 标记 anchor cell，用于 recompute 管线识别
+      // （anchor 本身已有 isArrayFormula + arrayRef，无需额外）
+
+      // 6. 重算 + 渲染
+      recompute();
+      applyFmt();
+      paint();
+      ctx.markDirty();
+      setLastAction(a => {
+        writeArrayFormula(a.formula);
+      }, { formula: formulaBody, label: "数组公式" });
+      OS.toast("数组公式已写入（" + (r2 - r1 + 1) + "×" + (c2 - c1 + 1) + "）", "ok");
+    }
+
     function openFlashFillModal() {
       const rg = rangeRect(); if (!rg) { OS.toast("请先选中样例区域", "warn"); return; }
       const m = openModal("快速填充 Flash Fill");
@@ -5158,6 +6193,42 @@
     }
     function applyFmt() {
       const bCss = st => ({ hair: "1px solid", thin: "1px solid", medium: "2px solid", thick: "3px solid", dashed: "1px dashed", mediumDashed: "2px dashed", dotted: "1px dotted", double: "3px double", dashDot: "1px dashed", mediumDashDot: "2px dashed", dashDotDot: "1px dashed", slantDashDot: "1px dashed" }[st] || "1px solid");
+      // 数字格式渲染（通用 format string 解析 + toLocaleString）
+      function renderNumber(v, fmt) {
+        if (v == null || v === "") return v;
+        if (typeof v !== "number") return v;
+        if (!fmt || fmt === "General" || fmt === "@") return v;
+        try {
+          // 百分比：格式里有 % 且不在字符串字面量里
+          const isPercent = /%/.test(fmt);
+          if (isPercent) v = v * 100;
+          // 匹配货币前缀（￥ $ ¥ € £ ¤ 或任意字符前缀如 "RMB "）
+          const currencyMatch = fmt.match(/^[¥￥$€£]\s*/) || fmt.match(/^"([^"]+)"\s*/);
+          const currency = currencyMatch ? (currencyMatch[1] || currencyMatch[0]) : "";
+          // 匹配整数部分有 #,## 分隔符
+          const hasThousandsSep = /,[\d#]+/.test(fmt);
+          // 匹配小数位精度：小数点后跟的 0 或 # 的数量（Excel 格式用 # 和 0 做占位符）
+          const decMatch = fmt.match(/\.([#0]+)/);
+          const decimals = decMatch ? decMatch[1].length : 0;
+          // 日期格式
+          if (/yyyy|yy|mm|dd|hh|h:mm/.test(fmt.toLowerCase())) {
+            const d = new Date(v);
+            if (/h:mm/.test(fmt.toLowerCase())) return d.toTimeString().slice(0, 8);
+            if (/yyyy-mm-dd/.test(fmt)) return d.toISOString().slice(0, 10);
+            if (/yy-mm-dd|yy\/mm\/dd/.test(fmt)) return `${d.getFullYear() - 2000}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            if (/yyyy\/mm\/dd/.test(fmt)) return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+          }
+          // 科学计数法
+          if (/e\+\d+|e-\d+|E\+\d+|E-\d+/.test(fmt)) return v.toExponential(2);
+          // 通用数字格式化
+          const opts = hasThousandsSep
+            ? { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
+            : { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: false };
+          const locale = currency === "￥" || currency === "¥" ? "zh-CN" : "en-US";
+          const numStr = v.toLocaleString(locale, opts);
+          return currency + numStr + (isPercent ? "%" : "");
+        } catch (e) { return v; }
+      }
       for (const ref in data.styles) {
         const td = table.querySelector(`td[data-ref="${ref}"]`); if (!td) continue;
         const s = data.styles[ref];
@@ -5166,6 +6237,7 @@
         if (s.bold) td.style.fontWeight = "700"; else if (s.bold === false) td.style.fontWeight = "400";
         if (s.italic) td.style.fontStyle = "italic"; else if (s.italic === false) td.style.fontStyle = "normal";
         if (s.underline) td.style.textDecoration = "underline"; else if (s.underline === false) td.style.textDecoration = "none";
+        if (s.strikethrough) td.style.textDecorationLine = "line-through"; else if (s.strikethrough === false) td.style.textDecorationLine = "";
         if (s.align) td.style.textAlign = s.align;
         if (s.border) {
           ["left", "right", "top", "bottom"].forEach(side => {
@@ -5173,6 +6245,51 @@
             const b = s.border[side];
             td.style["border" + side2] = b ? `${bCss(b.style)} ${b.color || "#333"}` : "";
           });
+        }
+        // 超链接样式（蓝色下划线 + Ctrl 光标）
+        const hCell = data.cells[ref];
+        if (hCell && hCell.hyperlink) {
+          td.style.color = "#0563C1";
+          td.style.textDecoration = "underline";
+          td.style.cursor = "pointer";
+          td.title = hCell.hyperlink.url;
+        }
+        // 数字格式渲染 + 公式/值切换
+        if (s.numberFormat) {
+          const cell = data.cells[ref];
+          const rawVal = cell ? (cell.v != null ? cell.v : (typeof cell.f === "string" ? cell.f : "")) : "";
+          if (typeof rawVal === "number" || (typeof rawVal === "string" && rawVal !== "" && !isNaN(Number(rawVal)))) {
+            const rendered = renderNumber(typeof rawVal === "number" ? rawVal : Number(rawVal), s.numberFormat);
+            if (rendered !== rawVal && rendered !== undefined) td.textContent = rendered;
+          }
+        }
+        // 公式/值切换：所有有 .f 的单元格，showFormulasFlag=true 时显示 =公式，显示值时不覆盖
+        if (showFormulasFlag) {
+          const cell = data.cells[ref];
+          if (cell && cell.f && typeof cell.f === "string") {
+            td.textContent = "=" + cell.f;
+            td.removeAttribute("data-formula-displayed");
+            td.setAttribute("data-formula-displayed", "1");
+          }
+        } else if (td.getAttribute("data-formula-displayed") === "1") {
+          // 从"显示公式"切回"显示值"，需要重渲染（但不破坏 numberFormat 已处理的情况）
+          const cell = data.cells[ref];
+          if (cell) {
+            // 重新走默认 td.textContent 渲染（paint 中已经设好，这里让浏览器重绘）
+            const defaultVal = cell.v != null ? cell.v : (cell.f ? "=" + cell.f : "");
+            // 如果有 numberFormat 就重新 apply 一次
+            if (s.numberFormat && typeof defaultVal === "number") {
+              const rendered = renderNumber(defaultVal, s.numberFormat);
+              td.textContent = rendered;
+            } else if (cell.f && cell.v != null) {
+              td.textContent = String(cell.v); // 显示值而不是公式
+            } else if (cell.f && cell.v == null) {
+              td.textContent = "=" + cell.f; // 没算出来时兜底显示公式
+            } else if (cell.v != null) {
+              td.textContent = String(cell.v);
+            }
+          }
+          td.removeAttribute("data-formula-displayed");
         }
       }
     }
